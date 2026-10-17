@@ -35,3 +35,15 @@ The function creates `fynxWalletWaitlist/{sha256(normalizedEmail)}` with email, 
 Test a valid signup, repeat signup, malformed email, missing consent, missing/invalid App Check token, simulated outage, inaccessible public reads, timestamp/consent recording, and authorized operator access. Finish privacy contact, retention/deletion, and unsubscribe handling. Do not tell a user they joined until the backend returns success.
 
 Until the Firebase public config and App Check key exist, the form remains disabled and clearly says signups are not being collected.
+
+## Configuration update
+
+The owner-provided web app configuration for project `fynx-c7a28` is now saved in `public-site/firebase-config.js`. Firebase App Check registration, callable backend deployment, access-rule review, and live verification are still pending. The frontend remains explicitly disabled with `waitlistBackendReady = false`.
+
+A dedicated Functions codebase is configured by this directory's `firebase.json`; it does not deploy hosting, unrelated functions, or Firestore rules. Before deployment, inspect the existing project for function-name collisions and review its database rules. After installing dependencies and verifying the Firebase account/project, the scoped deployment command is:
+
+```sh
+firebase deploy --only functions:fynx-wallet-waitlist --project fynx-c7a28
+```
+
+Configure the reCAPTCHA Enterprise App Check key for the actual GitHub Pages origin, `ea-la.github.io`, then populate `recaptchaEnterpriseSiteKey`. Set `waitlistBackendReady` to true only after the function is deployed and verified. The public configuration is not an administrative login and cannot deploy services or change database rules.
