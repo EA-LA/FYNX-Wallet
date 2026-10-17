@@ -39,3 +39,7 @@ Release `e49e48f` passed [GitHub verification](https://github.com/EA-LA/FYNX-Wal
 The final browser test detected a previously cached owner bundle loading with the new HTML. The build now assigns content-derived versions to owner script/style URLs and the privacy-page stylesheet. CI verifies those versions against the actual generated files. This fixes upgrades for returning visitors without relaxing the CSP or owner gate.
 
 The owner Waitlist tab retrieved three actual Firestore registrations. The existing acceptance-test record still has its original server timestamp `2026-10-17T17:39:26.686Z`, `waiting` status, `fynx-wallet-public` source and `prelaunch-v2` notice version. No registration was deleted during this follow-up. A missing App Check token on the new dashboard operation returned **401**.
+
+## Owner account correction
+
+The user reported a 403 after a successful Google sign-in. The workspace had been configured for the Firebase operator account rather than the user's intended account. An authenticated Firebase lookup confirmed the user-designated account already exists, is enabled, has a verified email and is linked to Google. `OWNER_UID` now points exclusively to that account. Google sign-in explicitly shows the account chooser. The authorization regression test confirms that the formerly configured UID is rejected; verified email, revocation, App Check and exact-origin requirements remain mandatory.

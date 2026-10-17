@@ -156,7 +156,11 @@ async function ready() {
     }
   });
 }
-$('#google-login').addEventListener('click', event => run(event.currentTarget, async () => { await signInWithPopup(auth, new GoogleAuthProvider()); }, '#auth-status'));
+$('#google-login').addEventListener('click', event => run(event.currentTarget, async () => {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  await signInWithPopup(auth, provider);
+}, '#auth-status'));
 $('#email-login').addEventListener('submit', event => { event.preventDefault(); run($('#email-submit'), async () => { try { await signInWithEmailAndPassword(auth, $('#email').value.trim(), $('#password').value); } finally { $('#password').value = ''; } }, '#auth-status'); });
 $('#reset-password').addEventListener('click', event => run(event.currentTarget, async () => {
   if (!$('#email').reportValidity() || !$('#email').value.trim()) return;

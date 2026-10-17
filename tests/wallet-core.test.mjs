@@ -15,6 +15,8 @@ test('Owner checks a revoked-aware Firebase token, UID, verified email and fresh
   const auth = { verifyIdToken: async (token, revoked) => { assert.equal(token, 'test-token'); checkedRevocation = revoked; return { uid: OWNER_UID, email_verified: true, auth_time: Date.now() / 1000 }; } };
   await ownerGuard(validRequest, auth, { fresh: true }); assert.equal(checkedRevocation, true);
   for (const token of [{ uid: 'someone-else', email_verified: true }, { uid: OWNER_UID, email_verified: false }]) await assert.rejects(ownerGuard(validRequest, { verifyIdToken: async () => token }), { code: 'permission-denied' });
+  // The former automatically selected operator account must lose workspace access.
+  await assert.rejects(ownerGuard(validRequest, { verifyIdToken: async () => ({ uid: 'nnT2ymHgi5bNcFHTFl49hXL7rdT2', email_verified: true }) }), { code: 'permission-denied' });
   await assert.rejects(ownerGuard(validRequest, { verifyIdToken: async () => { throw new Error('revoked'); } }), { code: 'unauthenticated' });
   await assert.rejects(ownerGuard(validRequest, { verifyIdToken: async () => ({ uid: OWNER_UID, email_verified: true, auth_time: 1 }) }, { fresh: true }), { code: 'unauthenticated' });
 });
