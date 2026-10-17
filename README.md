@@ -93,3 +93,9 @@ The tests exercise templates and logic with lightweight mocks; they do not repla
 Public site: https://ea-la.github.io/FYNX-Wallet/
 
 GitHub Pages uses `main` → `/ (root)`. Root `index.html` loads the public frontend from `public-site/`; `_config.yml` excludes development and owner-workspace directories from the Pages build. Keep the root entrypoint in sync if public-site/index.html changes. Backend Firebase Functions must be deployed separately.
+
+## Owner access
+
+Owner entry: https://ea-la.github.io/FYNX-Wallet/owner.html
+
+This page links to the owner-private ChatGPT Sites workspace. The Sites access policy enforces access for the existing owner account. The entry page itself is public and contains no credentials or client-side password checks. A separate Firebase email/password account has not been created; Firebase Auth and waitlist setup are still pending.
