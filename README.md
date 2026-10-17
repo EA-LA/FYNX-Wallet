@@ -1,0 +1,2 @@
+# FYNX-Wallet
+crypto
