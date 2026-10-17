@@ -3,7 +3,6 @@
 title: FYNX Wallet
 exclude:
   - README.md
-  - dist
   - firebase-waitlist
   - tests
   - deployments

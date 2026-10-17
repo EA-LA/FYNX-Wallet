@@ -6,6 +6,8 @@ import * as logger from 'firebase-functions/logger';
 import { SERVICE_ACCOUNT, ORIGIN } from './config.js';
 import { appGuard, ownerGuard, fail, rateLimit, createWalletChallenge, verifyWalletChallenge, saveChallenge, consumeChallenge, audit } from './core.js';
 import { registrationOptions, registerPasskey, authenticationOptions, authenticatePasskey } from './passkeys.js';
+import { readFileSync } from 'node:fs';
+const dashboardHTML = readFileSync(new URL('./dashboard.html', import.meta.url), 'utf8');
 initializeApp({ serviceAccountId: SERVICE_ACCOUNT });
 
 export const fynxWalletWorkspace = onCall({
@@ -28,6 +30,7 @@ export const fynxWalletWorkspace = onCall({
     await rateLimit(db, user.uid);
     const profile = db.collection('fynxWalletProfiles').doc(user.uid);
     switch (input.action) {
+      case 'dashboard': return { html: dashboardHTML };
       case 'session': {
         const wallet = await profile.get();
         const keys = await db.collection('fynxWalletPasskeys').where('uid', '==', user.uid).get();

@@ -1,10 +1,12 @@
 # FYNX Wallet
 
-FYNX finance world inc.’s GitHub-owned website and owner-only wallet test workspace.
+FYNX finance world inc.’s single GitHub website: a public waitlist and an authenticated owner dashboard.
 
 - **Public website:** https://ea-la.github.io/FYNX-Wallet/
 - **Owner workspace:** https://ea-la.github.io/FYNX-Wallet/owner.html
 - **Registrations:** owner workspace → Waitlist, or Firebase project `fynx-c7a28` → Firestore → `fynxWalletWaitlist`.
+
+Use **Owner access** in the public footer, or bookmark the owner link above. Sign in with the existing verified owner account. The Dashboard tab opens the full interactive interface (Overview, Assets, Buy & sell, Swap, Activity and Settings); its sample balances and transactions are simulated. **Wallet testing** is the separate Sepolia connection/signing tool. **Sign out & exit** clears the preview and returns to the public homepage.
 
 The public waitlist is live. The owner workspace uses Firebase email/Google authentication, device passkeys, and server-side authorization for the existing verified owner. Public wallet accounts remain closed. The selected wallet model keeps recovery phrases and signing keys in an external wallet, including hardware accounts through a compatible browser extension.
 
@@ -32,7 +34,7 @@ This repository remains public. Public source code is not an authorization bound
 | `firebase-wallet/` | Scoped owner API, passkeys, wallet proofs, audit events |
 | `firebase-waitlist/` | Existing live waitlist function and verification record |
 | `docs/` | Readiness, operations, legal-review brief and test evidence |
-| `dist/` | Archived local-only simulation; excluded from Pages |
+| `wallet-src/dashboard/` | Full dashboard source, built into an owner-authorized, sandboxed document |
 | `tests/` | Validation, authorization, signatures, races, error and transfer checks |
 
 ## Local checks and build
@@ -48,15 +50,15 @@ npm audit --omit=dev
 npm audit --omit=dev --prefix firebase-wallet/functions
 ```
 
-`npm run build` bundles the owner frontend into `wallet-assets/app.js`. Commit the bundle and lockfiles with its source. CI checks rebuild reproducibility, tests and high-severity advisories. The pinned grpc override fixes a reported Node dependency advisory in Firebase’s unused Firestore package; the owner browser bundle imports Auth, Functions and App Check only.
+`npm run build` bundles the owner frontend into `wallet-assets/app.js`, builds `firebase-wallet/functions/dashboard.html`, and pins its exact script hash in `owner.html`. Commit all generated files and lockfiles with their source. The backend returns the dashboard document only after owner verification. Its opaque-origin sandbox has no access to owner tokens, wallet providers, storage or network requests. Preview edits stay in memory until sign-out/reload. CI checks rebuild reproducibility, tests and high-severity advisories. The pinned grpc override fixes a reported Node dependency advisory in Firebase’s unused Firestore package; the owner browser bundle imports Auth, Functions and App Check only.
 
-Static previews can run with `python3 -m http.server 8080`. Live authentication/App Check are configured for the GitHub Pages domain, so local preview alone is not a live acceptance test. Do not disable App Check to make localhost appear production-ready. The archived simulation runs separately with `python3 -m http.server 8081 --directory dist`.
+Static previews can run with `python3 -m http.server 8080`. Live authentication/App Check are configured for the GitHub Pages domain, so local preview alone is not a live acceptance test. Do not disable App Check to make localhost appear production-ready.
 
 ## Deployment
 
 GitHub Pages builds `main` at the repository root. `_config.yml` excludes backend/source/development directories. Verify both the **Verify FYNX Wallet** workflow and **pages build and deployment** after pushing.
 
-Deploy only the intended function:
+After dashboard edits, build first, deploy the workspace function, then promptly push the matching owner page. The HTML and parent CSP hash must match; a stale version fails closed with a refresh message. Deploy only the intended function:
 
 ```sh
 firebase deploy --only functions:fynx-wallet-workspace:fynxWalletWorkspace --project fynx-c7a28 --config firebase-wallet/firebase.json

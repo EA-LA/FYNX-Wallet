@@ -4,7 +4,7 @@ The current system is a public waitlist and an owner-only Ethereum testnet works
 
 ## Scope and assumptions
 
-In scope: `owner.html`, `wallet-src/`, `wallet-assets/`, `public-site/`, `firebase-wallet/`, `firebase-waitlist/`, `_config.yml` and repository CI. `dist/` is an archived simulation excluded from Pages. Unrelated Firebase services, wallet firmware/provider internals, public chain consensus and legacy external hosting are outside this implementation review.
+In scope: `owner.html`, `wallet-src/`, `wallet-assets/`, `public-site/`, `firebase-wallet/`, `firebase-waitlist/`, `_config.yml` and repository CI. The full dashboard in `wallet-src/dashboard/` is returned by the owner-authorized API and rendered in an opaque-origin iframe. It has no owner credentials or network permission; only narrowly validated UI navigation/activity messages reach the parent. Dashboard source and backend directories are excluded from Pages. Unrelated Firebase services, wallet firmware/provider internals, public chain consensus and legacy external hosting are outside this implementation review.
 
 Context was checked with the owner: they delegated the recovery-model choice and supplied **FYNX finance world inc.** as the business name. This review uses these explicit assumptions:
 
@@ -149,3 +149,9 @@ Critical would mean unauthenticated takeover of the owner account, a practical p
 ## Notes on use
 
 Coverage check: all discovered runtime entry points and trust boundaries are represented; maintainer/CI risks are separated from internet threats; owner clarifications and missing jurisdiction information are explicit; proposed production isolation and independent acceptance remain open questions. This model records this revision’s evidence, not permanent safety or regulatory approval.
+
+## Dashboard isolation update — October 17, 2026
+
+The `dashboard` API operation runs after the existing App Check, exact-origin, revoked-token and verified-owner checks. No standalone dashboard HTML is published by Pages. Public GitHub source is still visible and can be copied; the security boundary protects the deployed owner experience and private data, not source secrecy.
+
+The iframe sandbox permits scripts, downloads and user-opened external links, but not same-origin, forms or top navigation. An exact script hash is present in both document and parent CSP; `connect-src none` blocks preview network calls. Inline styles are allowed for existing chart/layout attributes, with no `unsafe-inline` script or eval permission. All sample state is in memory. Sign-out removes the iframe, and a session generation check discards late responses. Parent message handlers verify the actual frame window and its opaque origin, and accept only fixed UI signals.

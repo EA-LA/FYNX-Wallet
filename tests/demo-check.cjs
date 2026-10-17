@@ -1,7 +1,7 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const elements=new Map();function el(s){if(!elements.has(s))elements.set(s,{value:'',textContent:'',innerHTML:'',open:false,style:{},dataset:{},classList:{toggle(){},remove(){}},setAttribute(){},addEventListener(){},showModal(){this.open=true},close(){this.open=false},click(){},scrollIntoView(){}});return elements.get(s)}
 const context={console,structuredClone,localStorage:{getItem(){return null},setItem(){}},document:{querySelector:el,querySelectorAll:()=>[],createElement:()=>el('a')},window:{addEventListener(){},scrollTo(){}},location:{hash:'#home',origin:'https://example.test',pathname:'/'},history:{replaceState(){}},setTimeout:f=>{f();return 1},clearTimeout(){},Blob,URL,navigator:{clipboard:{writeText:async()=>{}}},Date};
-vm.createContext(context);let code=fs.readFileSync(require('path').join(__dirname,'../dist/app.js'),'utf8');code=code.slice(0,code.indexOf("window.addEventListener('hashchange'"));vm.runInContext(code,context);
+vm.createContext(context);let code=fs.readFileSync(require('path').join(__dirname,'../wallet-src/dashboard/app.js'),'utf8');code=code.slice(0,code.indexOf("// Browser entrypoint;"));vm.runInContext(code,context);
 function run(s){return vm.runInContext(s,context)}
 for(const expr of ['home()','wallet()','allAssets()','assetDetail("ETH")','assetDetail("BTC")','activity()','txDetail("DEMO-0003")','security()','guide()','networks()','support()','support(true)','legal("privacy")','legal("terms")',...['buy','sell','swap','send','receive'].map(x=>`tradePage('${x}','ETH')`),...['profile','preferences','connections','data'].map(x=>`settings('${x}')`)]){let html=run(expr);assert(html.length>200,expr);assert(!html.includes('undefined'),expr+' undefined');assert(!html.includes('NaN'),expr+' NaN')}
 for(let mode of ['buy','sell','swap']){
@@ -16,6 +16,6 @@ el('#exchange-form').dataset.mode='swap';el('#amount').value='99999';el('#pay-as
 run(`state.prefs.name='<img src=x onerror=alert(1)>'`);assert(!run('wallet()').includes('<img src=x'));
 for(const route of ['home','wallet','assets','asset/ETH','buy','sell','swap','send','receive','activity','transaction/DEMO-0003','settings/profile','settings/preferences','settings/connections','settings/data','security','guide','networks','support','support/security','privacy','terms','bad-route']){
  // Render page templates; bindings use only a deliberately minimal DOM, not a real browser.
- context.location.hash='#'+route;run('bind=()=>{}; render()');assert(el('#app').innerHTML.length>100,route)
+ run("routeHash='#"+route+"';bind=()=>{}; render()");assert(el('#app').innerHTML.length>100,route)
 }
 console.log('PASS: 23 page templates, quote arithmetic, purchase debit/credit, swap debit/credit, send debit, failed trade invariants, user-text escaping.');

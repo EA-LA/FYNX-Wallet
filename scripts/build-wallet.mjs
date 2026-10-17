@@ -1,3 +1,16 @@
 import { build } from 'esbuild';
+import { readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+
+const source = await readFile('wallet-src/dashboard/app.js', 'utf8');
+const script = source.replace(/<\/script/gi, '<\\/script');
+const scriptHash = `sha256-${createHash('sha256').update(script).digest('base64')}`;
+const template = await readFile('wallet-src/dashboard/index.html', 'utf8');
+const style = await readFile('wallet-src/dashboard/styles.css', 'utf8');
+const dashboard = template.replace('__SCRIPT_HASH__', scriptHash).replace('__STYLE__', () => style).replace('__SCRIPT__', () => script);
+await writeFile('firebase-wallet/functions/dashboard.html', dashboard);
+// srcdoc inherits its parent's CSP: allow only this exact preview script, never arbitrary inline JS.
+const owner = await readFile('owner.html', 'utf8');
+await writeFile('owner.html', owner.replace(/script-src 'self'(?: 'sha256-[^']+')?/, `script-src 'self' '${scriptHash}'`));
 await build({ entryPoints: ['wallet-src/app.js'], bundle: true, outfile: 'wallet-assets/app.js', format: 'esm', platform: 'browser', target: ['es2022'], minify: true, legalComments: 'linked', sourcemap: false });
-console.log('Built the FYNX owner workspace.');
+console.log('Built the owner workspace and protected dashboard document.');

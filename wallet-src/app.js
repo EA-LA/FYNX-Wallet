@@ -11,7 +11,54 @@ const setText = (id, text) => { $(id).textContent = text; };
 const show = (id, visible) => { $(id).hidden = !visible; };
 let auth, api, session, connection, challenge, review, pendingHash;
 let generation = 0, verifiedAddress = null, busy = false, lastActivity = Date.now();
+let dashboardFrame = null, dashboardLoading = false, dashboardTimer;
 const providers = new Map();
+function selectTab(name) {
+  for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
+  for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
+  setText('#workspace-status', '');
+}
+function clearDashboard() {
+  clearTimeout(dashboardTimer);
+  dashboardFrame?.remove(); dashboardFrame = null; dashboardLoading = false;
+  $('#dashboard-container').replaceChildren();
+  setText('#dashboard-status', ''); show('#retry-dashboard', false);
+}
+async function loadDashboard() {
+  if (!session || dashboardLoading || dashboardFrame) return;
+  const expected = generation;
+  dashboardLoading = true;
+  setText('#dashboard-status', 'Loading your dashboard…'); show('#retry-dashboard', false);
+  try {
+    const result = await api({ action: 'dashboard' });
+    if (expected !== generation || !session || !auth.currentUser) return;
+    if (typeof result.html !== 'string' || !result.html.startsWith('<!doctype html>')) throw new Error('Dashboard unavailable. Please try again.');
+    const frame = document.createElement('iframe');
+    frame.title = 'FYNX Wallet interactive dashboard'; frame.className = 'dashboard-frame';
+    // Opaque origin: the preview cannot read the owner DOM, Firebase tokens, storage, or wallet provider.
+    frame.setAttribute('sandbox', 'allow-scripts allow-downloads allow-popups allow-popups-to-escape-sandbox');
+    frame.referrerPolicy = 'no-referrer'; frame.srcdoc = result.html;
+    dashboardFrame = frame; $('#dashboard-container').append(frame);
+    dashboardTimer = setTimeout(() => {
+      if (expected !== generation || dashboardFrame !== frame) return;
+      clearDashboard();
+      setText('#dashboard-status', 'The dashboard did not open. Refresh this page to load the latest version, then sign in again.');
+      show('#retry-dashboard', true);
+    }, 15000);
+  } catch (error) {
+    if (expected !== generation) return;
+    setText('#dashboard-status', errorMessage(error)); show('#retry-dashboard', true);
+  } finally { if (expected === generation) dashboardLoading = false; }
+}
+window.addEventListener('message', event => {
+  if (!session || !dashboardFrame || event.source !== dashboardFrame.contentWindow || event.origin !== 'null') return;
+  const type = event.data?.type;
+  if (type === 'fynx-dashboard:ready') { clearTimeout(dashboardTimer); setText('#dashboard-status', ''); }
+  if (['fynx-dashboard:activity', 'fynx-dashboard:navigate', 'fynx-dashboard:wallet', 'fynx-dashboard:launch'].includes(type)) lastActivity = Date.now();
+  if (type === 'fynx-dashboard:wallet') selectTab('wallet');
+  if (type === 'fynx-dashboard:launch') selectTab('launch');
+});
+$('#retry-dashboard').addEventListener('click', loadDashboard);
 function errorMessage(error) {
   const code = String(error.code || '');
   if (code === '4001' || code.includes('ACTION_REJECTED') || code.includes('popup-closed') || error.name === 'NotAllowedError') return 'Request cancelled. Nothing was approved.';
@@ -88,6 +135,7 @@ async function ready() {
   onAuthStateChanged(auth, async user => {
     const current = ++generation;
     session = null; connection?.close(); connection = null; clearWallet();
+    clearDashboard(); selectTab('dashboard');
     $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren();
     setText('#account-name', ''); setText('#transaction-status', '');
     show('#transaction-link', false); show('#check-receipt', false); pendingHash = null;
@@ -100,6 +148,7 @@ async function ready() {
       setText('#account-name', user.email || 'Verified owner');
       setText('#auth-status', ''); show('#signin', false); show('#workspace', true);
       $('#password').value = ''; lastActivity = Date.now();
+      await loadDashboard();
     } catch (error) {
       if (current !== generation) return;
       setText('#auth-status', errorMessage(error));
@@ -120,7 +169,10 @@ $('#passkey-login').addEventListener('click', event => run(event.currentTarget, 
   const result = await api({ action: 'passkey-login', id: request.id, response });
   await signInWithCustomToken(auth, result.token);
 }, '#auth-status'));
-$('#logout').addEventListener('click', () => signOut(auth));
+$('#logout').addEventListener('click', async () => {
+  ++generation; session = null; clearDashboard(); show('#workspace', false);
+  await signOut(auth); window.location.assign('./');
+});
 $('#add-passkey').addEventListener('click', event => run(event.currentTarget, async () => {
   const request = await api({ action: 'passkey-register-options' });
   const response = await startRegistration({ optionsJSON: request.options });
@@ -128,9 +180,7 @@ $('#add-passkey').addEventListener('click', event => run(event.currentTarget, as
   await refreshSession(); setText('#workspace-status', 'Passkey added. You can use it the next time you sign in.');
 }));
 for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => {
-  for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab === button));
-  for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${button.dataset.tab}`;
-  setText('#workspace-status', '');
+  selectTab(button.dataset.tab);
 });
 $('#connect-wallet').addEventListener('click', event => run(event.currentTarget, async () => {
   const provider = providers.get($('#wallet-choice').value);

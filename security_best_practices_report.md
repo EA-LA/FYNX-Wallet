@@ -53,7 +53,7 @@ No known critical implementation flaw was found in this review of the owner-only
 2. Added EIP-4361-shaped server-generated ownership messages, exact stored-message ECDSA verification and atomic single-use challenges (`core.js:29`, `core.js:50`). Wallet proof never authorizes a transfer.
 3. Added WebAuthn owner passkeys with exact RP/origin checks, required user verification, short-lived challenges, credential counters and recent-login requirements (`passkeys.js`, `index.js:26`).
 4. Kept auth sessions in memory, cleared private DOM rows on sign-out, and invalidated wallet state on account/network changes (`wallet-src/app.js:82`, `wallet-client.js:5`).
-5. Kept request-derived private data out of HTML parsing: waitlist rows, passkey rows, messages and transaction details use `textContent`/DOM nodes. Added owner CSP without inline/eval script permission (`owner.html:5`).
+5. Kept request-derived private data out of HTML parsing: waitlist rows, passkey rows, messages and transaction details use `textContent`/DOM nodes. Added owner CSP without unrestricted inline/eval script permission (`owner.html:5`).
 6. Added exact-network and value constraints, balance-plus-gas checks, fixed transaction fields, contract-recipient rejection, explicit pending/confirmed/failed states and review consumption before wallet submission (`wallet-client.js`, `app.js:181`).
 7. Kept secrets out of Git; bundled locked frontend dependencies; corrected the transitive grpc advisory with a compatible pinned override; added CI verification with pinned action revisions.
 
@@ -62,3 +62,7 @@ No known critical implementation flaw was found in this review of the owner-only
 See `docs/VERIFICATION.md` for live Firestore, signature replay, App Check, passkey, unauthorized-access, public-read and browser evidence. The local test suite exercises actual ECDSA signatures and rejection/race paths. A separate local EVM test verifies a signed, mined transfer and recipient balance increase. Dependency audits report zero known advisories at the checked versions. These results are time-specific and do not replace independent review.
 
 Sources used for the implementation: [Firebase Google authentication](https://firebase.google.com/docs/auth/web/google-signin), [Firebase password authentication](https://firebase.google.com/docs/auth/web/password-auth), [ERC-4361](https://eips.ethereum.org/EIPS/eip-4361), [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193), [SimpleWebAuthn server](https://simplewebauthn.dev/docs/packages/server). Each describes its own component; none certifies this application.
+
+## Unified dashboard follow-up
+
+The full product preview now loads only after the backend verifies the owner. It is isolated in an iframe without `allow-same-origin`, with no credentials, wallet provider, storage persistence, form submission or network access. Its exact inline script is hash-authorized in the parent and child CSP; arbitrary inline scripts and eval remain blocked. Inline styles support the existing preview layout. The parent accepts only enumerated activity/navigation signals from that exact frame window. Signing out removes it immediately and discards responses from the prior session. Generated dashboard/CSP integrity and actual authorization dispatch are tested in `tests/dashboard.test.mjs`. This does not remove the public-launch findings above.
