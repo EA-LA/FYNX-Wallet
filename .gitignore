@@ -1,0 +1,17 @@
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies and local caches
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Temporary exports and deployment archives
+*.tar.gz
+*.zip
+*.log
