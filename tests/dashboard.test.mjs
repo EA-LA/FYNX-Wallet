@@ -25,11 +25,11 @@ test('The protected document permits only its exact script and no network or for
   }
 });
 
-test('The actual dashboard dispatch rejects guests/nonowners and returns HTML only after owner verification', async () => {
+test('Actual dashboard and waitlist dispatch reject guests/nonowners; deletion also requires recent login', async () => {
   let calls = 0;
   const auth = { verifyIdToken: async (token, revoked) => {
     assert.equal(revoked, true); calls++;
-    return { uid: token === 'owner-token' ? OWNER_UID : 'other-user', email_verified: true };
+    return { uid: ['owner-token', 'stale-owner-token'].includes(token) ? OWNER_UID : 'other-user', email_verified: true, auth_time: token === 'stale-owner-token' ? 1 : Date.now() / 1000 };
   } };
   let handler;
   const context = vm.createContext({
@@ -37,14 +37,21 @@ test('The actual dashboard dispatch rejects guests/nonowners and returns HTML on
     getAuth: () => auth, getFirestore: () => ({ collection: () => ({ doc: () => ({}) }) }),
     rateLimit: async () => {}, onCall: (options, fn) => { assert.equal(options.enforceAppCheck, true); handler = fn; },
     readFileSync: () => html, logger: { error() {} }, URL,
+    listWaitlist: async () => ({ total: 0, records: [], nextCursor: null }),
+    removeWaitlistRegistration: async () => ({ ok: true, removed: false }),
   });
   const source = readFileSync(new URL('../firebase-wallet/functions/index.js', import.meta.url), 'utf8')
     .replace(/^import .*;\n/gm, '').replace('export const ', 'const ')
     .replace("new URL('./dashboard.html', import.meta.url)", "'dashboard.html'");
   vm.runInContext(source, context);
-  const request = token => ({ app: { appId: APP_ID }, data: { action: 'dashboard' }, rawRequest: { headers: { origin: ORIGIN, ...(token ? { authorization: `Bearer ${token}` } : {}) } } });
-  await assert.rejects(handler(request()), { code: 'unauthenticated' });
-  await assert.rejects(handler(request('other-token')), { code: 'permission-denied' });
+  const request = (token, action = 'dashboard') => ({ app: { appId: APP_ID }, data: { action }, rawRequest: { headers: { origin: ORIGIN, ...(token ? { authorization: `Bearer ${token}` } : {}) } } });
+  for (const action of ['dashboard', 'waitlist', 'waitlist-remove']) {
+    await assert.rejects(handler(request(undefined, action)), { code: 'unauthenticated' });
+    await assert.rejects(handler(request('other-token', action)), { code: 'permission-denied' });
+  }
   assert.equal((await handler(request('owner-token'))).html, html);
-  assert.equal(calls, 2);
+  assert.equal((await handler(request('owner-token', 'waitlist'))).total, 0);
+  await assert.rejects(handler(request('stale-owner-token', 'waitlist-remove')), { code: 'unauthenticated' });
+  assert.equal((await handler(request('owner-token', 'waitlist-remove'))).removed, false);
+  assert.equal(calls, 7);
 });

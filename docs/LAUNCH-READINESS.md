@@ -17,6 +17,10 @@ Operator name supplied by the owner: **FYNX finance world inc.** Registration ju
 | Payments and swaps | Disabled | Provider account/KYB, contracts, secrets, webhooks, idempotency, refunds, disclosures, reconciliation and outage tests required. |
 | Controlled public launch | Closed | Requires the above gates, funded-network testing, defined limits, support ownership, and signed release approval. |
 
+## Completed owner-tools follow-up
+
+Exact-email waitlist search, full-list pagination, consent/retention inspection, atomic deletion auditing, single-use transfer review, wallet-response invalidation and complete private-state clearing on sign-out are implemented and tested. Live-backend evidence and the automated-browser attestation limitation are recorded in [OWNER-TOOLS-VERIFICATION.md](OWNER-TOOLS-VERIFICATION.md). These improvements do not close the device, public-network or independent-review gates.
+
 ## Required acceptance on the owner’s device
 
 1. Open `https://ea-la.github.io/FYNX-Wallet/owner.html` and sign in with the existing owner’s Google account. A different account must be denied.

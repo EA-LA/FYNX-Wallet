@@ -2,18 +2,24 @@ import { getAddress, parseEther, formatEther, hexlify, toUtf8Bytes } from 'ether
 export const CHAIN_ID = '0xaa36a7';
 export const MAX_SEND = parseEther('0.01');
 export class WalletConnection {
+  #review = null;
+  #closed = false;
+  #sending = false;
   constructor(provider, onChange = () => {}) {
     this.provider = provider; this.address = null; this.epoch = 0;
-    this.changed = () => { this.address = null; this.epoch++; onChange(); };
+    this.changed = () => { this.address = null; this.#review = null; this.epoch++; onChange(); };
     provider.on?.('accountsChanged', this.changed);
     provider.on?.('chainChanged', this.changed);
     provider.on?.('disconnect', this.changed);
   }
   close() {
+    this.#closed = true;
     this.changed();
     for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) this.provider.removeListener?.(event, this.changed);
   }
   async connect() {
+    if (this.#closed) throw new Error('Wallet disconnected. Connect again.');
+    this.#review = null;
     const epoch = this.epoch;
     const accounts = await this.provider.request({ method: 'eth_requestAccounts' });
     if (epoch !== this.epoch) throw new Error('Wallet changed. Connect again.');
@@ -22,8 +28,8 @@ export class WalletConnection {
     await this.assertCurrent();
     return this.address;
   }
-  async assertCurrent() {
-    const epoch = this.epoch;
+  async assertCurrent(epoch = this.epoch) {
+    if (this.#closed || epoch !== this.epoch) throw new Error('Wallet changed. Connect and verify again.');
     const [chain, accounts] = await Promise.all([
       this.provider.request({ method: 'eth_chainId' }),
       this.provider.request({ method: 'eth_accounts' }),
@@ -41,10 +47,14 @@ export class WalletConnection {
     return signature;
   }
   async balance() {
-    await this.assertCurrent();
-    return formatEther(BigInt(await this.provider.request({ method: 'eth_getBalance', params: [this.address, 'latest'] })));
+    const epoch = await this.assertCurrent();
+    const balance = await this.provider.request({ method: 'eth_getBalance', params: [this.address, 'latest'] });
+    await this.assertCurrent(epoch);
+    return formatEther(BigInt(balance));
   }
   async prepareTransfer(recipient, amount) {
+    if (this.#sending) throw new Error('A transfer approval is already in progress. Check your wallet.');
+    this.#review = null;
     const epoch = await this.assertCurrent();
     let to, value;
     try {
@@ -68,23 +78,34 @@ export class WalletConnection {
     if (balance < value + fee) throw new Error('Not enough Sepolia test ETH for the amount and network fee.');
     await this.assertCurrent();
     if (epoch !== this.epoch) throw new Error('Wallet changed. Review again.');
-    return Object.freeze({ tx: Object.freeze({ ...tx, gas: `0x${gas.toString(16)}`, gasPrice: `0x${price.toString(16)}` }), amount: formatEther(value), fee: formatEther(fee), createdAt: Date.now(), epoch });
+    this.#review = Object.freeze({ tx: Object.freeze({ ...tx, gas: `0x${gas.toString(16)}`, gasPrice: `0x${price.toString(16)}` }), amount: formatEther(value), fee: formatEther(fee), createdAt: Date.now(), epoch });
+    return this.#review;
   }
   async sendTransfer(review) {
-    const epoch = await this.assertCurrent();
-    if (!review || review.epoch !== epoch || Date.now() - review.createdAt > 60000 || review.tx.from !== this.address || review.tx.chainId !== CHAIN_ID) throw new Error('The review expired or your wallet changed. Review again.');
-    const balance = BigInt(await this.provider.request({ method: 'eth_getBalance', params: [this.address, 'pending'] }));
-    if (balance < BigInt(review.tx.value) + BigInt(review.tx.gas) * BigInt(review.tx.gasPrice)) throw new Error('Not enough test ETH for the amount and network fee.');
-    await this.assertCurrent();
-    const hash = await this.provider.request({ method: 'eth_sendTransaction', params: [review.tx] });
-    if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('The wallet did not return a valid transaction hash. Check your wallet before retrying.');
-    return hash;
+    if (this.#sending || !review || review !== this.#review || review.epoch !== this.epoch || Date.now() - review.createdAt > 60000 || review.tx.from !== this.address || review.tx.chainId !== CHAIN_ID) throw new Error('The review expired, was already used, or your wallet changed. Review again.');
+    // Consume before any await: concurrent calls and uncertain wallet failures cannot reuse approval.
+    this.#review = null; this.#sending = true;
+    try {
+      const epoch = await this.assertCurrent(review.epoch);
+      const balance = BigInt(await this.provider.request({ method: 'eth_getBalance', params: [this.address, 'pending'] }));
+      if (balance < BigInt(review.tx.value) + BigInt(review.tx.gas) * BigInt(review.tx.gasPrice)) throw new Error('Not enough test ETH for the amount and network fee.');
+      const code = await this.provider.request({ method: 'eth_getCode', params: [review.tx.to, 'latest'] });
+      if (code !== '0x' && code !== '0x0') throw new Error('The recipient changed. Only standard wallet addresses are supported.');
+      await this.assertCurrent(epoch);
+      const hash = await this.provider.request({ method: 'eth_sendTransaction', params: [review.tx] });
+      if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('The wallet did not return a valid transaction hash. Check your wallet before retrying.');
+      // A hash may already have been broadcast even if the user disconnects while approving.
+      return hash;
+    } finally { this.#sending = false; }
   }
   async receipt(hash) {
-    await this.assertCurrent();
+    if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('Invalid transaction hash.');
+    const epoch = await this.assertCurrent();
     const receipt = await this.provider.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+    await this.assertCurrent(epoch);
     if (!receipt || !receipt.blockNumber) return { status: 'pending' };
-    if (receipt.transactionHash?.toLowerCase() !== hash.toLowerCase()) throw new Error('Transaction confirmation could not be verified.');
-    return { status: BigInt(receipt.status) === 1n ? 'confirmed' : 'failed', block: Number(BigInt(receipt.blockNumber)) };
+    const block = /^0x[0-9a-f]+$/i.test(receipt.blockNumber) ? Number(BigInt(receipt.blockNumber)) : NaN;
+    if (receipt.transactionHash?.toLowerCase() !== hash.toLowerCase() || !['0x0', '0x1'].includes(receipt.status) || !Number.isSafeInteger(block) || block <= 0) throw new Error('Transaction confirmation could not be verified.');
+    return { status: receipt.status === '0x1' ? 'confirmed' : 'failed', block };
   }
 }

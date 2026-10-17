@@ -66,3 +66,8 @@ Sources used for the implementation: [Firebase Google authentication](https://fi
 ## Unified dashboard follow-up
 
 The full product preview now loads only after the backend verifies the owner. It is isolated in an iframe without `allow-same-origin`, with no credentials, wallet provider, storage persistence, form submission or network access. Its exact inline script is hash-authorized in the parent and child CSP; arbitrary inline scripts and eval remain blocked. Inline styles support the existing preview layout. The parent accepts only enumerated activity/navigation signals from that exact frame window. Signing out removes it immediately and discards responses from the prior session. Generated dashboard/CSP integrity and actual authorization dispatch are tested in `tests/dashboard.test.mjs`. This does not remove the public-launch findings above.
+
+
+## Owner-tools follow-up
+
+Transfer reviews are now consumed inside the wallet adapter before the first asynchronous submission step, rather than relying solely on the UI. Closed connections and late balance/receipt responses are rejected. The owner frontend discards old-session API results and erases all private fields on sign-out. Waitlist listing remains behind the same server authorization; lookup and pagination inputs are bounded. Deletion and its audit are committed atomically. Regression and live verification details, including the temporary App Check test-provider limitation, are in `docs/OWNER-TOOLS-VERIFICATION.md`. Outstanding public-launch findings remain open.

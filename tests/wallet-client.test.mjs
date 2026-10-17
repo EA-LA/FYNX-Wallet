@@ -60,5 +60,62 @@ test('Account/network changes invalidate review; expired reviews and wallet reje
   await assert.rejects(client.sendTransfer({ ...review, createdAt: 1 }), /expired/);
   p.rejectSign = true; await assert.rejects(client.sendTransfer(review), { code: 4001 }); p.rejectSign = false;
   p.emit('accountsChanged'); assert.equal(client.address, null); await assert.rejects(client.sendTransfer(review));
-  await client.connect(); p.chain = '0x1'; await assert.rejects(client.sendTransfer(review), /Sepolia/);
+  await client.connect(); const fresh = await client.prepareTransfer(recipient, '0.001');
+  p.chain = '0x1'; await assert.rejects(client.sendTransfer(fresh), /Sepolia/);
+});
+test('A transfer review cannot be copied, superseded, submitted twice, or reused after rejection', async () => {
+  const p = provider(), client = new WalletConnection(p); await client.connect();
+  const old = await client.prepareTransfer(recipient, '0.001');
+  const review = await client.prepareTransfer(recipient, '0.002');
+  await assert.rejects(client.sendTransfer(old));
+  await assert.rejects(client.sendTransfer({ ...review, tx: { ...review.tx, value: '0x1' } }));
+  const results = await Promise.allSettled([client.sendTransfer(review), client.sendTransfer(review)]);
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+  assert.equal(p.calls.filter(c => c.method === 'eth_sendTransaction').length, 1);
+  const next = await client.prepareTransfer(recipient, '0.001');
+  p.rejectSign = true; await assert.rejects(client.sendTransfer(next), { code: 4001 });
+  p.rejectSign = false; await assert.rejects(client.sendTransfer(next), /already used/);
+  assert.equal(p.calls.filter(c => c.method === 'eth_sendTransaction').length, 2);
+});
+test('The original review expires and recipient code is checked again before sending', async () => {
+  const p = provider(), client = new WalletConnection(p); await client.connect();
+  const review = await client.prepareTransfer(recipient, '0.001'), now = Date.now;
+  try { Date.now = () => review.createdAt + 60001; await assert.rejects(client.sendTransfer(review), /expired/); }
+  finally { Date.now = now; }
+  const next = await client.prepareTransfer(recipient, '0.001'); p.code = '0x6000';
+  await assert.rejects(client.sendTransfer(next), /recipient changed/);
+  assert.equal(p.calls.filter(c => c.method === 'eth_sendTransaction').length, 0);
+});
+test('Delayed balances and receipts are discarded after disconnect; closed connections cannot reopen', async () => {
+  for (const operation of ['balance', 'receipt', 'sendTransfer']) {
+    const p = provider(), client = new WalletConnection(p); await client.connect();
+    const review = await client.prepareTransfer(recipient, '0.001');
+    const original = p.request; let release, started;
+    const waiting = new Promise(resolve => { started = resolve; });
+    p.request = async request => {
+      if (request.method === (operation === 'receipt' ? 'eth_getTransactionReceipt' : 'eth_getBalance')) {
+        started(); await new Promise(resolve => { release = resolve; });
+      }
+      return original(request);
+    };
+    const pending = client[operation](operation === 'sendTransfer' ? review : '0x' + 'a'.repeat(64));
+    await waiting; client.close(); release();
+    await assert.rejects(pending, /changed/);
+    await assert.rejects(client.connect(), /disconnected/);
+    assert.equal(p.calls.filter(c => c.method === 'eth_sendTransaction').length, 0);
+  }
+});
+test('Malformed and mismatched receipts never become confirmed or failed transactions', async () => {
+  const p = provider(), client = new WalletConnection(p); await client.connect();
+  const original = p.request, hash = '0x' + 'a'.repeat(64);
+  for (const receipt of [
+    { transactionHash: hash, status: '0x2', blockNumber: '0x1' },
+    { transactionHash: hash, blockNumber: '0x1' },
+    { transactionHash: '0x' + 'b'.repeat(64), status: '0x1', blockNumber: '0x1' },
+    { transactionHash: hash, status: '0x1', blockNumber: 'not-a-block' },
+  ]) {
+    p.request = request => request.method === 'eth_getTransactionReceipt' ? Promise.resolve(receipt) : original(request);
+    await assert.rejects(client.receipt(hash), /could not be verified/);
+  }
+  await assert.rejects(client.receipt('bad-hash'), /Invalid/);
 });

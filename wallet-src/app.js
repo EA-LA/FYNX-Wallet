@@ -12,6 +12,8 @@ const show = (id, visible) => { $(id).hidden = !visible; };
 let auth, api, session, connection, challenge, review, pendingHash;
 let generation = 0, verifiedAddress = null, busy = false, lastActivity = Date.now();
 let dashboardFrame = null, dashboardLoading = false, dashboardTimer;
+let waitlistCursor = null, waitlistEmail = '', waitlistTotal = 0;
+const waitlistRecords = new Map();
 const providers = new Map();
 function selectTab(name) {
   for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
@@ -73,8 +75,10 @@ async function run(button, work, target = '#workspace-status') {
   busy = true;
   if (button) button.disabled = true;
   setText(target, '');
-  try { await work(); }
-  catch (error) { setText(target, errorMessage(error)); }
+  const expected = generation;
+  const checkSession = () => { if (expected !== generation) throw new Error('Your session changed. Sign in again.'); };
+  try { await work(checkSession); }
+  catch (error) { if (expected === generation) setText(target, errorMessage(error)); }
   finally { busy = false; if (button) button.disabled = false; updateWalletControls(); }
 }
 function addProvider(id, name, provider) {
@@ -93,10 +97,21 @@ setTimeout(() => { if (!providers.size && window.ethereum) addProvider('injected
 function clearWallet() {
   verifiedAddress = null; challenge = null; review = null;
   show('#signing-review', false); show('#transfer-review', false);
+  setText('#signing-message', ''); $('#transfer-details').replaceChildren();
   setText('#wallet-address', 'No wallet connected'); setText('#receive-address', 'Connect and verify your wallet first.');
   setText('#wallet-balance', '— test ETH');
   setText('#wallet-proof', session?.wallet ? `Previously linked: ${session.wallet.address}. Connect again to prove current control.` : 'A connection alone does not prove wallet ownership.');
   updateWalletControls();
+}
+function clearPrivateWorkspace() {
+  session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
+  waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
+  $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren();
+  $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
+  setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
+  setText('#account-name', ''); setText('#transaction-status', ''); setText('#workspace-status', '');
+  $('#transaction-link').removeAttribute('href'); show('#transaction-link', false); show('#check-receipt', false); pendingHash = null;
+  show('#workspace', false); show('#signin', true);
 }
 function updateWalletControls() {
   const connected = !!connection?.address && !!session;
@@ -128,18 +143,17 @@ async function ready() {
   auth = getAuth(app);
   await setPersistence(auth, inMemoryPersistence);
   const callable = httpsCallable(getFunctions(app, functionsRegion), 'fynxWalletWorkspace', { timeout: 30000 });
-  api = async data => (await callable(data)).data;
+  api = async data => {
+    const expected = generation, result = (await callable(data)).data;
+    if (expected !== generation) throw new Error('Your session changed. Sign in again.');
+    return result;
+  };
   for (const id of ['#google-login', '#email-submit', '#reset-password']) $(id).disabled = false;
   $('#passkey-login').disabled = !browserSupportsWebAuthn();
   setText('#auth-status', '');
   onAuthStateChanged(auth, async user => {
     const current = ++generation;
-    session = null; connection?.close(); connection = null; clearWallet();
-    clearDashboard(); selectTab('dashboard');
-    $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren();
-    setText('#account-name', ''); setText('#transaction-status', '');
-    show('#transaction-link', false); show('#check-receipt', false); pendingHash = null;
-    show('#workspace', false); show('#signin', true);
+    clearPrivateWorkspace(); selectTab('dashboard');
     if (!user) return;
     setText('#auth-status', 'Checking owner access…');
     try {
@@ -174,7 +188,7 @@ $('#passkey-login').addEventListener('click', event => run(event.currentTarget, 
   await signInWithCustomToken(auth, result.token);
 }, '#auth-status'));
 $('#logout').addEventListener('click', async () => {
-  ++generation; session = null; clearDashboard(); show('#workspace', false);
+  ++generation; clearPrivateWorkspace();
   await signOut(auth); window.location.assign('./');
 });
 $('#add-passkey').addEventListener('click', event => run(event.currentTarget, async () => {
@@ -186,18 +200,20 @@ $('#add-passkey').addEventListener('click', event => run(event.currentTarget, as
 for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => {
   selectTab(button.dataset.tab);
 });
-$('#connect-wallet').addEventListener('click', event => run(event.currentTarget, async () => {
+$('#connect-wallet').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   const provider = providers.get($('#wallet-choice').value);
   if (!provider) throw new Error('Open an Ethereum wallet extension, then reload this page. Keep recovery words in your wallet.');
   connection?.close(); clearWallet();
   connection = new WalletConnection(provider, () => { clearWallet(); setText('#workspace-status', 'Wallet account or network changed. Connect and verify again.'); });
   const address = await connection.connect();
+  checkSession();
   setText('#wallet-address', address); setText('#workspace-status', 'Connected. Review and sign the ownership message next.');
 }));
-$('#switch-network').addEventListener('click', event => run(event.currentTarget, async () => {
+$('#switch-network').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   const provider = providers.get($('#wallet-choice').value);
   if (!provider) throw new Error('Open a wallet extension first.');
   await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID }] });
+  checkSession();
   setText('#workspace-status', 'Sepolia selected. Connect your wallet again.');
 }));
 $('#verify-wallet').addEventListener('click', event => run(event.currentTarget, async () => {
@@ -208,7 +224,7 @@ $('#verify-wallet').addEventListener('click', event => run(event.currentTarget, 
   if (connection.address !== address) throw new Error('Wallet changed. Try again.');
   setText('#signing-message', challenge.message); show('#signing-review', true);
 }));
-$('#sign-message').addEventListener('click', event => run(event.currentTarget, async () => {
+$('#sign-message').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   const expected = generation, currentConnection = connection, currentChallenge = challenge;
   const signature = await currentConnection.signChallenge(currentChallenge);
   const result = await api({ action: 'wallet-verify', id: currentChallenge.id, signature });
@@ -217,48 +233,77 @@ $('#sign-message').addEventListener('click', event => run(event.currentTarget, a
   verifiedAddress = result.wallet.address; session.wallet = result.wallet;
   setText('#wallet-proof', 'Ownership verified by FYNX.'); setText('#receive-address', verifiedAddress);
   show('#signing-review', false); challenge = null;
-  setText('#wallet-balance', `${await connection.balance()} test ETH`);
+  const balance = await connection.balance(); checkSession();
+  setText('#wallet-balance', `${balance} test ETH`);
   setText('#workspace-status', 'Wallet signature verified and saved.');
 }));
 $('#cancel-sign').addEventListener('click', () => { challenge = null; show('#signing-review', false); });
 $('#unlink-wallet').addEventListener('click', event => run(event.currentTarget, async () => { await api({ action: 'wallet-unlink' }); session.wallet = null; connection?.close(); connection = null; clearWallet(); setText('#workspace-status', 'Wallet unlinked. Your wallet keys and assets remain in your wallet.'); }));
-$('#refresh-balance').addEventListener('click', event => run(event.currentTarget, async () => { setText('#wallet-balance', `${await connection.balance()} test ETH`); }));
+$('#refresh-balance').addEventListener('click', event => run(event.currentTarget, async checkSession => { const balance = await connection.balance(); checkSession(); setText('#wallet-balance', `${balance} test ETH`); }));
 $('#copy-address').addEventListener('click', event => run(event.currentTarget, async () => { await connection.assertCurrent(); await navigator.clipboard.writeText(verifiedAddress); setText('#workspace-status', 'Address copied. Use Sepolia only.'); }));
-$('#send-form').addEventListener('submit', event => { event.preventDefault(); run($('#review-transfer'), async () => {
+$('#send-form').addEventListener('submit', event => { event.preventDefault(); run($('#review-transfer'), async checkSession => {
   if (!verifiedAddress || connection.address !== verifiedAddress) throw new Error('Verify your wallet first.');
-  review = await connection.prepareTransfer($('#recipient').value.trim(), $('#amount').value.trim());
+  const prepared = await connection.prepareTransfer($('#recipient').value.trim(), $('#amount').value.trim());
+  checkSession(); review = prepared;
   const details = $('#transfer-details'); details.replaceChildren();
   for (const [name, value] of [['Network', 'Sepolia test network'], ['From', review.tx.from], ['Recipient', review.tx.to], ['Amount', `${review.amount} test ETH`], ['Estimated network fee', `${review.fee} test ETH`]]) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = name; dd.textContent = value; details.append(dt, dd); }
   show('#transfer-review', true);
 }); });
 $('#cancel-transfer').addEventListener('click', () => { review = null; show('#transfer-review', false); });
-$('#send-transfer').addEventListener('click', event => run(event.currentTarget, async () => {
+$('#send-transfer').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   if (!verifiedAddress || connection?.address !== verifiedAddress) throw new Error('Verify your wallet again.');
   // Consume the review before asking the wallet so a retry cannot double-submit.
   const current = review; review = null; show('#transfer-review', false);
-  pendingHash = await connection.sendTransfer(current);
+  const hash = await connection.sendTransfer(current);
+  checkSession(); pendingHash = hash;
   setText('#transaction-status', 'Submitted to the network. Confirmation is still pending.');
   $('#transaction-link').href = `https://sepolia.etherscan.io/tx/${pendingHash}`;
   show('#transaction-link', true); show('#check-receipt', true);
 }));
-$('#check-receipt').addEventListener('click', event => run(event.currentTarget, async () => {
+$('#check-receipt').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   const result = await connection.receipt(pendingHash);
+  checkSession();
   setText('#transaction-status', result.status === 'confirmed' ? `Confirmed on Sepolia in block ${result.block}.` : result.status === 'failed' ? 'The transaction failed on-chain. A network fee may still have been charged.' : 'Still pending. Check your wallet or explorer before attempting another transfer.');
   if (result.status !== 'pending') show('#check-receipt', false);
 }));
-$('#load-waitlist').addEventListener('click', event => run(event.currentTarget, async () => {
-  const current = generation, data = await api({ action: 'waitlist' });
+async function loadRegistrations({ more = false, email = waitlistEmail } = {}) {
+  const current = generation, data = await api({ action: 'waitlist', email, ...(more ? { cursor: waitlistCursor } : {}) });
   if (current !== generation) return;
-  setText('#waitlist-count', `${data.total} registrations · showing the latest ${data.records.length}`);
+  if (!more) waitlistRecords.clear();
+  waitlistEmail = email; waitlistTotal = data.total; waitlistCursor = data.nextCursor;
+  for (const record of data.records) waitlistRecords.set(record.id, record);
+  renderRegistrations();
+}
+function renderRegistrations() {
+  setText('#waitlist-count', waitlistEmail ? `${waitlistTotal} matching registration${waitlistTotal === 1 ? '' : 's'}` : `${waitlistTotal} registrations · ${waitlistRecords.size} loaded`);
+  show('#more-waitlist', !!waitlistCursor);
   const body = $('#waitlist-rows'); body.replaceChildren();
-  for (const record of data.records) {
-    const tr = document.createElement('tr');
-    for (const value of [record.email, record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Pending timestamp', record.status]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
-    const td = document.createElement('td'), remove = document.createElement('button'); remove.className = 'text-button'; remove.textContent = 'Remove';
-    remove.addEventListener('click', () => run(remove, async () => { if (!window.confirm(`Permanently remove ${record.email} from the active waitlist?`)) return; await api({ action: 'waitlist-remove', id: record.id }); tr.remove(); setText('#workspace-status', 'Registration removed from the active waitlist. Reload to refresh the count.'); }));
-    td.append(remove); tr.append(td); body.append(tr);
+  if (!waitlistRecords.size) {
+    const row = document.createElement('tr'), cell = document.createElement('td'); cell.colSpan = 4;
+    cell.textContent = waitlistEmail ? 'No registration found for this email.' : 'No registrations yet.'; row.append(cell); body.append(row);
   }
-}));
+  for (const record of waitlistRecords.values()) {
+    const tr = document.createElement('tr');
+    for (const [label, value] of [['Email', record.email], ['Registered', record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Pending timestamp']]) { const td = document.createElement('td'); td.dataset.label = label; td.textContent = value; tr.append(td); }
+    const info = document.createElement('td'), details = document.createElement('details'), summary = document.createElement('summary');
+    summary.textContent = record.status || 'Unknown status'; details.append(summary);
+    for (const value of [`Consent: ${record.consent ? 'Recorded' : 'Not recorded'}`, `Notice: ${record.noticeVersion || 'Not recorded'}`, `Source: ${record.source || 'Not recorded'}`, `Expires: ${record.expiresAt ? new Date(record.expiresAt).toLocaleDateString() : 'Not recorded'}`]) { const line = document.createElement('p'); line.textContent = value; line.className = 'hint'; details.append(line); }
+    info.dataset.label = 'Status & consent'; info.append(details); tr.append(info);
+    const td = document.createElement('td'), remove = document.createElement('button'); remove.className = 'text-button'; remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', `Remove registration for ${record.email}`);
+    remove.addEventListener('click', () => run(remove, async () => {
+      if (!window.confirm(`Permanently remove ${record.email} from the active waitlist?`)) return;
+      await api({ action: 'waitlist-remove', id: record.id });
+      waitlistRecords.delete(record.id); waitlistTotal = Math.max(0, waitlistTotal - 1); renderRegistrations();
+      setText('#workspace-status', 'Registration removed from the active waitlist.');
+    }));
+    td.dataset.label = 'Action'; td.append(remove); tr.append(td); body.append(tr);
+  }
+}
+$('#load-waitlist').addEventListener('click', event => run(event.currentTarget, () => loadRegistrations()));
+$('#more-waitlist').addEventListener('click', event => run(event.currentTarget, () => loadRegistrations({ more: true })));
+$('#waitlist-search').addEventListener('submit', event => { event.preventDefault(); run($('#find-registration'), () => loadRegistrations({ email: $('#waitlist-email').value.trim() })); });
+$('#clear-waitlist-search').addEventListener('click', event => run(event.currentTarget, async () => { await loadRegistrations({ email: '' }); $('#waitlist-search').reset(); }));
 for (const [title, status] of [['Product model: user-controlled external wallet', 'Selected · owner testnet only'], ['Identity, wallet proofs, passkeys, access controls', 'Implemented · see verification evidence'], ['Hardware signing and real Sepolia transfer', 'Device and network acceptance required'], ['Security review and incident procedure', 'Internal review prepared · independent review pending'], ['Legal entity and launch jurisdictions', 'Name supplied · registration and markets unconfirmed'], ['Payments, swaps, provider approvals', 'Not enabled'], ['Controlled public launch', 'Blocked until release gates pass']]) {
   const row = document.createElement('div'); row.className = 'list-row'; const label = document.createElement('strong'), state = document.createElement('span'); label.textContent = title; state.textContent = status; row.append(label, state); $('#launch-checklist').append(row);
 }

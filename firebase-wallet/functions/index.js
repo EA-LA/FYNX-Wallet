@@ -7,6 +7,7 @@ import { SERVICE_ACCOUNT, ORIGIN } from './config.js';
 import { appGuard, ownerGuard, fail, rateLimit, createWalletChallenge, verifyWalletChallenge, saveChallenge, consumeChallenge, audit } from './core.js';
 import { registrationOptions, registerPasskey, authenticationOptions, authenticatePasskey } from './passkeys.js';
 import { readFileSync } from 'node:fs';
+import { listWaitlist, removeWaitlistRegistration } from './waitlist.js';
 const dashboardHTML = readFileSync(new URL('./dashboard.html', import.meta.url), 'utf8');
 initializeApp({ serviceAccountId: SERVICE_ACCOUNT });
 
@@ -63,16 +64,8 @@ export const fynxWalletWorkspace = onCall({
         await audit(db, user.uid, 'passkey.removed');
         return { ok: true };
       }
-      case 'waitlist': {
-        const [rows, total] = await Promise.all([db.collection('fynxWalletWaitlist').orderBy('createdAt', 'desc').limit(50).get(), db.collection('fynxWalletWaitlist').count().get()]);
-        return { total: total.data().count, records: rows.docs.map(d => ({ id: d.id, email: d.data().email, createdAt: d.data().createdAt?.toDate().toISOString() || null, status: d.data().status, noticeVersion: d.data().noticeVersion })) };
-      }
-      case 'waitlist-remove': {
-        if (typeof input.id !== 'string' || !/^[a-f0-9]{64}$/.test(input.id)) fail('invalid-argument', 'Invalid registration.');
-        await db.collection('fynxWalletWaitlist').doc(input.id).delete();
-        await audit(db, user.uid, 'waitlist.removed');
-        return { ok: true };
-      }
+      case 'waitlist': return await listWaitlist(db, input);
+      case 'waitlist-remove': return await removeWaitlistRegistration(db, user.uid, input);
       default: fail('invalid-argument', 'Unknown operation.');
     }
   } catch (error) {

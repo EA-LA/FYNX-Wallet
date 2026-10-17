@@ -11,10 +11,10 @@ Owner: FYNX finance world inc. Contact: fynxteam5@gmail.com. The owner must conf
 
 ## Registrations and deletion requests
 
-View the latest 50 registrations in **Owner workspace → Waitlist**, or all registrations in the Firebase console’s `fynxWalletWaitlist` collection. Fields include email, consent, notice version, server creation time, source, waiting status and expiry.
+Use **Owner workspace → Waitlist → Load registrations**, then **Load more registrations** to browse the full list in pages of 50. **Find registration** looks up an exact email (ignoring case and surrounding spaces); **Show all** returns to the full list. Expand a row’s status for consent and retention evidence. All records are also available in the Firebase console’s `fynxWalletWaitlist` collection. Fields include email, consent, notice version, server creation time, source, waiting status and expiry.
 
 1. Check the support inbox for withdrawal requests before any campaign. Verify the request through the registered mailbox; do not ask for identity documents, wallet signatures, keys or recovery words.
-2. Sign in again if necessary, load registrations, confirm the exact email, and remove the matching record. The backend requires a recent owner login and records a deletion audit event without the email.
+2. Sign in again if necessary, search for the exact email, confirm the matching record, and choose Remove. The backend requires a recent owner login. Deletion and its audit event commit atomically; neither the email nor document ID is copied to the audit log. A failed operation leaves the row visible and reports an error; retry or reload before reporting completion.
 3. Confirm the active Firestore record is gone. Remove the address from any separately approved mailing provider if one is added later. This repository currently has no such integration.
 4. Reply only when the operator chooses to do so. Automation here does not send messages.
 5. Waitlist records expire after 365 days. TTL deletion is asynchronous. Do not represent deletion as removal from provider backups or immutable blockchain data.

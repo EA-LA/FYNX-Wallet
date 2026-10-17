@@ -4,7 +4,7 @@ FYNX finance world inc.’s single GitHub website: a public waitlist and an auth
 
 - **Public website:** https://ea-la.github.io/FYNX-Wallet/
 - **Owner workspace:** https://ea-la.github.io/FYNX-Wallet/owner.html
-- **Registrations:** owner workspace → Waitlist, or Firebase project `fynx-c7a28` → Firestore → `fynxWalletWaitlist`.
+- **Registrations:** owner workspace → Waitlist (exact email search, consent details and Load more), or Firebase project `fynx-c7a28` → Firestore → `fynxWalletWaitlist`.
 
 Use **Owner access** in the public footer, or bookmark the owner link above. Sign in with the existing verified owner account. The Dashboard tab opens the full interactive interface (Overview, Assets, Buy & sell, Swap, Activity and Settings); its sample balances and transactions are simulated. **Wallet testing** is the separate Sepolia connection/signing tool. **Sign out & exit** clears the preview and returns to the public homepage.
 
