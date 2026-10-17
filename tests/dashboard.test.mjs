@@ -18,6 +18,11 @@ test('The protected document permits only its exact script and no network or for
   assert.ok(html.includes("form-action 'none'"));
   assert.equal(/<script[^>]+src=/.test(html), false);
   assert.equal(script.includes('localStorage'), false);
+  for (const path of ['wallet-assets/app.js', 'wallet-assets/styles.css']) {
+    const bytes = readFileSync(new URL(`../${path}`, import.meta.url));
+    const version = createHash('sha256').update(bytes).digest('hex').slice(0, 16);
+    assert.ok(ownerHTML.includes(`${path}?v=${version}`), 'The page must load the exact current asset, even with an older browser cache');
+  }
 });
 
 test('The actual dashboard dispatch rejects guests/nonowners and returns HTML only after owner verification', async () => {

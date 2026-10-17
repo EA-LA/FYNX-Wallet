@@ -18,7 +18,7 @@ jobs:
       - run: npm ci --ignore-scripts --prefix firebase-wallet/functions
       - run: npm ci --ignore-scripts --prefix firebase-waitlist/functions
       - run: npm run check
-      - run: git diff --exit-code -- wallet-assets/app.js wallet-assets/app.js.LEGAL.txt owner.html firebase-wallet/functions/dashboard.html
+      - run: git diff --exit-code -- wallet-assets/app.js wallet-assets/app.js.LEGAL.txt owner.html wallet-privacy.html firebase-wallet/functions/dashboard.html
       - run: npm audit --omit=dev --audit-level=high
       - run: npm audit --omit=dev --audit-level=high --prefix firebase-wallet/functions
       - run: npm audit --omit=dev --audit-level=high --prefix firebase-waitlist/functions

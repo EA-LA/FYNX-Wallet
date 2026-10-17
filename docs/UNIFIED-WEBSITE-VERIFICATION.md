@@ -31,3 +31,11 @@ Test authentication uses an operator-authorized short-lived Firebase token kept 
 The public waitlist's original live Firestore evidence remains in [the waitlist verification record](../firebase-waitlist/VERIFICATION.md). Public wallet launch, real funds, physical Ledger/recovery acceptance and legal/independent-security approvals remain subject to [release gates](LAUNCH-READINESS.md).
 
 GitHub Actions supplies the revision-specific verification and Pages deployment results. The older remote prototype has not been changed; the new website has no links or runtime dependency on it.
+
+## Published release checks and cache correction
+
+Release `e49e48f` passed [GitHub verification](https://github.com/EA-LA/FYNX-Wallet/actions/runs/39059797524) and [Pages deployment](https://github.com/EA-LA/FYNX-Wallet/actions/runs/39059796574). Published HTML, JavaScript, CSS and all three icon files matched the release bytes. Direct requests for the old dashboard, editable dashboard source and backend HTML/source returned **404**.
+
+The final browser test detected a previously cached owner bundle loading with the new HTML. The build now assigns content-derived versions to owner script/style URLs and the privacy-page stylesheet. CI verifies those versions against the actual generated files. This fixes upgrades for returning visitors without relaxing the CSP or owner gate.
+
+The owner Waitlist tab retrieved three actual Firestore registrations. The existing acceptance-test record still has its original server timestamp `2026-10-17T17:39:26.686Z`, `waiting` status, `fynx-wallet-public` source and `prelaunch-v2` notice version. No registration was deleted during this follow-up. A missing App Check token on the new dashboard operation returned **401**.
