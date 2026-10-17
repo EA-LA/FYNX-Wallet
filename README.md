@@ -58,7 +58,7 @@ Never place provider secrets, signing keys, private keys, recovery phrases, or c
 
 ## Validation and limitations
 
-JavaScript syntax, page templates, quote arithmetic, simulated balance changes, failure invariants, invalid input, and text escaping were checked during development. Visual browser testing and real-provider end-to-end testing have not been completed.
+JavaScript syntax, page templates, quote arithmetic, simulated balance changes, failure invariants, invalid input, and text escaping were checked during development. The wallet prototype has no real-provider end-to-end coverage. The separate public waitlist has live browser, App Check, and Firestore evidence in `firebase-waitlist/VERIFICATION.md`.
 
 ## GitHub and Sites synchronization
 
