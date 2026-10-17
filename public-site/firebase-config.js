@@ -9,8 +9,8 @@ export const firebaseConfig = {
   messagingSenderId: '1011050657868',
   appId: '1:1011050657868:web:2b8f02ebdebf8b3bb05ce9',
 };
-// Set after registering this web app for Firebase App Check.
-export const recaptchaEnterpriseSiteKey = '';
+// Public reCAPTCHA Enterprise key restricted to ea-la.github.io.
+export const recaptchaEnterpriseSiteKey = '6LdtAPQtAAAAACKflVeiDubl81w-mon6xDKVPYWa';
 export const functionsRegion = 'us-central1';
-// Enable only after deploying and verifying the callable backend and access rules.
-export const waitlistBackendReady = false;
+// Enabled after real App Check, callable, and Firestore verification on 2026-10-17.
+export const waitlistBackendReady = true;

@@ -68,11 +68,11 @@ No public license is granted by this repository.
 
 ## Public waitlist website
 
-Public website: https://fynx-wallet.cocoa-badge-6319.chatgpt.site
+Public website: https://ea-la.github.io/FYNX-Wallet/
 
-`public-site/` is the marketing and waitlist frontend. Login and wallet links lead to the waitlist. It is published separately from the owner workspace. `deployments/public-hosting.json` records its Sites identity and static hosting configuration; that separate deployment uses `public-site/` files copied into its own `dist/` directory. Do not replace the owner project identity with the public one.
+`public-site/` is the marketing and waitlist frontend published by GitHub Pages. Public login and wallet links lead to the waitlist. The existing Sites identities and owner workspace remain separate and unchanged.
 
-`firebase-waitlist/` contains a proposed App Check-protected Firebase callable function and integration instructions. Firebase configuration and backend deployment are still required; no signup is currently collected. The full workspace remains owner-private on ChatGPT Sites.
+`firebase-waitlist/` contains the App Check-protected Firebase callable function and operator instructions. Registrations are stored in the `fynxWalletWaitlist` Firestore collection in project `fynx-c7a28`. See [deployment and operator instructions](firebase-waitlist/SETUP.md) and [release verification](firebase-waitlist/VERIFICATION.md) for the activation status and live evidence. The full workspace remains owner-private on ChatGPT Sites.
 
 Repository visibility and hosted-site access are independent. The source contains demo interfaces, not a live wallet or protected customer records. Do not publish the owner `dist/` as your public production wallet.
 
@@ -84,9 +84,10 @@ node --check public-site/app.js
 node --check firebase-waitlist/functions/index.js
 node tests/demo-check.cjs
 node tests/waitlist-check.cjs
+node tests/waitlist-ui-check.cjs
 ```
 
-The tests exercise templates and logic with lightweight mocks; they do not replace browser, Firebase emulator, or live-provider tests.
+The scripts exercise templates and logic with lightweight mocks. Live browser, App Check, and Firestore checks are documented separately in `firebase-waitlist/VERIFICATION.md`; unit tests alone do not establish readiness.
 
 ## GitHub Pages
 
@@ -98,4 +99,4 @@ GitHub Pages uses `main` → `/ (root)`. Root `index.html` loads the public fron
 
 Owner entry: https://ea-la.github.io/FYNX-Wallet/owner.html
 
-This page links to the owner-private ChatGPT Sites workspace. The Sites access policy enforces access for the existing owner account. The entry page itself is public and contains no credentials or client-side password checks. A separate Firebase email/password account has not been created; Firebase Auth and waitlist setup are still pending.
+This page links to the owner-private ChatGPT Sites workspace. The Sites access policy enforces access for the existing owner account. The entry page itself is public and contains no credentials or client-side password checks. A separate Firebase email/password account has not been created. The waitlist does not create user accounts or change dashboard authentication.

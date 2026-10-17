@@ -15,3 +15,8 @@ __pycache__/
 *.tar.gz
 *.zip
 *.log
+
+# Local Firebase and browser verification output
+.firebase/
+.playwright-cli/
+output/playwright/
