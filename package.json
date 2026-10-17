@@ -1,0 +1,22 @@
+{
+  "name": "fynx-wallet",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-wallet.mjs",
+    "test": "node tests/demo-check.cjs && node tests/waitlist-check.cjs && node tests/waitlist-ui-check.cjs && node --test tests/wallet-core.test.mjs tests/wallet-client.test.mjs",
+    "check": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "14.0.0",
+    "ethers": "6.17.0",
+    "firebase": "13.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.14.6"
+  }
+}

@@ -1,6 +1,6 @@
 # FYNX Wallet waitlist operations
 
-The public frontend is https://ea-la.github.io/FYNX-Wallet/. Work in this repository; the existing ChatGPT Sites projects are separate and must not be redeployed by this workflow.
+The public frontend is https://ea-la.github.io/FYNX-Wallet/. Work in this repository; legacy externally hosted prototypes are outside this workflow and must not be redeployed.
 
 ## Deployment scope
 

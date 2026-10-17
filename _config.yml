@@ -8,3 +8,13 @@ exclude:
   - tests
   - deployments
   - .openai
+  - firebase-wallet
+  - wallet-src
+  - scripts
+  - docs
+  - package.json
+  - package-lock.json
+  - node_modules
+  - security_best_practices_report.md
+  - FYNX-Wallet-threat-model.md
+  - SECURITY.md

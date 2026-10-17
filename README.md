@@ -1,102 +1,68 @@
 # FYNX Wallet
 
-An interactive FYNX Wallet product concept with a white interface, soft shadows, rounded panels, and responsive layouts.
+FYNX finance world inc.’s GitHub-owned website and owner-only wallet test workspace.
 
-## Preview
+- **Public website:** https://ea-la.github.io/FYNX-Wallet/
+- **Owner workspace:** https://ea-la.github.io/FYNX-Wallet/owner.html
+- **Registrations:** owner workspace → Waitlist, or Firebase project `fynx-c7a28` → Firestore → `fynxWalletWaitlist`.
 
-https://fynx-wallet-preview.cocoa-badge-6319.chatgpt.site
+The public waitlist is live. The owner workspace uses Firebase email/Google authentication, device passkeys, and server-side authorization for the existing verified owner. Public wallet accounts remain closed. The selected wallet model keeps recovery phrases and signing keys in an external wallet, including hardware accounts through a compatible browser extension.
 
-The hosted preview is private to the Site owner. GitHub access does not automatically grant access to the preview.
+## Current wallet scope
 
-## Run locally
+One network: **Sepolia testnet**. Standard Ethereum EOA wallets, server-verified ownership signatures, address/balance display, native test ETH transfer review, wallet approval and receipt checks. Per-transfer UI limit: 0.01 test ETH. No mainnet, token transfers, smart-contract wallet support, swaps, fiat payments, embedded seed generation/import, or WalletConnect/mobile sessions are enabled.
 
-No installation or build step is required. Serve the static directory:
+A FYNX passkey signs into the account; the connected wallet separately authorizes signatures. Google/email account recovery does not recover wallet keys. Set an email password through Firebase’s reset link if that account currently uses Google only. Do not put recovery words, private keys, tokens or service-account credentials in this repository.
+
+**This is not a completed production wallet.** Physical Ledger signing, public Sepolia send/receive and recovery acceptance, independent security review, legal review, provider approvals and operating drills remain release gates. See [readiness](docs/LAUNCH-READINESS.md) and [verification evidence](docs/VERIFICATION.md).
+
+## Repository ownership and hosting
+
+GitHub Pages serves the website and workspace frontend; Firebase runs the two scoped backend functions. All current frontend/backend source is in this repository. There is no external site-builder login, branding or runtime dependency in these pages. Legacy external-hosting metadata has been removed. The old remote prototype was not updated or deleted.
+
+This repository remains public. Public source code is not an authorization boundary: the backend checks App Check, exact origin, Firebase token revocation, verified email and the configured owner UID. Private data is never included in the static Pages build.
+
+## Structure
+
+| Path | Purpose |
+| --- | --- |
+| `index.html`, `public-site/` | Public marketing and verified waitlist |
+| `owner.html`, `wallet-privacy.html`, `wallet-assets/` | Published FYNX owner frontend and bundled dependencies |
+| `wallet-src/` | Editable owner frontend and wallet provider adapter |
+| `firebase-wallet/` | Scoped owner API, passkeys, wallet proofs, audit events |
+| `firebase-waitlist/` | Existing live waitlist function and verification record |
+| `docs/` | Readiness, operations, legal-review brief and test evidence |
+| `dist/` | Archived local-only simulation; excluded from Pages |
+| `tests/` | Validation, authorization, signatures, races, error and transfer checks |
+
+## Local checks and build
+
+Use Node 22 and npm:
 
 ```sh
-python3 -m http.server 8080 --directory dist
+npm ci --ignore-scripts
+npm ci --ignore-scripts --prefix firebase-wallet/functions
+npm ci --ignore-scripts --prefix firebase-waitlist/functions
+npm run check
+npm audit --omit=dev
+npm audit --omit=dev --prefix firebase-wallet/functions
 ```
 
-Open http://localhost:8080. The app uses hash-based routes, so no server rewrite rules are required.
+`npm run build` bundles the owner frontend into `wallet-assets/app.js`. Commit the bundle and lockfiles with its source. CI checks rebuild reproducibility, tests and high-severity advisories. The pinned grpc override fixes a reported Node dependency advisory in Firebase’s unused Firestore package; the owner browser bundle imports Auth, Functions and App Check only.
 
-## Project structure
+Static previews can run with `python3 -m http.server 8080`. Live authentication/App Check are configured for the GitHub Pages domain, so local preview alone is not a live acceptance test. Do not disable App Check to make localhost appear production-ready. The archived simulation runs separately with `python3 -m http.server 8081 --directory dist`.
 
-- `dist/index.html`: static entrypoint, navigation, and application container
-- `dist/styles.css`: responsive layout, typography, and visual design
-- `dist/app.js`: pages, local demo state, transaction simulations, and interface behavior
-- `.openai/hosting.json`: existing ChatGPT Sites project identity and static hosting configuration
+## Deployment
 
-`dist/` is the actual editable source for this buildless project. It must remain tracked.
+GitHub Pages builds `main` at the repository root. `_config.yml` excludes backend/source/development directories. Verify both the **Verify FYNX Wallet** workflow and **pages build and deployment** after pushing.
 
-## Included screens and flows
+Deploy only the intended function:
 
-- Product homepage and wallet dashboard
-- Asset list, search, individual holdings, and allocation
-- Buy and sell with illustrative quotes and fee review
-- Same-network ETH / USDC swap simulation
-- Send preview with balance checks and a receive-screen concept
-- Successful and failed simulation outcomes
-- Transaction history, type/status filters, detail pages, and CSV export
-- Local profile/preferences, connection status, and demo reset
-- Security information, network coverage, support drafts, and preview legal notices
-- Founder build guide with provider requirements, architecture, cost categories, revenue arithmetic, and a local planning checklist
+```sh
+firebase deploy --only functions:fynx-wallet-workspace:fynxWalletWorkspace --project fynx-c7a28 --config firebase-wallet/firebase.json
+firebase deploy --only functions:fynx-wallet-waitlist:joinFynxWalletWaitlist --project fynx-c7a28 --config firebase-waitlist/firebase.json
+```
 
-## What is connected?
-
-No live wallet, payment, authentication, price, swap, or blockchain provider is connected. All balances, prices, fees, and transactions are illustrative. Receive identifiers are intentionally invalid. Support forms prepare drafts locally and send nothing.
-
-Demo state is stored in browser local storage under `fynx-wallet-v2`. It is not a financial ledger, encrypted storage, or a login account. Reset it from Settings → Data.
-
-Google Fonts is requested for typography; system fonts remain as fallbacks.
-
-## Before production
-
-The in-app **Before launch** guide documents the proposed integration work. The starting scope proposed is a user-controlled wallet on one EVM network, ETH + USDC, provider-hosted buy/sell, and same-network swaps.
-
-Required work includes wallet signing and recovery, provider approvals, live quotes, real authentication, a backend/database, webhook verification, idempotent order processing, network monitoring, independent security review, and legal/operating review for the actual business model and launch markets. Bitcoin requires separately validated wallet infrastructure.
-
-Never place provider secrets, signing keys, private keys, recovery phrases, or customer identity documents in the repository or frontend.
-
-## Validation and limitations
-
-JavaScript syntax, page templates, quote arithmetic, simulated balance changes, failure invariants, invalid input, and text escaping were checked during development. The wallet prototype has no real-provider end-to-end coverage. The separate public waitlist has live browser, App Check, and Firestore evidence in `firebase-waitlist/VERIFICATION.md`.
-
-## GitHub and Sites synchronization
-
-A GitHub source copy does not by itself establish automatic synchronization with ChatGPT Sites. Changes must be committed and pushed to GitHub; Sites deployments use their own source and publication workflow until an explicit integration is configured.
+Do not deploy shared database rules or unrelated functions. See [backend setup](firebase-wallet/SETUP.md), [operations](docs/OPERATIONS.md), [security report](security_best_practices_report.md), [threat model](FYNX-Wallet-threat-model.md), and [legal review brief](docs/LEGAL-OPERATING-REVIEW.md).
 
 No public license is granted by this repository.
-
-## Public waitlist website
-
-Public website: https://ea-la.github.io/FYNX-Wallet/
-
-`public-site/` is the marketing and waitlist frontend published by GitHub Pages. Public login and wallet links lead to the waitlist. The existing Sites identities and owner workspace remain separate and unchanged.
-
-`firebase-waitlist/` contains the App Check-protected Firebase callable function and operator instructions. Registrations are stored in the `fynxWalletWaitlist` Firestore collection in project `fynx-c7a28`. See [deployment and operator instructions](firebase-waitlist/SETUP.md) and [release verification](firebase-waitlist/VERIFICATION.md) for the activation status and live evidence. The full workspace remains owner-private on ChatGPT Sites.
-
-Repository visibility and hosted-site access are independent. The source contains demo interfaces, not a live wallet or protected customer records. Do not publish the owner `dist/` as your public production wallet.
-
-## Checks
-
-```sh
-node --check dist/app.js
-node --check public-site/app.js
-node --check firebase-waitlist/functions/index.js
-node tests/demo-check.cjs
-node tests/waitlist-check.cjs
-node tests/waitlist-ui-check.cjs
-```
-
-The scripts exercise templates and logic with lightweight mocks. Live browser, App Check, and Firestore checks are documented separately in `firebase-waitlist/VERIFICATION.md`; unit tests alone do not establish readiness.
-
-## GitHub Pages
-
-Public site: https://ea-la.github.io/FYNX-Wallet/
-
-GitHub Pages uses `main` → `/ (root)`. Root `index.html` loads the public frontend from `public-site/`; `_config.yml` excludes development and owner-workspace directories from the Pages build. Keep the root entrypoint in sync if public-site/index.html changes. Backend Firebase Functions must be deployed separately.
-
-## Owner access
-
-Owner entry: https://ea-la.github.io/FYNX-Wallet/owner.html
-
-This page links to the owner-private ChatGPT Sites workspace. The Sites access policy enforces access for the existing owner account. The entry page itself is public and contains no credentials or client-side password checks. A separate Firebase email/password account has not been created. The waitlist does not create user accounts or change dashboard authentication.
