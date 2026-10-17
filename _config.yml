@@ -1,0 +1,10 @@
+# GitHub Pages publishes main / (root).
+# Serve the public entrypoint and assets; keep development folders out of the Pages build.
+title: FYNX Wallet
+exclude:
+  - README.md
+  - dist
+  - firebase-waitlist
+  - tests
+  - deployments
+  - .openai

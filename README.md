@@ -87,3 +87,9 @@ node tests/waitlist-check.cjs
 ```
 
 The tests exercise templates and logic with lightweight mocks; they do not replace browser, Firebase emulator, or live-provider tests.
+
+## GitHub Pages
+
+Public site: https://ea-la.github.io/FYNX-Wallet/
+
+GitHub Pages uses `main` → `/ (root)`. Root `index.html` loads the public frontend from `public-site/`; `_config.yml` excludes development and owner-workspace directories from the Pages build. Keep the root entrypoint in sync if public-site/index.html changes. Backend Firebase Functions must be deployed separately.
