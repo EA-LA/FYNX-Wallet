@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build-wallet.mjs",
-    "test": "node tests/demo-check.cjs && node tests/waitlist-check.cjs && node tests/waitlist-ui-check.cjs && node --test tests/wallet-core.test.mjs tests/wallet-client.test.mjs tests/dashboard.test.mjs tests/waitlist-admin.test.mjs",
-    "check": "npm run build && npm test"
+    "test": "node tests/demo-check.cjs && node tests/waitlist-check.cjs && node tests/waitlist-ui-check.cjs && node --test tests/*.test.mjs",
+    "check": "npm run build && npm test",
+    "pages:build": "node scripts/build-pages.mjs"
   },
   "dependencies": {
     "@simplewebauthn/browser": "14.0.0",

@@ -5,6 +5,9 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { startRegistration, startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { firebaseConfig, recaptchaEnterpriseSiteKey, functionsRegion } from '../public-site/firebase-config.js';
 import { WalletConnection, CHAIN_ID } from './wallet-client.js';
+import launchPlan from './launch-checklist.json';
+import { statusLabels } from './launch-status.js';
+import { checkConnections } from './connection-checks.js';
 
 const $ = selector => document.querySelector(selector);
 const setText = (id, text) => { $(id).textContent = text; };
@@ -107,6 +110,7 @@ function clearPrivateWorkspace() {
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren();
+  $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
   setText('#account-name', ''); setText('#transaction-status', ''); setText('#workspace-status', '');
@@ -304,9 +308,31 @@ $('#load-waitlist').addEventListener('click', event => run(event.currentTarget, 
 $('#more-waitlist').addEventListener('click', event => run(event.currentTarget, () => loadRegistrations({ more: true })));
 $('#waitlist-search').addEventListener('submit', event => { event.preventDefault(); run($('#find-registration'), () => loadRegistrations({ email: $('#waitlist-email').value.trim() })); });
 $('#clear-waitlist-search').addEventListener('click', event => run(event.currentTarget, async () => { await loadRegistrations({ email: '' }); $('#waitlist-search').reset(); }));
-for (const [title, status] of [['Product model: user-controlled external wallet', 'Selected · owner testnet only'], ['Identity, wallet proofs, passkeys, access controls', 'Implemented · see verification evidence'], ['Hardware signing and real Sepolia transfer', 'Device and network acceptance required'], ['Security review and incident procedure', 'Internal review prepared · independent review pending'], ['Legal entity and launch jurisdictions', 'Name supplied · registration and markets unconfirmed'], ['Payments, swaps, provider approvals', 'Not enabled'], ['Controlled public launch', 'Blocked until release gates pass']]) {
-  const row = document.createElement('div'); row.className = 'list-row'; const label = document.createElement('strong'), state = document.createElement('span'); label.textContent = title; state.textContent = status; row.append(label, state); $('#launch-checklist').append(row);
+setText('#launch-market', launchPlan.marketPlan);
+for (const item of launchPlan.items) {
+  const details = document.createElement('details'); details.className = 'launch-item';
+  const summary = document.createElement('summary'), title = document.createElement('strong'), state = document.createElement('span');
+  title.textContent = item.title; state.textContent = statusLabels[item.status]; state.className = 'launch-state';
+  summary.append(title, state); details.append(summary);
+  for (const [label, text] of [['Current', item.current], ['To finish', item.next], ['Responsible', item.responsibility]]) {
+    const line = document.createElement('p'), lead = document.createElement('strong'); lead.textContent = `${label}: `;
+    line.append(lead, document.createTextNode(text)); details.append(line);
+  }
+  const link = document.createElement('a'); link.textContent = 'Evidence and context ↗';
+  link.href = `https://github.com/EA-LA/FYNX-Wallet/blob/main/${item.evidence}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
+  details.append(link); $('#launch-checklist').append(details);
 }
+$('#run-connection-checks').addEventListener('click', event => run(event.currentTarget, async checkSession => {
+  $('#connection-results').replaceChildren(); setText('#connection-status', 'Checking your current connection…');
+  const results = await checkConnections({ call: api, wallet: connection });
+  checkSession();
+  for (const result of results) {
+    const row = document.createElement('li'), title = document.createElement('strong'), detail = document.createElement('p');
+    title.textContent = `${result.state === 'passed' ? 'Passed' : result.state === 'failed' ? 'Needs attention' : 'Not tested'} · ${result.label}`;
+    detail.textContent = result.detail; row.append(title, detail); $('#connection-results').append(row);
+  }
+  setText('#connection-status', `Checked ${new Date().toLocaleString()}. Results describe this moment only; they do not certify signing, transfers or launch readiness.`);
+}, '#connection-status'));
 for (const event of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(event, () => { lastActivity = Date.now(); }, { passive: true });
 setInterval(() => { if (auth?.currentUser && Date.now() - lastActivity > 15 * 60000) { signOut(auth); setText('#auth-status', 'Signed out after 15 minutes of inactivity.'); } }, 30000);
 ready().catch(error => setText('#auth-status', errorMessage(error)));

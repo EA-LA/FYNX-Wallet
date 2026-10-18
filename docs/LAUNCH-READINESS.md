@@ -2,7 +2,9 @@
 
 Status: owner-only testnet workspace. Public visitors remain on the live waitlist. No production-wallet launch or independent certification is claimed.
 
-Operator name supplied by the owner: **FYNX finance world inc.** Registration jurisdiction, company number, address, and launch markets have not been supplied or independently verified.
+Operator name supplied by the owner: **FYNX finance world inc.** The intended first market is the United States, with later international expansion only into approved markets. Registration jurisdiction, company number and address have not been supplied or independently verified. No MoonPay partnership or integration is planned.
+
+See the [full launch checklist](LAUNCH-CHECKLIST.md) for each remaining engineering, device-testing, business and legal dependency. The same checklist appears in the owner dashboard’s Launch readiness tab.
 
 | Checklist item | Current result | Evidence / remaining gate |
 | --- | --- | --- |

@@ -1,5 +1,5 @@
-# GitHub Pages publishes main / (root).
-# Serve the public entrypoint and assets; keep development folders out of the Pages build.
+# Legacy Jekyll exclusions retained for reference only.
+# Active publication uses the verified Actions artifact in scripts/build-pages.mjs.
 title: FYNX Wallet
 exclude:
   - README.md

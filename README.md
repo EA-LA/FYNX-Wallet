@@ -10,13 +10,15 @@ Use **Owner access** in the public footer, or bookmark the owner link above. Sig
 
 The public waitlist is live. The owner workspace uses Firebase email/Google authentication, device passkeys, and server-side authorization for the existing verified owner. Public wallet accounts remain closed. The selected wallet model keeps recovery phrases and signing keys in an external wallet, including hardware accounts through a compatible browser extension.
 
+The intended market is the U.S. first, followed by separately approved international markets. FYNX is its own product; no MoonPay partnership or integration is planned. The owner dashboard’s **Launch readiness** tab shows the full checklist and a point-in-time connection check.
+
 ## Current wallet scope
 
 One network: **Sepolia testnet**. Standard Ethereum EOA wallets, server-verified ownership signatures, address/balance display, native test ETH transfer review, wallet approval and receipt checks. Per-transfer UI limit: 0.01 test ETH. No mainnet, token transfers, smart-contract wallet support, swaps, fiat payments, embedded seed generation/import, or WalletConnect/mobile sessions are enabled.
 
 A FYNX passkey signs into the account; the connected wallet separately authorizes signatures. Google/email account recovery does not recover wallet keys. Set an email password through Firebase’s reset link if that account currently uses Google only. Do not put recovery words, private keys, tokens or service-account credentials in this repository.
 
-**This is not a completed production wallet.** Physical Ledger signing, public Sepolia send/receive and recovery acceptance, independent security review, legal review, provider approvals and operating drills remain release gates. See [readiness](docs/LAUNCH-READINESS.md) and [verification evidence](docs/VERIFICATION.md).
+**This is not a completed production wallet.** Physical Ledger signing, public Sepolia send/receive and recovery acceptance, independent security review, legal review, provider approvals and operating drills remain release gates. See the [full launch checklist](docs/LAUNCH-CHECKLIST.md), [readiness](docs/LAUNCH-READINESS.md) and [verification evidence](docs/VERIFICATION.md).
 
 ## Repository ownership and hosting
 
@@ -56,7 +58,7 @@ Static previews can run with `python3 -m http.server 8080`. Live authentication/
 
 ## Deployment
 
-GitHub Pages builds `main` at the repository root. `_config.yml` excludes backend/source/development directories. Verify both the **Verify FYNX Wallet** workflow and **pages build and deployment** after pushing.
+GitHub Pages publishes an explicit public-file artifact from the **Verify and publish FYNX Wallet** Actions workflow. Deployment depends on passing tests, generated-file checks and dependency audits. `npm run pages:build` creates `_site` and a public revision/hash manifest. Verify both jobs and the published `release-manifest.json` after pushing. See the [release process](docs/RELEASE-PROCESS.md).
 
 After dashboard edits, build first, deploy the workspace function, then promptly push the matching owner page. The HTML and parent CSP hash must match; a stale version fails closed with a refresh message. Deploy only the intended function:
 

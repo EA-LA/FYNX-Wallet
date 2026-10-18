@@ -1,6 +1,6 @@
 # Legal and operating review brief
 
-Prepared for **FYNX finance world inc.**, the name supplied by the project owner. This is a factual implementation brief and review checklist for qualified counsel, not legal clearance or a claim of registration/licensing. Country/state of registration, company number/address, intended countries and customer eligibility remain unknown.
+Prepared for **FYNX finance world inc.**, the name supplied by the project owner. This is a factual implementation brief and review checklist for qualified counsel, not legal clearance or a claim of registration/licensing. The owner intends to target the United States first and expand internationally later. Country/state of registration, company number/address, specific U.S. states, customer eligibility and legal permissions remain unverified. The product will use FYNX branding; no MoonPay partnership or integration is requested.
 
 ## Model implemented today
 
@@ -11,7 +11,7 @@ The public product is a free availability waitlist. It collects email and consen
 | Area | Required input / review | Status |
 | --- | --- | --- |
 | Entity | Exact registered name, incorporation jurisdiction, registration number, registered/service address, beneficial owners and authorized signatory | Owner supplied name only |
-| Markets and eligibility | Launch countries/states, user age, excluded locations, access/marketing rules and geo restrictions | Not supplied |
+| Markets and eligibility | Launch countries/states, user age, excluded locations, access/marketing rules and geo restrictions | U.S. first; specific states and later countries require review |
 | Product classification | Review actual control of keys, routing, fee model, transfer initiation, any hosted recovery, swaps, fiat partners and future smart contracts | Testnet architecture documented; legal conclusion pending |
 | Licensing / AML / sanctions | Determine duties for each market and actual activity; provider reliance and contractual allocation; required registrations and screening | Counsel determination pending |
 | Privacy | Controller details, applicable laws, lawful basis, provider agreements, cross-border transfers, access/deletion process, retention/backups, cookies and abuse telemetry | Current notices and data map implemented; applicability review pending |
@@ -19,6 +19,12 @@ The public product is a free availability waitlist. It collects email and consen
 | Providers | Agreements, KYB, permitted countries/assets, test/production keys, incident and refund responsibilities | No payment/swap provider approved in this work |
 | Marketing | No guaranteed returns, insurance, audit, licensing, launch date or recovery claims without evidence; consent and unsubscribe procedures before email campaigns | Waitlist consent and removal workflow available; campaign provider absent |
 | Operations | Support coverage, security owner, incident escalation, records, reporting and continuity/restore objectives | Procedure prepared; staffing and drill pending |
+
+## U.S. first, international expansion later
+
+A goal of worldwide availability is not authorization to serve every country. Build a documented permitted-market policy for each product only after counsel and service providers confirm the actual scope. Review sanctions, payment availability, privacy/data handling and support as well as licensing. OFAC’s [virtual currency industry guidance](https://ofac.treasury.gov/media/913571/download) is a reference for U.S. sanctions controls; use current official restrictions at the time of implementation.
+
+FYNX can offer its own branded experience without MoonPay. Card and bank purchases still require an agreed operating model, appropriate payment/banking and liquidity arrangements, and applicable permissions. The code cannot create those approvals. Do not enable a checkout or collect card/bank details before those arrangements and their security controls are ready.
 
 ## Review packet
 

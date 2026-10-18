@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import './build-checklist.mjs';
 
 const source = await readFile('wallet-src/dashboard/app.js', 'utf8');
 const script = source.replace(/<\/script/gi, '<\\/script');
