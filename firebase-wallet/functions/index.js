@@ -1,3 +1,6 @@
+import { defineSecret } from 'firebase-functions/params';
+import { providerStatus, createCheckout, checkoutStatus } from './fiat.js';
+const transakSandbox = defineSecret('FYNX_TRANSAK_SANDBOX');
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
@@ -14,7 +17,7 @@ initializeApp({ serviceAccountId: SERVICE_ACCOUNT });
 export const fynxWalletWorkspace = onCall({
   region: 'us-central1', serviceAccount: SERVICE_ACCOUNT,
   enforceAppCheck: true, cors: [ORIGIN], maxInstances: 3,
-  timeoutSeconds: 30, memory: '256MiB',
+  timeoutSeconds: 30, memory: '256MiB', secrets: [transakSandbox],
 }, async request => {
   appGuard(request);
   const db = getFirestore();
@@ -31,6 +34,13 @@ export const fynxWalletWorkspace = onCall({
     await rateLimit(db, user.uid);
     const profile = db.collection('fynxWalletProfiles').doc(user.uid);
     switch (input.action) {
+      case 'provider-status': return providerStatus(transakSandbox.value());
+      case 'fiat-checkout': {
+        await rateLimit(db, 'checkout:' + user.uid, 10);
+        const snap = await profile.get();
+        return createCheckout({ raw: transakSandbox.value(), db, uid: user.uid, wallet: snap.data()?.wallet, input, ip: request.rawRequest.ip });
+      }
+      case 'fiat-status': return checkoutStatus({ raw: transakSandbox.value(), db, uid: user.uid, input });
       case 'dashboard': return { html: dashboardHTML };
       case 'session': {
         const wallet = await profile.get();

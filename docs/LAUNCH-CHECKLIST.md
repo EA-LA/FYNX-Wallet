@@ -1,8 +1,8 @@
 # FYNX Wallet launch checklist
 
-Updated 2026-10-17. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
+Updated 2026-10-20. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
 
-FYNX is its own product. No MoonPay partnership or integration is requested. Current access is owner-only on Sepolia; public visitors remain on the waitlist.
+FYNX is its own product. Owner crypto tools support Ethereum Sepolia and Base Sepolia test transactions, plus read-only Base mainnet. Public access stays on the waitlist. No MoonPay integration is planned.
 
 **Market plan:** United States first; expand internationally only where the final product is permitted and supported.
 
@@ -15,9 +15,9 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 | Separate accounts for every customer | Engineering not finished | Engineering |
 | Wallet creation and recovery | Architecture decision required | Owner + security engineering |
 | Send, receive and signing | Needs device / live-network testing | Owner + engineering |
-| Live assets, balances and transaction history | Engineering not finished | Engineering + infrastructure provider |
+| Live assets, balances and transaction history | Needs device / live-network testing | Engineering + infrastructure provider |
 | Buy and sell through cards or bank accounts | External input or approval required | Business owner + counsel + engineering |
-| Swap assets safely | Engineering not finished | Engineering + approved liquidity/provider arrangements |
+| Swap assets safely | Needs device / live-network testing | Engineering + approved liquidity/provider arrangements |
 | Production security and independent audit | External input or approval required | Owner + engineering + independent reviewer |
 | Publish only verified releases | Implemented within current scope | Engineering |
 | Monitoring, backups and incident recovery | External input or approval required | Owner + engineering |
@@ -59,35 +59,35 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 ## Send, receive and signing
 
-**Current:** Owner Sepolia transfers have recipient/fee review, ownership proof, one-use approval and pending/failed/confirmed receipt checks. Local EVM transfers passed.
+**Current:** ETH and canonical USDC test transfers have address/network/fee review, token simulation, bounded amounts, one-use approval and receipt lookup. Receive QR codes include the chain and asset. Real contracts executed successfully in an isolated Base Sepolia fork.
 
-**To finish:** Record a physical-wallet approval and rejection, public Sepolia transfer, independent recipient balance, insufficient gas, wrong network, disconnect and restored-wallet tests. Mainnet remains disabled.
+**To finish:** Record physical-wallet approval/rejection, public testnet transfers and independent recipient balances. Test recovery and supported browsers/devices. Mainnet signing remains disabled.
 
-**Responsible:** Owner + engineering. [Evidence and context](../docs/OWNER-TOOLS-VERIFICATION.md).
+**Responsible:** Owner + engineering. [Evidence and context](../docs/CRYPTO-TOOLS-VERIFICATION.md).
 
 ## Live assets, balances and transaction history
 
-**Current:** Only native Sepolia test ETH is connected. Dashboard portfolio values and its trading activity are simulated.
+**Current:** Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session transaction journal and hash lookup are implemented. The separate dashboard remains a simulation.
 
-**To finish:** Choose initial production chains/assets, dependable RPC/indexing and price data; build accurate balances, token decimals, history, confirmations, replacement/reorg handling and provider-outage recovery. Bitcoin requires separate implementation.
+**To finish:** Add complete indexed transaction history, reliable production RPC/failover, replacement/reorg handling and market prices. Bitcoin and Solana are not implemented.
 
-**Responsible:** Engineering + infrastructure provider. [Evidence and context](../README.md).
+**Responsible:** Engineering + infrastructure provider. [Evidence and context](../docs/CRYPTO-TOOLS-VERIFICATION.md).
 
 ## Buy and sell through cards or bank accounts
 
-**Current:** No real fiat purchases, sales, bank accounts, card processing or settlement are connected. No MoonPay integration is planned.
+**Current:** A server-only Transak sandbox checkout and order-status adapter is implemented with fixed hosts, verified-wallet binding and private secrets. No partner credentials are supplied; it fails closed. No live payments are enabled.
 
-**To finish:** Arrange banking, payment processing and liquidity for FYNX's chosen operating model. Then implement quotes/fees, identity checks as required, signed callbacks, idempotent orders, settlement reconciliation, refunds, disputes and outage handling. Test with approved sandbox access before live credentials.
+**To finish:** Create a provider sandbox account, enable BUY/SELL, arrange required IP allowlisting and supply staging credentials in Secret Manager. Test purchases, sales, cancellations, refunds and reconciliation. Business approval, production credentials and legal review are separate gates.
 
-**Responsible:** Business owner + counsel + engineering. [Evidence and context](../docs/LEGAL-OPERATING-REVIEW.md).
+**Responsible:** Business owner + counsel + engineering. [Evidence and context](../docs/PROVIDER-SETUP.md).
 
 ## Swap assets safely
 
-**Current:** The dashboard swap is a simulation; no real router or liquidity connection is active.
+**Current:** Direct ETH/USDC Uniswap v3 swaps on Base Sepolia: bounded slippage/price impact, one-minute quotes, exact/reset/revoke approvals, simulation and on-chain minimum output. Base mainnet quotes are read-only. Local-fork swaps passed in both directions.
 
-**To finish:** Implement supported pairs, quote expiry, minimum received, slippage/price impact, exact token approvals, simulation, transaction tracking, failed routes and fee disclosure before enabling swaps.
+**To finish:** Verify public-testnet and hardware-wallet execution; independently review the pinned contracts, pricing/manipulation risks, routing, fee handling and production release policy. Mainnet swaps stay disabled.
 
-**Responsible:** Engineering + approved liquidity/provider arrangements. [Evidence and context](../docs/LAUNCH-READINESS.md).
+**Responsible:** Engineering + approved liquidity/provider arrangements. [Evidence and context](../docs/CRYPTO-TOOLS-VERIFICATION.md).
 
 ## Production security and independent audit
 

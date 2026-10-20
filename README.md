@@ -6,7 +6,7 @@ FYNX finance world inc.’s single GitHub website: a public waitlist and an auth
 - **Owner workspace:** https://ea-la.github.io/FYNX-Wallet/owner.html
 - **Registrations:** owner workspace → Waitlist (exact email search, consent details and Load more), or Firebase project `fynx-c7a28` → Firestore → `fynxWalletWaitlist`.
 
-Use **Owner access** in the public footer, or bookmark the owner link above. Sign in with the existing verified owner account. The Dashboard tab opens the full interactive interface (Overview, Assets, Buy & sell, Swap, Activity and Settings); its sample balances and transactions are simulated. **Wallet testing** is the separate Sepolia connection/signing tool. **Sign out & exit** clears the preview and returns to the public homepage.
+Use **Owner access** in the public footer, or bookmark the owner link above. Sign in with the existing verified owner account. The Dashboard tab opens the full interactive interface (Overview, Assets, Buy & sell, Swap, Activity and Settings); its sample balances and transactions are simulated. **Crypto tools** contains the real network connection, balances, receive QR, transfers, swaps and transaction checks. **Sign out & exit** clears the preview and returns to the public homepage.
 
 The public waitlist is live. The owner workspace uses Firebase email/Google authentication, device passkeys, and server-side authorization for the existing verified owner. Public wallet accounts remain closed. The selected wallet model keeps recovery phrases and signing keys in an external wallet, including hardware accounts through a compatible browser extension.
 
@@ -14,7 +14,9 @@ The intended market is the U.S. first, followed by separately approved internati
 
 ## Current wallet scope
 
-One network: **Sepolia testnet**. Standard Ethereum EOA wallets, server-verified ownership signatures, address/balance display, native test ETH transfer review, wallet approval and receipt checks. Per-transfer UI limit: 0.01 test ETH. No mainnet, token transfers, smart-contract wallet support, swaps, fiat payments, embedded seed generation/import, or WalletConnect/mobile sessions are enabled.
+**Ethereum Sepolia and Base Sepolia** support owner testing with ETH and canonical USDC. **Base mainnet is read-only** for balances and swap quotes. Test transfers include recipient/fee review, simulation and receipt checks; receive QR codes include the network. Base Sepolia ETH/USDC swaps use pinned Uniswap v3 contracts with exact approvals, minimum output and expiry. Limits: 0.01 ETH or 25 USDC. A session journal and hash lookup track submitted transactions; full indexed history is not yet implemented.
+
+A server-only Transak **sandbox** checkout/order-status adapter is prepared and disabled pending partner credentials and IP allowlisting. No live card/bank payments, public customer accounts, mainnet signing, smart-contract wallets, Bitcoin/Solana, embedded key generation/import, or WalletConnect/mobile sessions are enabled. See [what to configure](docs/PROVIDER-SETUP.md) and [crypto verification evidence](docs/CRYPTO-TOOLS-VERIFICATION.md).
 
 A FYNX passkey signs into the account; the connected wallet separately authorizes signatures. Google/email account recovery does not recover wallet keys. Set an email password through Firebase’s reset link if that account currently uses Google only. Do not put recovery words, private keys, tokens or service-account credentials in this repository.
 

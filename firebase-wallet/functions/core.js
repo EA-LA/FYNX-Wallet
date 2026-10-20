@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { getAddress, verifyMessage } from 'ethers';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { NETWORKS } from './networks.js';
 import { OWNER_UID, APP_ID, ORIGIN, WALLET_URI, CHAIN_ID } from './config.js';
 
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -27,13 +28,14 @@ export function address(value) {
   catch { fail('invalid-argument', 'Enter a valid Ethereum address with a valid checksum.'); }
 }
 export function createWalletChallenge(uid, input, now = Date.now()) {
-  if (input.chainId !== CHAIN_ID) fail('failed-precondition', 'Only the Sepolia test network is enabled.');
+  if (!Number.isSafeInteger(input.chainId) || !NETWORKS[input.chainId]) fail('failed-precondition', 'This network is not supported.');
+  const chainId = input.chainId;
   const wallet = address(input.address);
   const id = randomBytes(24).toString('hex');
   const issuedAt = new Date(now).toISOString();
   const expiresAt = now + 5 * 60000;
-  const message = `${new URL(ORIGIN).host} wants you to sign in with your Ethereum account:\n${wallet}\n\nLink this wallet to your FYNX owner account. This does not authorize a transfer.\n\nURI: ${WALLET_URI}\nVersion: 1\nChain ID: ${CHAIN_ID}\nNonce: ${id}\nIssued At: ${issuedAt}\nExpiration Time: ${new Date(expiresAt).toISOString()}\nRequest ID: ${hash(uid).slice(0, 24)}`;
-  return { id, uid, kind: 'wallet', address: wallet, chainId: CHAIN_ID, message, expiresAt };
+  const message = `${new URL(ORIGIN).host} wants you to sign in with your Ethereum account:\n${wallet}\n\nLink this wallet to your FYNX owner account. This does not authorize a transfer.\n\nURI: ${WALLET_URI}\nVersion: 1\nChain ID: ${chainId}\nNonce: ${id}\nIssued At: ${issuedAt}\nExpiration Time: ${new Date(expiresAt).toISOString()}\nRequest ID: ${hash(uid).slice(0, 24)}`;
+  return { id, uid, kind: 'wallet', address: wallet, chainId, message, expiresAt };
 }
 export function verifyWalletChallenge(challenge, uid, signature, now = Date.now()) {
   if (challenge.kind !== 'wallet' || challenge.uid !== uid || challenge.expiresAt <= now || challenge.expiresAt > now + 5 * 60000) fail('failed-precondition', 'The signing request has expired. Connect again.');
@@ -42,7 +44,8 @@ export function verifyWalletChallenge(challenge, uid, signature, now = Date.now(
   try { signer = verifyMessage(challenge.message, signature); }
   catch { fail('permission-denied', 'Wallet signature could not be verified.'); }
   if (signer !== challenge.address) fail('permission-denied', 'Wallet signature could not be verified.');
-  return { address: signer, chainId: CHAIN_ID };
+  if (!NETWORKS[challenge.chainId] || !challenge.message.includes(`\nChain ID: ${challenge.chainId}\n`)) fail('permission-denied', 'Invalid signing network.');
+  return { address: signer, chainId: challenge.chainId };
 }
 export async function saveChallenge(db, data) {
   await db.collection('fynxWalletChallenges').doc(data.id).create({ ...data, expiresAt: Timestamp.fromMillis(data.expiresAt) });

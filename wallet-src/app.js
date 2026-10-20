@@ -4,7 +4,9 @@ import { getAuth, inMemoryPersistence, setPersistence, GoogleAuthProvider, signI
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { startRegistration, startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { firebaseConfig, recaptchaEnterpriseSiteKey, functionsRegion } from '../public-site/firebase-config.js';
-import { WalletConnection, CHAIN_ID } from './wallet-client.js';
+import { AssetConnection, receiveURI } from './asset-client.js';
+import { networkFor } from '../firebase-wallet/functions/networks.js';
+import QRCode from 'qrcode';
 import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
 import { checkConnections } from './connection-checks.js';
@@ -13,6 +15,9 @@ const $ = selector => document.querySelector(selector);
 const setText = (id, text) => { $(id).textContent = text; };
 const show = (id, visible) => { $(id).hidden = !visible; };
 let auth, api, session, connection, challenge, review, pendingHash;
+let swapQuote = null, actionReview = null, checkoutReady = false, checkoutId = null;
+const journal = new Map();
+const selectedNetwork = () => networkFor(Number($('#network-choice').value));
 let generation = 0, verifiedAddress = null, busy = false, lastActivity = Date.now();
 let dashboardFrame = null, dashboardLoading = false, dashboardTimer;
 let waitlistCursor = null, waitlistEmail = '', waitlistTotal = 0;
@@ -70,6 +75,8 @@ function errorMessage(error) {
   if (code.includes('auth/invalid-credential') || code.includes('auth/wrong-password') || code.includes('auth/user-not-found')) return 'Sign-in failed. Check your email and password or use Google.';
   if (code.includes('popup-blocked')) return 'Your browser blocked Google sign-in. Allow the popup and try again.';
   if (code.includes('too-many') || code.includes('resource-exhausted')) return 'Too many attempts. Please wait before trying again.';
+  if (/OutOfFunds|insufficient funds/i.test(error.message || '')) return 'Not enough ETH for this operation and its network fee. Add test ETH on the selected test network.';
+  if (/execution reverted|revert/i.test(error.message || '')) return 'The network could not simulate this operation. Check balances and any required approval, then request a new quote.';
   if (code.startsWith('auth/')) return 'Sign-in could not be completed. Try again or use another sign-in method.';
   return error.message || 'The operation could not be confirmed. Please try again.';
 }
@@ -98,7 +105,14 @@ window.addEventListener('eip6963:announceProvider', event => {
 window.dispatchEvent(new Event('eip6963:requestProvider'));
 setTimeout(() => { if (!providers.size && window.ethereum) addProvider('injected', 'Browser wallet', window.ethereum); if (!providers.size) $('#wallet-choice').options[0].textContent = 'No wallet found. Open a wallet extension.'; }, 600);
 function clearWallet() {
-  verifiedAddress = null; challenge = null; review = null;
+  verifiedAddress = null; challenge = null; review = null; swapQuote = null; actionReview = null;
+  connection?.cancelAction();
+  for (const id of ['#receive-qr', '#swap-quote', '#action-review', '#checkout-link']) show(id, false);
+  checkoutId = null; $('#check-provider-order').disabled = true; setText('#fiat-order-status', '');
+  $('#checkout-link').removeAttribute('href');
+  $('#quote-details').replaceChildren(); $('#action-details').replaceChildren();
+  setText('#token-balance', '— USDC'); setText('#receive-network', '');
+  pendingHash = null; setText('#transaction-status', ''); show('#transaction-link', false); show('#check-receipt', false);
   show('#signing-review', false); show('#transfer-review', false);
   setText('#signing-message', ''); $('#transfer-details').replaceChildren();
   setText('#wallet-address', 'No wallet connected'); setText('#receive-address', 'Connect and verify your wallet first.');
@@ -107,6 +121,7 @@ function clearWallet() {
   updateWalletControls();
 }
 function clearPrivateWorkspace() {
+  journal.clear(); $('#transaction-journal').replaceChildren(); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren();
@@ -121,6 +136,15 @@ function updateWalletControls() {
   const connected = !!connection?.address && !!session;
   $('#verify-wallet').disabled = busy || !connected;
   for (const id of ['#refresh-balance', '#copy-address', '#review-transfer']) $(id).disabled = busy || !verifiedAddress || connection?.address !== verifiedAddress;
+  const verified = !!verifiedAddress && connection?.address === verifiedAddress && !!session;
+  const canSend = verified && connection.network.transactionsEnabled;
+  $('#review-transfer').disabled = busy || !canSend;
+  $('#quote-swap').disabled = busy || !verified || !connection?.network.router;
+  $('#prepare-swap').disabled = busy || !canSend || !swapQuote;
+  $('#revoke-allowance').disabled = busy || !canSend || !connection?.network.router;
+  $('#lookup-transaction').disabled = busy || !verified;
+  $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
+  $('#network-choice').disabled = busy;
   show('#unlink-wallet', !!session?.wallet);
 }
 async function refreshSession() {
@@ -208,7 +232,7 @@ $('#connect-wallet').addEventListener('click', event => run(event.currentTarget,
   const provider = providers.get($('#wallet-choice').value);
   if (!provider) throw new Error('Open an Ethereum wallet extension, then reload this page. Keep recovery words in your wallet.');
   connection?.close(); clearWallet();
-  connection = new WalletConnection(provider, () => { clearWallet(); setText('#workspace-status', 'Wallet account or network changed. Connect and verify again.'); });
+  connection = new AssetConnection(provider, () => { clearWallet(); setText('#workspace-status', 'Wallet account or network changed. Connect and verify again.'); }, selectedNetwork().id);
   const address = await connection.connect();
   checkSession();
   setText('#wallet-address', address); setText('#workspace-status', 'Connected. Review and sign the ownership message next.');
@@ -216,14 +240,19 @@ $('#connect-wallet').addEventListener('click', event => run(event.currentTarget,
 $('#switch-network').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   const provider = providers.get($('#wallet-choice').value);
   if (!provider) throw new Error('Open a wallet extension first.');
-  await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID }] });
+  const network = selectedNetwork();
+  try { await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: network.hex }] }); }
+  catch (error) {
+    if (error.code !== 4902) throw error;
+    await provider.request({ method: 'wallet_addEthereumChain', params: [{ chainId: network.hex, chainName: network.name, rpcUrls: [network.rpc], blockExplorerUrls: [network.explorer], nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 } }] });
+  }
   checkSession();
-  setText('#workspace-status', 'Sepolia selected. Connect your wallet again.');
+  setText('#workspace-status', `${network.name} selected. Connect your wallet again.`);
 }));
 $('#verify-wallet').addEventListener('click', event => run(event.currentTarget, async () => {
   await connection.assertCurrent();
   const address = connection.address;
-  challenge = await api({ action: 'wallet-challenge', address, chainId: Number(BigInt(CHAIN_ID)) });
+  challenge = await api({ action: 'wallet-challenge', address, chainId: connection.network.id });
   await connection.assertCurrent();
   if (connection.address !== address) throw new Error('Wallet changed. Try again.');
   setText('#signing-message', challenge.message); show('#signing-review', true);
@@ -237,23 +266,27 @@ $('#sign-message').addEventListener('click', event => run(event.currentTarget, a
   verifiedAddress = result.wallet.address; session.wallet = result.wallet;
   setText('#wallet-proof', 'Ownership verified by FYNX.'); setText('#receive-address', verifiedAddress);
   show('#signing-review', false); challenge = null;
-  const balance = await connection.balance(); checkSession();
-  setText('#wallet-balance', `${balance} test ETH`);
+  await refreshBalances(checkSession); await renderReceive();
   setText('#workspace-status', 'Wallet signature verified and saved.');
 }));
 $('#cancel-sign').addEventListener('click', () => { challenge = null; show('#signing-review', false); });
 $('#unlink-wallet').addEventListener('click', event => run(event.currentTarget, async () => { await api({ action: 'wallet-unlink' }); session.wallet = null; connection?.close(); connection = null; clearWallet(); setText('#workspace-status', 'Wallet unlinked. Your wallet keys and assets remain in your wallet.'); }));
-$('#refresh-balance').addEventListener('click', event => run(event.currentTarget, async checkSession => { const balance = await connection.balance(); checkSession(); setText('#wallet-balance', `${balance} test ETH`); }));
-$('#copy-address').addEventListener('click', event => run(event.currentTarget, async () => { await connection.assertCurrent(); await navigator.clipboard.writeText(verifiedAddress); setText('#workspace-status', 'Address copied. Use Sepolia only.'); }));
+$('#refresh-balance').addEventListener('click', event => run(event.currentTarget, refreshBalances));
+$('#copy-address').addEventListener('click', event => run(event.currentTarget, async () => { await connection.assertCurrent(); await navigator.clipboard.writeText(verifiedAddress); setText('#workspace-status', `Address copied. Use ${connection.network.name} only.`); }));
 $('#send-form').addEventListener('submit', event => { event.preventDefault(); run($('#review-transfer'), async checkSession => {
   if (!verifiedAddress || connection.address !== verifiedAddress) throw new Error('Verify your wallet first.');
+  const symbol = $('#send-asset').value;
+  if (symbol === 'USDC') {
+    const prepared = await connection.prepareTokenTransfer($('#recipient').value.trim(), $('#amount').value.trim());
+    checkSession(); renderAction(prepared); return;
+  }
   const prepared = await connection.prepareTransfer($('#recipient').value.trim(), $('#amount').value.trim());
-  checkSession(); review = prepared;
+  checkSession(); show('#action-review', false); actionReview = null; review = prepared;
   const details = $('#transfer-details'); details.replaceChildren();
-  for (const [name, value] of [['Network', 'Sepolia test network'], ['From', review.tx.from], ['Recipient', review.tx.to], ['Amount', `${review.amount} test ETH`], ['Estimated network fee', `${review.fee} test ETH`]]) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = name; dd.textContent = value; details.append(dt, dd); }
+  for (const [name, value] of [['Network', connection.network.name], ['From', review.tx.from], ['Recipient', review.tx.to], ['Amount', `${review.amount} test ETH`], ['Estimated network fee', `${review.fee} test ETH`]]) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = name; dd.textContent = value; details.append(dt, dd); }
   show('#transfer-review', true);
 }); });
-$('#cancel-transfer').addEventListener('click', () => { review = null; show('#transfer-review', false); });
+$('#cancel-transfer').addEventListener('click', () => { connection?.cancelTransfer(); review = null; show('#transfer-review', false); });
 $('#send-transfer').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   if (!verifiedAddress || connection?.address !== verifiedAddress) throw new Error('Verify your wallet again.');
   // Consume the review before asking the wallet so a retry cannot double-submit.
@@ -261,15 +294,112 @@ $('#send-transfer').addEventListener('click', event => run(event.currentTarget, 
   const hash = await connection.sendTransfer(current);
   checkSession(); pendingHash = hash;
   setText('#transaction-status', 'Submitted to the network. Confirmation is still pending.');
-  $('#transaction-link').href = `https://sepolia.etherscan.io/tx/${pendingHash}`;
+  trackTransaction(hash, 'ETH transfer');
+  $('#transaction-link').href = `${connection.network.explorer}/tx/${pendingHash}`;
   show('#transaction-link', true); show('#check-receipt', true);
 }));
 $('#check-receipt').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   const result = await connection.receipt(pendingHash);
   checkSession();
-  setText('#transaction-status', result.status === 'confirmed' ? `Confirmed on Sepolia in block ${result.block}.` : result.status === 'failed' ? 'The transaction failed on-chain. A network fee may still have been charged.' : 'Still pending. Check your wallet or explorer before attempting another transfer.');
+  setText('#transaction-status', result.status === 'confirmed' ? `Included successfully on ${connection.network.name} in block ${result.block}. Check the explorer for finality.` : result.status === 'failed' ? 'The transaction failed on-chain. A network fee may still have been charged.' : 'Still pending. Check your wallet or explorer before attempting another transfer.');
   if (result.status !== 'pending') show('#check-receipt', false);
+  const item = journal.get(pendingHash); if (item) item.status = result.status; renderJournal();
 }));
+
+function detailList(id, entries) {
+  const list = $(id); list.replaceChildren();
+  for (const [name, value] of entries) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = name; dd.textContent = String(value); list.append(dt, dd); }
+}
+async function refreshBalances(checkSession = () => {}) {
+  const current = connection, epoch = current.epoch;
+  const [eth, usdc] = await Promise.allSettled([current.balance(), current.tokenBalance()]);
+  checkSession(); await current.assertCurrent(epoch);
+  if (current !== connection) throw new Error('Wallet changed.');
+  setText('#wallet-balance', eth.status === 'fulfilled' ? eth.value + ' ETH' : 'ETH unavailable');
+  setText('#token-balance', usdc.status === 'fulfilled' ? usdc.value + ' USDC' : 'USDC unavailable — retry when the network responds');
+}
+async function renderReceive() {
+  if (!verifiedAddress || connection?.address !== verifiedAddress) return;
+  const current = connection, epoch = current.epoch, address = verifiedAddress;
+  await current.assertCurrent(epoch);
+  const canvas = document.createElement('canvas');
+  await QRCode.toCanvas(canvas, receiveURI(current.network, address, $('#receive-asset').value), { width: 200, margin: 2, errorCorrectionLevel: 'M' });
+  await current.assertCurrent(epoch);
+  if (current !== connection || address !== verifiedAddress) return;
+  const target = $('#receive-qr'); target.width = canvas.width; target.height = canvas.height;
+  target.getContext('2d').drawImage(canvas, 0, 0); show('#receive-qr', true);
+  setText('#receive-network', current.network.name + (current.network.testnet ? ' · test assets only, no monetary value' : ' · real assets, transaction signing disabled'));
+}
+$('#receive-asset').addEventListener('change', () => run(null, renderReceive));
+$('#network-choice').addEventListener('change', () => {
+  connection?.close(); connection = null; clearWallet();
+  setText('#network-note', selectedNetwork().testnet ? 'Test assets have no monetary value. Never send real money to a test network.' : 'Base mainnet is read-only. Do not fund this wallet to test transfers; mainnet signing is disabled.');
+  setText('#lookup-status', ''); renderJournal();
+});
+function renderAction(prepared) {
+  review = null; show('#transfer-review', false); actionReview = prepared;
+  detailList('#action-details', [['Network', connection.network.name], ['Operation', prepared.displayAmount], ['From', prepared.tx.from], ['Recipient / spender', prepared.recipient], ['Contract', prepared.tx.to], ['Estimated execution fee', prepared.fee + ' ETH'], ['Expires', new Date(prepared.expiresAt).toLocaleTimeString()]]);
+  show('#action-review', true);
+}
+$('#swap-form').addEventListener('submit', event => { event.preventDefault(); run($('#quote-swap'), async checkSession => {
+  if (!verifiedAddress || connection?.address !== verifiedAddress) throw new Error('Verify your wallet first.');
+  swapQuote = null; actionReview = null; show('#action-review', false); show('#swap-quote', false);
+  const quote = await connection.quoteSwap($('#swap-asset').value, $('#swap-amount').value.trim(), Number($('#slippage').value));
+  checkSession(); swapQuote = quote;
+  detailList('#quote-details', [['Network', connection.network.name], ['Expected receive', quote.output + ' ' + quote.assetOut.symbol], ['Minimum receive', quote.minimumOutput + ' ' + quote.assetOut.symbol], ['Pool fee', (quote.fee / 10000) + '% (included in quote)'], ['Estimated price impact including pool fee', (quote.impactBps / 100) + '%'], ['Slippage limit', (quote.slippageBps / 100) + '%'], ['Router', connection.network.router], ['Expires', new Date(quote.expiresAt).toLocaleTimeString()]]);
+  show('#swap-quote', true);
+}); });
+$('#prepare-swap').addEventListener('click', event => run(event.currentTarget, async checkSession => { const prepared = await connection.prepareSwap(swapQuote); checkSession(); renderAction(prepared); }));
+$('#revoke-allowance').addEventListener('click', event => run(event.currentTarget, async checkSession => { const prepared = await connection.prepareRevoke(); checkSession(); renderAction(prepared); }));
+$('#cancel-action').addEventListener('click', () => { connection?.cancelAction(); actionReview = null; swapQuote = null; show('#action-review', false); show('#swap-quote', false); });
+$('#send-action').addEventListener('click', event => run(event.currentTarget, async checkSession => {
+  if (!verifiedAddress || connection?.address !== verifiedAddress) throw new Error('Verify your wallet first.');
+  const current = actionReview; actionReview = null; swapQuote = null; show('#action-review', false); show('#swap-quote', false);
+  const hash = await connection.sendAction(current); checkSession(); pendingHash = hash;
+  trackTransaction(hash, current.displayAmount);
+  setText('#transaction-status', current.kind === 'approval' ? 'Approval submitted, not a completed swap. Wait for confirmation, then request a new quote.' : 'Submitted. This is not yet a confirmed transaction.');
+  $('#transaction-link').href = connection.network.explorer + '/tx/' + hash;
+  show('#transaction-link', true); show('#check-receipt', true);
+}));
+function trackTransaction(hash, label) {
+  journal.set(hash, { hash, label, network: connection.network, address: connection.address, status: 'pending' }); renderJournal();
+}
+function renderJournal() {
+  const list = $('#transaction-journal'); list.replaceChildren();
+  for (const item of [...journal.values()].reverse()) {
+    if (item.network.id !== selectedNetwork().id) continue;
+    const row = document.createElement('li'), label = document.createElement('p'), link = document.createElement('a');
+    label.textContent = item.label + ' · ' + item.status; link.textContent = item.hash;
+    link.href = item.network.explorer + '/tx/' + item.hash; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.className = 'mono';
+    row.append(label, link); list.append(row);
+  }
+}
+$('#lookup-form').addEventListener('submit', event => { event.preventDefault(); run($('#lookup-transaction'), async checkSession => {
+  const hash = $('#lookup-hash').value.trim(), result = await connection.inspectTransaction(hash); checkSession();
+  setText('#lookup-status', result.status === 'pending' ? 'Pending — no receipt yet.' : (result.status === 'confirmed' ? 'Included successfully' : 'Failed on-chain') + ' in block ' + result.block + '. From ' + result.from + ' to ' + (result.to || 'contract creation') + '. Check the explorer for finality.');
+  const item = journal.get(hash); if (item) { item.status = result.status; renderJournal(); }
+}, '#lookup-status'); });
+$('#provider-status').addEventListener('click', event => run(event.currentTarget, async () => {
+  const result = await api({ action: 'provider-status' }); checkoutReady = result.sandboxReady === true;
+  setText('#provider-message', result.message);
+}, '#provider-message'));
+$('#create-checkout').addEventListener('click', event => run(event.currentTarget, async checkSession => {
+  if (!verifiedAddress || connection?.address !== verifiedAddress) throw new Error('Verify your wallet first.');
+  await connection.assertCurrent(); show('#checkout-link', false);
+  const result = await api({ action: 'fiat-checkout', direction: $('#fiat-direction').value, address: verifiedAddress });
+  checkSession(); await connection.assertCurrent();
+  const url = new URL(result.url);
+  if (url.origin !== 'https://global-stg.transak.com' || url.username || url.password) throw new Error('Unexpected checkout destination.');
+  checkoutId = result.id; $('#check-provider-order').disabled = false;
+  $('#checkout-link').href = url.href; show('#checkout-link', true);
+  setText('#provider-message', 'Sandbox session created. Open it within five minutes. This does not confirm a payment.');
+}, '#provider-message'));
+
+$('#fiat-status-form').addEventListener('submit', event => { event.preventDefault(); run($('#check-provider-order'), async () => {
+  if (!checkoutId) throw new Error('Create a sandbox session first.');
+  const result = await api({ action: 'fiat-status', sessionId: checkoutId, orderId: $('#provider-order').value.trim() });
+  setText('#fiat-order-status', result.message);
+}, '#fiat-order-status'); });
 async function loadRegistrations({ more = false, email = waitlistEmail } = {}) {
   const current = generation, data = await api({ action: 'waitlist', email, ...(more ? { cursor: waitlistCursor } : {}) });
   if (current !== generation) return;

@@ -1,23 +1,135 @@
 {
-  "updated": "2026-10-17",
+  "updated": "2026-10-20",
   "product": "FYNX Wallet",
   "operator": "FYNX finance world inc.",
   "marketPlan": "United States first; expand internationally only where the final product is permitted and supported.",
-  "scope": "FYNX is its own product. No MoonPay partnership or integration is requested. Current access is owner-only on Sepolia; public visitors remain on the waitlist.",
+  "scope": "FYNX is its own product. Owner crypto tools support Ethereum Sepolia and Base Sepolia test transactions, plus read-only Base mainnet. Public access stays on the waitlist. No MoonPay integration is planned.",
   "items": [
-    { "id": "website", "title": "One FYNX website and a live waitlist", "status": "implemented", "responsibility": "Engineering", "current": "GitHub hosts the public site and owner dashboard. Firebase stores confirmed registrations with consent and retention metadata.", "next": "Maintain the waitlist until the public-launch gates are approved.", "evidence": "firebase-waitlist/VERIFICATION.md" },
-    { "id": "identity", "title": "Account login and recovery", "status": "device-testing", "responsibility": "Owner + engineering", "current": "Google, email/password and passkeys are implemented for the verified owner. Virtual passkey and authorization tests passed.", "next": "Test Google, email recovery, passkey creation/sign-in/removal, and browser attestation on actual supported devices. Account recovery does not recover wallet funds.", "evidence": "docs/VERIFICATION.md" },
-    { "id": "public-accounts", "title": "Separate accounts for every customer", "status": "not-started", "responsibility": "Engineering", "current": "Public customer accounts are deliberately closed; the backend authorizes one owner.", "next": "Implement per-user profiles, wallet ownership, session revocation, abuse limits and cross-account isolation tests on the selected production infrastructure. Open registration only after approval.", "evidence": "docs/LAUNCH-READINESS.md" },
-    { "id": "wallet-recovery", "title": "Wallet creation and recovery", "status": "decision-required", "responsibility": "Owner + security engineering", "current": "Version one connects an existing user-controlled wallet. FYNX does not create a wallet, generate 24 words, or recover signing keys from email.", "next": "Prove external-wallet recovery first. If creating a wallet inside FYNX is required, select and independently review key generation, encrypted storage, device/passkey access, backup, export and recovery before implementation. Never ask users for an existing Ledger phrase.", "evidence": "docs/LAUNCH-READINESS.md" },
-    { "id": "signing", "title": "Send, receive and signing", "status": "device-testing", "responsibility": "Owner + engineering", "current": "Owner Sepolia transfers have recipient/fee review, ownership proof, one-use approval and pending/failed/confirmed receipt checks. Local EVM transfers passed.", "next": "Record a physical-wallet approval and rejection, public Sepolia transfer, independent recipient balance, insufficient gas, wrong network, disconnect and restored-wallet tests. Mainnet remains disabled.", "evidence": "docs/OWNER-TOOLS-VERIFICATION.md" },
-    { "id": "assets", "title": "Live assets, balances and transaction history", "status": "not-started", "responsibility": "Engineering + infrastructure provider", "current": "Only native Sepolia test ETH is connected. Dashboard portfolio values and its trading activity are simulated.", "next": "Choose initial production chains/assets, dependable RPC/indexing and price data; build accurate balances, token decimals, history, confirmations, replacement/reorg handling and provider-outage recovery. Bitcoin requires separate implementation.", "evidence": "README.md" },
-    { "id": "fiat", "title": "Buy and sell through cards or bank accounts", "status": "external-dependency", "responsibility": "Business owner + counsel + engineering", "current": "No real fiat purchases, sales, bank accounts, card processing or settlement are connected. No MoonPay integration is planned.", "next": "Arrange banking, payment processing and liquidity for FYNX's chosen operating model. Then implement quotes/fees, identity checks as required, signed callbacks, idempotent orders, settlement reconciliation, refunds, disputes and outage handling. Test with approved sandbox access before live credentials.", "evidence": "docs/LEGAL-OPERATING-REVIEW.md" },
-    { "id": "swaps", "title": "Swap assets safely", "status": "not-started", "responsibility": "Engineering + approved liquidity/provider arrangements", "current": "The dashboard swap is a simulation; no real router or liquidity connection is active.", "next": "Implement supported pairs, quote expiry, minimum received, slippage/price impact, exact token approvals, simulation, transaction tracking, failed routes and fee disclosure before enabling swaps.", "evidence": "docs/LAUNCH-READINESS.md" },
-    { "id": "production-security", "title": "Production security and independent audit", "status": "external-dependency", "responsibility": "Owner + engineering + independent reviewer", "current": "Owner authorization, App Check, challenge replay protection, dependency checks and an internal review are in place. Current GitHub origin and Firebase project are shared with other applications.", "next": "Choose a dedicated production origin/backend boundary, configure response headers and secrets/IAM, retest App Check on normal browsers, and commission an independent signing/auth review with fixes and retesting.", "evidence": "security_best_practices_report.md" },
-    { "id": "releases", "title": "Publish only verified releases", "status": "implemented", "responsibility": "Engineering", "current": "The Pages workflow waits for tests, generated-file checks and dependency audits. Only approved public assets are packaged, with a revision/hash manifest.", "next": "Keep deployment gated; use the published manifest and Actions run to identify each release. Backend deployments and rollbacks remain separately scoped.", "evidence": "docs/RELEASE-PROCESS.md" },
-    { "id": "operations", "title": "Monitoring, backups and incident recovery", "status": "external-dependency", "responsibility": "Owner + engineering", "current": "Audit retention, rate limits, a connection check and an incident procedure exist. There is no tested alert recipient or restore drill.", "next": "Assign monitored support/security contacts, set failure/authorization/billing alerts, test delivery, select backup retention and recovery objectives, and restore into an isolated environment. Connection checks are not continuous monitoring.", "evidence": "docs/OPERATIONS.md" },
-    { "id": "legal", "title": "U.S. launch permissions and consumer protections", "status": "external-dependency", "responsibility": "Business owner + qualified counsel", "current": "The owner supplied the name FYNX finance world inc. and selected the United States as the first intended market. Incorporation state, registration details and legal permissions are unverified.", "next": "Confirm entity details and the exact custody/payment model. Have counsel determine federal/state licensing, AML/KYC, sanctions, age/eligibility, privacy, consumer terms, disclosures and complaints duties. Finish the required registrations, contracts and controls before serving customers.", "evidence": "docs/LEGAL-OPERATING-REVIEW.md" },
-    { "id": "international", "title": "International availability", "status": "external-dependency", "responsibility": "Business owner + counsel + providers", "current": "Worldwide access is a future goal, not current eligibility or authorization.", "next": "Approve each country and product separately for local requirements, sanctions, payment/provider coverage, data handling and support. Implement an approved-country policy before expansion; do not promise all countries.", "evidence": "docs/LEGAL-OPERATING-REVIEW.md" },
-    { "id": "pilot", "title": "Controlled public launch", "status": "blocked", "responsibility": "Owner + engineering + reviewers", "current": "Public customers remain on the waitlist. No launch date, real-funds readiness or flawless operation is claimed.", "next": "After the applicable gates pass, run a small approved pilot with limits, staffed support, recovery/incident procedures, reconciliation, measured reliability and a rollback decision. Obtain explicit owner release approval before removing the waitlist.", "evidence": "docs/LAUNCH-READINESS.md" }
+    {
+      "id": "website",
+      "title": "One FYNX website and a live waitlist",
+      "status": "implemented",
+      "responsibility": "Engineering",
+      "current": "GitHub hosts the public site and owner dashboard. Firebase stores confirmed registrations with consent and retention metadata.",
+      "next": "Maintain the waitlist until the public-launch gates are approved.",
+      "evidence": "firebase-waitlist/VERIFICATION.md"
+    },
+    {
+      "id": "identity",
+      "title": "Account login and recovery",
+      "status": "device-testing",
+      "responsibility": "Owner + engineering",
+      "current": "Google, email/password and passkeys are implemented for the verified owner. Virtual passkey and authorization tests passed.",
+      "next": "Test Google, email recovery, passkey creation/sign-in/removal, and browser attestation on actual supported devices. Account recovery does not recover wallet funds.",
+      "evidence": "docs/VERIFICATION.md"
+    },
+    {
+      "id": "public-accounts",
+      "title": "Separate accounts for every customer",
+      "status": "not-started",
+      "responsibility": "Engineering",
+      "current": "Public customer accounts are deliberately closed; the backend authorizes one owner.",
+      "next": "Implement per-user profiles, wallet ownership, session revocation, abuse limits and cross-account isolation tests on the selected production infrastructure. Open registration only after approval.",
+      "evidence": "docs/LAUNCH-READINESS.md"
+    },
+    {
+      "id": "wallet-recovery",
+      "title": "Wallet creation and recovery",
+      "status": "decision-required",
+      "responsibility": "Owner + security engineering",
+      "current": "Version one connects an existing user-controlled wallet. FYNX does not create a wallet, generate 24 words, or recover signing keys from email.",
+      "next": "Prove external-wallet recovery first. If creating a wallet inside FYNX is required, select and independently review key generation, encrypted storage, device/passkey access, backup, export and recovery before implementation. Never ask users for an existing Ledger phrase.",
+      "evidence": "docs/LAUNCH-READINESS.md"
+    },
+    {
+      "id": "signing",
+      "title": "Send, receive and signing",
+      "status": "device-testing",
+      "responsibility": "Owner + engineering",
+      "current": "ETH and canonical USDC test transfers have address/network/fee review, token simulation, bounded amounts, one-use approval and receipt lookup. Receive QR codes include the chain and asset. Real contracts executed successfully in an isolated Base Sepolia fork.",
+      "next": "Record physical-wallet approval/rejection, public testnet transfers and independent recipient balances. Test recovery and supported browsers/devices. Mainnet signing remains disabled.",
+      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md"
+    },
+    {
+      "id": "assets",
+      "title": "Live assets, balances and transaction history",
+      "status": "device-testing",
+      "responsibility": "Engineering + infrastructure provider",
+      "current": "Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session transaction journal and hash lookup are implemented. The separate dashboard remains a simulation.",
+      "next": "Add complete indexed transaction history, reliable production RPC/failover, replacement/reorg handling and market prices. Bitcoin and Solana are not implemented.",
+      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md"
+    },
+    {
+      "id": "fiat",
+      "title": "Buy and sell through cards or bank accounts",
+      "status": "external-dependency",
+      "responsibility": "Business owner + counsel + engineering",
+      "current": "A server-only Transak sandbox checkout and order-status adapter is implemented with fixed hosts, verified-wallet binding and private secrets. No partner credentials are supplied; it fails closed. No live payments are enabled.",
+      "next": "Create a provider sandbox account, enable BUY/SELL, arrange required IP allowlisting and supply staging credentials in Secret Manager. Test purchases, sales, cancellations, refunds and reconciliation. Business approval, production credentials and legal review are separate gates.",
+      "evidence": "docs/PROVIDER-SETUP.md"
+    },
+    {
+      "id": "swaps",
+      "title": "Swap assets safely",
+      "status": "device-testing",
+      "responsibility": "Engineering + approved liquidity/provider arrangements",
+      "current": "Direct ETH/USDC Uniswap v3 swaps on Base Sepolia: bounded slippage/price impact, one-minute quotes, exact/reset/revoke approvals, simulation and on-chain minimum output. Base mainnet quotes are read-only. Local-fork swaps passed in both directions.",
+      "next": "Verify public-testnet and hardware-wallet execution; independently review the pinned contracts, pricing/manipulation risks, routing, fee handling and production release policy. Mainnet swaps stay disabled.",
+      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md"
+    },
+    {
+      "id": "production-security",
+      "title": "Production security and independent audit",
+      "status": "external-dependency",
+      "responsibility": "Owner + engineering + independent reviewer",
+      "current": "Owner authorization, App Check, challenge replay protection, dependency checks and an internal review are in place. Current GitHub origin and Firebase project are shared with other applications.",
+      "next": "Choose a dedicated production origin/backend boundary, configure response headers and secrets/IAM, retest App Check on normal browsers, and commission an independent signing/auth review with fixes and retesting.",
+      "evidence": "security_best_practices_report.md"
+    },
+    {
+      "id": "releases",
+      "title": "Publish only verified releases",
+      "status": "implemented",
+      "responsibility": "Engineering",
+      "current": "The Pages workflow waits for tests, generated-file checks and dependency audits. Only approved public assets are packaged, with a revision/hash manifest.",
+      "next": "Keep deployment gated; use the published manifest and Actions run to identify each release. Backend deployments and rollbacks remain separately scoped.",
+      "evidence": "docs/RELEASE-PROCESS.md"
+    },
+    {
+      "id": "operations",
+      "title": "Monitoring, backups and incident recovery",
+      "status": "external-dependency",
+      "responsibility": "Owner + engineering",
+      "current": "Audit retention, rate limits, a connection check and an incident procedure exist. There is no tested alert recipient or restore drill.",
+      "next": "Assign monitored support/security contacts, set failure/authorization/billing alerts, test delivery, select backup retention and recovery objectives, and restore into an isolated environment. Connection checks are not continuous monitoring.",
+      "evidence": "docs/OPERATIONS.md"
+    },
+    {
+      "id": "legal",
+      "title": "U.S. launch permissions and consumer protections",
+      "status": "external-dependency",
+      "responsibility": "Business owner + qualified counsel",
+      "current": "The owner supplied the name FYNX finance world inc. and selected the United States as the first intended market. Incorporation state, registration details and legal permissions are unverified.",
+      "next": "Confirm entity details and the exact custody/payment model. Have counsel determine federal/state licensing, AML/KYC, sanctions, age/eligibility, privacy, consumer terms, disclosures and complaints duties. Finish the required registrations, contracts and controls before serving customers.",
+      "evidence": "docs/LEGAL-OPERATING-REVIEW.md"
+    },
+    {
+      "id": "international",
+      "title": "International availability",
+      "status": "external-dependency",
+      "responsibility": "Business owner + counsel + providers",
+      "current": "Worldwide access is a future goal, not current eligibility or authorization.",
+      "next": "Approve each country and product separately for local requirements, sanctions, payment/provider coverage, data handling and support. Implement an approved-country policy before expansion; do not promise all countries.",
+      "evidence": "docs/LEGAL-OPERATING-REVIEW.md"
+    },
+    {
+      "id": "pilot",
+      "title": "Controlled public launch",
+      "status": "blocked",
+      "responsibility": "Owner + engineering + reviewers",
+      "current": "Public customers remain on the waitlist. No launch date, real-funds readiness or flawless operation is claimed.",
+      "next": "After the applicable gates pass, run a small approved pilot with limits, staffed support, recovery/incident procedures, reconciliation, measured reliability and a rollback decision. Obtain explicit owner release approval before removing the waitlist.",
+      "evidence": "docs/LAUNCH-READINESS.md"
+    }
   ]
 }

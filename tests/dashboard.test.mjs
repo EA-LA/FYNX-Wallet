@@ -33,6 +33,7 @@ test('Actual dashboard and waitlist dispatch reject guests/nonowners; deletion a
   } };
   let handler;
   const context = vm.createContext({
+    defineSecret: () => ({ value: () => '{}' }),
     initializeApp() {}, SERVICE_ACCOUNT: 'test', ORIGIN, HttpsError, appGuard, ownerGuard, fail,
     getAuth: () => auth, getFirestore: () => ({ collection: () => ({ doc: () => ({}) }) }),
     rateLimit: async () => {}, onCall: (options, fn) => { assert.equal(options.enforceAppCheck, true); handler = fn; },
@@ -45,7 +46,7 @@ test('Actual dashboard and waitlist dispatch reject guests/nonowners; deletion a
     .replace("new URL('./dashboard.html', import.meta.url)", "'dashboard.html'");
   vm.runInContext(source, context);
   const request = (token, action = 'dashboard') => ({ app: { appId: APP_ID }, data: { action }, rawRequest: { headers: { origin: ORIGIN, ...(token ? { authorization: `Bearer ${token}` } : {}) } } });
-  for (const action of ['dashboard', 'waitlist', 'waitlist-remove']) {
+  for (const action of ['dashboard', 'waitlist', 'waitlist-remove', 'provider-status', 'fiat-checkout', 'fiat-status']) {
     await assert.rejects(handler(request(undefined, action)), { code: 'unauthenticated' });
     await assert.rejects(handler(request('other-token', action)), { code: 'permission-denied' });
   }
@@ -53,5 +54,5 @@ test('Actual dashboard and waitlist dispatch reject guests/nonowners; deletion a
   assert.equal((await handler(request('owner-token', 'waitlist'))).total, 0);
   await assert.rejects(handler(request('stale-owner-token', 'waitlist-remove')), { code: 'unauthenticated' });
   assert.equal((await handler(request('owner-token', 'waitlist-remove'))).removed, false);
-  assert.equal(calls, 7);
+  assert.equal(calls, 10);
 });
