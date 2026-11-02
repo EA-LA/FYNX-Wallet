@@ -116,4 +116,50 @@ export class WalletConnection {
     if (receipt.transactionHash?.toLowerCase() !== hash.toLowerCase() || !['0x0', '0x1'].includes(receipt.status) || !Number.isSafeInteger(block) || block <= 0) throw new Error('Transaction confirmation could not be verified.');
     return { status: receipt.status === '0x1' ? 'confirmed' : 'failed', block };
   }
+  // Full status for a submitted transaction: inclusion is re-checked against the canonical
+  // block at that height (reorg), confirmation depth is counted, and a missing transaction
+  // whose nonce was consumed by another transaction is reported as replaced, never confirmed.
+  async transactionStatus(hash, known = {}) {
+    if (typeof hash !== 'string' || !HASH.test(hash)) throw new Error('Invalid transaction hash.');
+    const epoch = await this.assertCurrent();
+    const [tx, receipt, head] = await Promise.all([
+      this.provider.request({ method: 'eth_getTransactionByHash', params: [hash] }),
+      this.provider.request({ method: 'eth_getTransactionReceipt', params: [hash] }),
+      this.provider.request({ method: 'eth_blockNumber' }),
+    ]);
+    await this.assertCurrent(epoch);
+    const headBlock = quantity(head);
+    if (headBlock === null) throw new Error('Could not read the current block.');
+    if (tx && tx.hash?.toLowerCase() !== hash.toLowerCase()) throw new Error('Transaction details could not be verified.');
+    const from = tx?.from ? getAddress(tx.from) : known.from ? getAddress(known.from) : null;
+    const nonce = tx?.nonce !== undefined ? quantity(tx.nonce) : Number.isSafeInteger(known.nonce) ? known.nonce : null;
+    if (tx && nonce === null) throw new Error('Transaction details could not be verified.');
+    const target = this.network.confirmations;
+    if (receipt && receipt.blockNumber) {
+      const block = quantity(receipt.blockNumber);
+      if (receipt.transactionHash?.toLowerCase() !== hash.toLowerCase() || !['0x0', '0x1'].includes(receipt.status) || block === null || block <= 0 || !HASH.test(receipt.blockHash || '')) throw new Error('Transaction confirmation could not be verified.');
+      const canonical = await this.provider.request({ method: 'eth_getBlockByNumber', params: [receipt.blockNumber, false] });
+      await this.assertCurrent(epoch);
+      if (!canonical || canonical.hash?.toLowerCase() !== receipt.blockHash.toLowerCase()) {
+        return { status: 'pending', reorged: true, from, nonce, confirmations: 0, target };
+      }
+      const confirmations = Math.max(headBlock - block + 1, 1);
+      return { status: receipt.status === '0x1' ? 'confirmed' : 'failed', block, from, nonce, confirmations, target, settled: confirmations >= target };
+    }
+    if (from && nonce !== null) {
+      const count = quantity(await this.provider.request({ method: 'eth_getTransactionCount', params: [from, 'latest'] }));
+      await this.assertCurrent(epoch);
+      if (count === null) throw new Error('Could not read the account nonce.');
+      // The nonce is used but this hash has no receipt: another transaction took its place.
+      // If the node still returns our transaction, its receipt may simply be lagging.
+      if (count > nonce && !tx) return { status: 'replaced', from, nonce, confirmations: 0, target };
+    }
+    return { status: tx ? 'pending' : 'not-seen', from, nonce, confirmations: 0, target };
+  }
+}
+const HASH = /^0x[0-9a-fA-F]{64}$/;
+function quantity(value) {
+  if (typeof value !== 'string' || !/^0x[0-9a-f]+$/i.test(value)) return null;
+  const n = BigInt(value);
+  return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : null;
 }

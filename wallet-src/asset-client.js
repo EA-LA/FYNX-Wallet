@@ -176,8 +176,8 @@ export class AssetConnection extends WalletConnection {
     if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('Enter a valid transaction hash.');
     const tx = await this.provider.request({ method: 'eth_getTransactionByHash', params: [hash] });
     if (!tx || tx.hash?.toLowerCase() !== hash.toLowerCase()) throw new Error('Transaction not found on this network.');
-    const receipt = await this.receipt(hash);
+    const status = await this.transactionStatus(hash);
     await this.assertCurrent(epoch);
-    return { ...receipt, from: getAddress(tx.from), to: tx.to ? getAddress(tx.to) : null };
+    return { ...status, from: getAddress(tx.from), to: tx.to ? getAddress(tx.to) : null };
   }
 }

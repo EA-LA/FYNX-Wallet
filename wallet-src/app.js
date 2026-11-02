@@ -299,11 +299,13 @@ $('#send-transfer').addEventListener('click', event => run(event.currentTarget, 
   show('#transaction-link', true); show('#check-receipt', true);
 }));
 $('#check-receipt').addEventListener('click', event => run(event.currentTarget, async checkSession => {
-  const result = await connection.receipt(pendingHash);
+  const item = journal.get(pendingHash);
+  const result = await connection.transactionStatus(pendingHash, { from: item?.address, nonce: item?.nonce });
   checkSession();
-  setText('#transaction-status', result.status === 'confirmed' ? `Included successfully on ${connection.network.name} in block ${result.block}. Check the explorer for finality.` : result.status === 'failed' ? 'The transaction failed on-chain. A network fee may still have been charged.' : 'Still pending. Check your wallet or explorer before attempting another transfer.');
-  if (result.status !== 'pending') show('#check-receipt', false);
-  const item = journal.get(pendingHash); if (item) item.status = result.status; renderJournal();
+  setText('#transaction-status', statusMessage(result, connection.network));
+  // Keep checking until the inclusion is settled or the transaction was replaced.
+  if (result.settled || result.status === 'replaced') show('#check-receipt', false);
+  recordStatus(pendingHash, result);
 }));
 
 function detailList(id, entries) {
@@ -362,7 +364,27 @@ $('#send-action').addEventListener('click', event => run(event.currentTarget, as
   show('#transaction-link', true); show('#check-receipt', true);
 }));
 function trackTransaction(hash, label) {
-  journal.set(hash, { hash, label, network: connection.network, address: connection.address, status: 'pending' }); renderJournal();
+  journal.set(hash, { hash, label, network: connection.network, address: connection.address, nonce: undefined, status: 'pending' }); renderJournal();
+}
+function statusLabel(result) {
+  if (result.status === 'confirmed' || result.status === 'failed') return `${result.status} · ${result.confirmations}/${result.target} confirmations`;
+  if (result.reorged) return 'pending · block reorganized';
+  return result.status === 'not-seen' ? 'not seen by network' : result.status;
+}
+function statusMessage(result, network) {
+  if (result.reorged) return 'The block that included this transaction was replaced by a chain reorganization. It is pending again. Do not resend; check again shortly.';
+  if (result.status === 'replaced') return 'Another transaction from this wallet used the same nonce (a speed-up, cancel or different transaction). This hash will not confirm. Check your wallet history before doing anything else.';
+  if (result.status === 'not-seen') return 'The network does not currently see this transaction. It may still be propagating or may have been dropped. Check your wallet before retrying; do not resend blindly.';
+  if (result.status === 'pending') return 'Still pending. Check your wallet or explorer before attempting another transfer.';
+  const depth = `${result.confirmations} of ${result.target} confirmations`;
+  if (result.status === 'failed') return `The transaction failed on-chain in block ${result.block} (${depth}). A network fee may still have been charged.`;
+  return result.settled ? `Included successfully on ${network.name} in block ${result.block} with ${depth}.` : `Included on ${network.name} in block ${result.block} (${depth}). Wait for more confirmations before treating it as settled.`;
+}
+function recordStatus(hash, result) {
+  const item = journal.get(hash); if (!item) return;
+  item.status = statusLabel(result);
+  if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce;
+  renderJournal();
 }
 function renderJournal() {
   const list = $('#transaction-journal'); list.replaceChildren();
@@ -376,8 +398,8 @@ function renderJournal() {
 }
 $('#lookup-form').addEventListener('submit', event => { event.preventDefault(); run($('#lookup-transaction'), async checkSession => {
   const hash = $('#lookup-hash').value.trim(), result = await connection.inspectTransaction(hash); checkSession();
-  setText('#lookup-status', result.status === 'pending' ? 'Pending — no receipt yet.' : (result.status === 'confirmed' ? 'Included successfully' : 'Failed on-chain') + ' in block ' + result.block + '. From ' + result.from + ' to ' + (result.to || 'contract creation') + '. Check the explorer for finality.');
-  const item = journal.get(hash); if (item) { item.status = result.status; renderJournal(); }
+  setText('#lookup-status', statusMessage(result, connection.network) + ' From ' + result.from + ' to ' + (result.to || 'contract creation') + '.');
+  recordStatus(hash, result);
 }, '#lookup-status'); });
 $('#provider-status').addEventListener('click', event => run(event.currentTarget, async () => {
   const result = await api({ action: 'provider-status' }); checkoutReady = result.sandboxReady === true;

@@ -1,15 +1,19 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { getAddress, verifyMessage } from 'ethers';
 import { HttpsError } from 'firebase-functions/v2/https';
+import * as logger from 'firebase-functions/logger';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { NETWORKS } from './networks.js';
 import { OWNER_UID, APP_ID, ORIGIN, WALLET_URI, CHAIN_ID } from './config.js';
 
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export const fail = (code, message) => { throw new HttpsError(code, message); };
+// Security denials are logged with a fixed reason only (no token, email, IP or UID) so
+// scripts/setup-monitoring.sh can alert on unexpected authorization failures.
+const deny = (reason, code, message) => { logger.warn('Wallet workspace access denied', { reason }); fail(code, message); };
 export function appGuard(request) {
-  if (request.app?.appId !== APP_ID) fail('unauthenticated', 'App verification is required.');
-  if (request.rawRequest?.headers?.origin !== ORIGIN) fail('permission-denied', 'This origin is not allowed.');
+  if (request.app?.appId !== APP_ID) deny('app-check', 'unauthenticated', 'App verification is required.');
+  if (request.rawRequest?.headers?.origin !== ORIGIN) deny('origin', 'permission-denied', 'This origin is not allowed.');
   if (!request.data || typeof request.data !== 'object' || Array.isArray(request.data) || JSON.stringify(request.data).length > 20000) fail('invalid-argument', 'Invalid request.');
 }
 export async function ownerGuard(request, auth, { fresh = false } = {}) {
@@ -17,8 +21,8 @@ export async function ownerGuard(request, auth, { fresh = false } = {}) {
   if (!/^Bearer \S+$/.test(bearer || '')) fail('unauthenticated', 'Please sign in.');
   let token;
   try { token = await auth.verifyIdToken(bearer.slice(7), true); }
-  catch { fail('unauthenticated', 'Please sign in again.'); }
-  if (token.uid !== OWNER_UID || token.email_verified !== true) fail('permission-denied', 'This workspace is limited to its verified owner. Public access remains on the waitlist.');
+  catch { deny('token', 'unauthenticated', 'Please sign in again.'); }
+  if (token.uid !== OWNER_UID || token.email_verified !== true) deny('not-owner', 'permission-denied', 'This workspace is limited to its verified owner. Public access remains on the waitlist.');
   if (fresh && (!Number.isFinite(token.auth_time) || Date.now() / 1000 - token.auth_time > 300)) fail('unauthenticated', 'Sign out and sign in again before changing security settings.');
   return token;
 }
@@ -42,8 +46,8 @@ export function verifyWalletChallenge(challenge, uid, signature, now = Date.now(
   if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(signature)) fail('invalid-argument', 'Invalid wallet signature.');
   let signer;
   try { signer = verifyMessage(challenge.message, signature); }
-  catch { fail('permission-denied', 'Wallet signature could not be verified.'); }
-  if (signer !== challenge.address) fail('permission-denied', 'Wallet signature could not be verified.');
+  catch { deny('wallet-signature', 'permission-denied', 'Wallet signature could not be verified.'); }
+  if (signer !== challenge.address) deny('wallet-signature', 'permission-denied', 'Wallet signature could not be verified.');
   if (!NETWORKS[challenge.chainId] || !challenge.message.includes(`\nChain ID: ${challenge.chainId}\n`)) fail('permission-denied', 'Invalid signing network.');
   return { address: signer, chainId: challenge.chainId };
 }

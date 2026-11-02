@@ -24,7 +24,27 @@ Use **Owner workspace → Waitlist → Load registrations**, then **Load more re
 
 `fynxWalletAudit` stores action, hashed actor, timestamp, and a 90-day expiry; no signature, raw email, IP, private key or token. `fynxWalletChallenges` uses short-lived one-use challenges (five minutes for wallet proof; two for passkeys), plus TTL cleanup. `fynxWalletRateLimits` expires after one day. Inspect Cloud Logging for `Wallet workspace operation failed` and `Waitlist persistence failed`.
 
-Log queries and an incident procedure are prepared below; no monitored alert destination or on-call service has been configured. Before public launch, route failure spikes, unexpected authorization failures, quota/billing anomalies and IAM changes to a monitored destination and perform a test alert.
+The workspace logs `Wallet workspace access denied` with only a fixed reason (`app-check`, `origin`, `token`, `not-owner`, `wallet-signature`); no token, email, IP or UID is logged.
+
+### Alerts (prepared, not yet applied)
+
+`scripts/setup-monitoring.sh` creates FYNX-only log-based metrics, an email notification channel and these alert policies (5-minute windows):
+
+| Alert | Fires when |
+| --- | --- |
+| FYNX Wallet backend failures | any `Wallet workspace operation failed` error |
+| FYNX Wallet waitlist failures | any `Waitlist persistence failed` error |
+| FYNX Wallet access-denial spike | more than 20 denials |
+| FYNX Wallet non-owner sign-ins | more than 3 signed-in non-owner attempts |
+| FYNX project IAM change | any `SetIamPolicy` or service-account key creation |
+
+Optional: `BILLING_ACCOUNT=… BUDGET_USD=…` adds a project budget at 50/90/100%.
+
+1. Dry run: `ALERT_EMAIL=<monitored inbox> scripts/setup-monitoring.sh` and review the printed commands.
+2. Apply: `ALERT_EMAIL=<monitored inbox> APPLY=1 scripts/setup-monitoring.sh` (gcloud signed in with Monitoring/Logging admin on `fynx-c7a28`).
+3. Test: `APPLY=1 scripts/setup-monitoring.sh --test`, confirm both test emails arrive, and record the date, recipient and delivery time here.
+
+Until step 3 is recorded, there is no tested alert destination. The denial-reason logging requires deploying the updated `fynxWalletWorkspace` function.
 
 ## Incident response
 
