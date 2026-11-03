@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-03 — [autopilot] Site publishing unblocked
+- A newly reported issue in two third-party building blocks was stopping the website from publishing updates. Both were updated to their fixed versions, and the site publishes again.
+- Nothing changes in how the site looks or works.
+
 ## 2026-11-03 — [autopilot] Clearer header and page titles on the public site
 - The black "Join waitlist" button in the top bar now has crisp white text. Before, its label was a faint grey that was hard to read.
 - Each section (Features, Networks, Security, Questions, Waitlist privacy and so on) now shows its own name in the browser tab, so open tabs and bookmarks are easy to tell apart.
