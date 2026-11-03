@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-03 19:20 UTC — [autopilot] A full Features tour and "what happens next" on the waitlist
+- The Features page is now a proper tour: Portfolio, Buy and sell, Send and receive, Swap and Your keys, each with a plain explanation, what you will see, an honest status label (for example "Planned · needs provider approval") and an example preview. Buttons at the top jump to each part. See https://ea-la.github.io/FYNX-Wallet/#features
+- New "Walk through the review screen" on the same page: tap each line of an example send (recipient, network, amount, fee, approval, after sending) to learn what to check before approving. It is clearly marked as an example and nothing is sent.
+- The waitlist and Log in pages now show "What happens after you join" in four steps, from signing up to when your record is deleted. See https://ea-la.github.io/FYNX-Wallet/#waitlist
+
 ## 2026-11-03 14:30 UTC — [autopilot] Address checker on Networks and a scam self-check on Security
 - Networks page: a new table shows, for Ethereum, Base, Solana and Bitcoin, whether sending, receiving, swapping and buying are planned, possible or not yet planned. See https://ea-la.github.io/FYNX-Wallet/#networks
 - Networks page: paste any wallet address into "Which network is this address for?" to see whether it is an Ethereum/Base, Bitcoin or Solana address, with a warning if it looks incomplete. If someone pastes a recovery phrase, it is cleared straight away with a warning. Nothing typed there leaves the browser.

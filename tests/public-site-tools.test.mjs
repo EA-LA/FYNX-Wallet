@@ -13,7 +13,7 @@ function load(hash) {
     document: { title: '', addEventListener() {}, querySelector: s => (s === '#app' ? app : null), querySelectorAll: () => [] },
   };
   vm.createContext(context);
-  vm.runInContext(source.replace(/^import[^\n]+\n/, '').replace('connectFirebase();', '') + '\nthis.classifyAddress=classifyAddress;this.scamVerdict=scamVerdict;this.networkPlan=networkPlan;', context);
+  vm.runInContext(source.replace(/^import[^\n]+\n/, '').replace('connectFirebase();', '') + '\nthis.classifyAddress=classifyAddress;this.scamVerdict=scamVerdict;this.networkPlan=networkPlan;this.whatNext=whatNext;this.waitlistSource=waitlist.toString();', context);
   return { context, app };
 }
 
@@ -56,4 +56,26 @@ test('security page has a scam self-check with escalating verdicts', () => {
   assert.equal(context.scamVerdict(['returns']).kind, 'warn');
   assert.equal(context.scamVerdict(['returns', 'rush']).kind, 'danger');
   assert.match(context.scamVerdict(['phrase']).title, /This is a scam/);
+});
+
+test('features page is a full tour with honest status labels and a review walkthrough', () => {
+  const { app, context } = load('#features');
+  assert.equal(context.document.title, 'Features · FYNX Wallet');
+  for (const name of ['Portfolio', 'Buy and sell', 'Send and receive', 'Swap', 'Your keys']) assert.match(app.innerHTML, new RegExp(`Illustrative ${name.toLowerCase()} preview`));
+  assert.equal((app.innerHTML.match(/class="ft-row/g) || []).length, 5);
+  assert.equal((app.innerHTML.match(/class="review-line"/g) || []).length, 6);
+  assert.match(app.innerHTML, /nothing is connected and nothing is sent/);
+  assert.match(app.innerHTML, /needs provider approval/);
+  assert.match(app.innerHTML, /Step 1 of 6/);
+  assert.doesNotMatch(app.innerHTML, /\bLive\b|\bAvailable now\b/);
+});
+
+test('waitlist and login pages explain what happens after joining', () => {
+  const { context } = load('#features');
+  const html = context.whatNext();
+  assert.match(html, /What happens after you join/);
+  assert.equal((html.match(/<li><span class="number">/g) || []).length, 4);
+  assert.match(html, /365 days/);
+  assert.match(html, /no confirmation email is sent/);
+  assert.match(context.waitlistSource, /\$\{whatNext\(\)\}/);
 });

@@ -17,7 +17,9 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Networks page: planned-support table (send / receive / swap / buy) and an in-browser address format checker (2026-11-03)
 - [x] Security page: "Is this a scam?" self-check, approve-before checklist, official contact and U.S. fraud reporting links (2026-11-03)
 - [x] Homepage: illustrative portfolio labels BTC/SOL as later, separate work (2026-11-03)
-- [ ] Waitlist page: short "What happens next" timeline under the form
-- [ ] Features page: only three short cards — add a fuller tour (portfolio, buy, send/receive, swap, review screen) with honest "planned" labels
+- [x] Waitlist page: "What happens after you join" four-step timeline under the form (2026-11-03)
+- [x] Features page: five-part tour (portfolio, buy/sell, send/receive, swap, your keys) with status labels and example previews, plus an interactive review-screen walkthrough (2026-11-03)
+- [ ] Homepage: link the three feature cards to the matching part of the Features tour
+- [ ] Security page: link to the Features review-screen walkthrough from the "Before you approve anything" checklist
 - [ ] Address checker: optional checksum verification for mixed-case Ethereum addresses (needs a small keccak helper)
 - [ ] Preview terms page: very short; expand into sections (no financial advice, eligibility, changes) after checking with the legal review brief
