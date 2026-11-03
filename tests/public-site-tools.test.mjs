@@ -13,7 +13,7 @@ function load(hash) {
     document: { title: '', addEventListener() {}, querySelector: s => (s === '#app' ? app : null), querySelectorAll: () => [] },
   };
   vm.createContext(context);
-  vm.runInContext(source.replace(/^import[^\n]+\n/, '').replace('connectFirebase();', '') + '\nthis.classifyAddress=classifyAddress;this.scamVerdict=scamVerdict;this.networkPlan=networkPlan;this.whatNext=whatNext;this.waitlistSource=waitlist.toString();', context);
+  vm.runInContext(source.replace(/^import[^\n]+\n/, '').replace('connectFirebase();', '') + '\nthis.classifyAddress=classifyAddress;this.keccak256Hex=keccak256Hex;this.checksumAddress=checksumAddress;this.scamVerdict=scamVerdict;this.networkPlan=networkPlan;this.whatNext=whatNext;this.waitlistSource=waitlist.toString();', context);
   return { context, app };
 }
 
@@ -43,6 +43,27 @@ test('address checker recognises common formats and warns about secrets', () => 
   const phrase = c('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
   assert.equal(phrase.kind, 'danger');
   assert.equal(phrase.clear, true);
+});
+
+test('Ethereum checksum check uses real Keccak-256 and catches typos', () => {
+  const { context } = load('#networks');
+  assert.equal(context.keccak256Hex(''), 'c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470');
+  // multi-block input (longer than one 136-byte block), vector from ethers.keccak256
+  assert.equal(context.keccak256Hex('a'.repeat(200)), '96ea54061def936c4be90b518992fdc6f12f535068a256229aca54267b4d084d');
+  // EIP-55 reference vectors
+  for (const a of ['0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed', '0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359', '0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB', '0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb']) {
+    assert.equal(context.checksumAddress(a.toLowerCase()), a);
+    const r = context.classifyAddress(a);
+    assert.equal(r.kind, 'ok');
+    assert.equal(r.checksum, 'ok');
+    assert.match(r.body, /Checksum verified/);
+  }
+  const typo = context.classifyAddress('0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeD');
+  assert.equal(typo.kind, 'danger');
+  assert.equal(typo.checksum, 'bad');
+  assert.match(typo.title, /Checksum does not match/);
+  assert.equal(context.classifyAddress('0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed').checksum, 'none');
+  assert.equal(context.classifyAddress('0x5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED').checksum, 'none');
 });
 
 test('security page has a scam self-check with escalating verdicts', () => {

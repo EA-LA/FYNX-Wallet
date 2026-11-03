@@ -34,12 +34,37 @@ test('each public section gets its own browser tab title', () => {
   }
 });
 
-test('unknown and closed wallet routes still fall back to the early-access page', () => {
-  for (const hash of ['#bogus', '#assets', '#asset/eth', '#__proto__', '#toString']) {
+test('closed wallet routes still fall back to the early-access page', () => {
+  for (const hash of ['#login', '#assets', '#asset/eth', '#transaction/0x1', '#send']) {
     const site = loadSite(hash);
     assert.equal(site.context.document.title, 'Log in · FYNX Wallet');
     assert.match(site.app.innerHTML, /You’re a little early/);
   }
+});
+
+test('unknown links show a friendly page-not-found view with links to every section', () => {
+  for (const hash of ['#bogus', '#__proto__', '#toString', '#features/nope', '#faq/1']) {
+    const site = loadSite(hash);
+    assert.equal(site.context.document.title, 'Page not found · FYNX Wallet', hash);
+    assert.match(site.app.innerHTML, /This page doesn’t exist/);
+    assert.doesNotMatch(site.app.innerHTML, /You’re a little early/);
+    for (const h of ['#features', '#networks', '#security', '#faq', '#waitlist', '#privacy', '#home']) assert.ok(site.app.innerHTML.includes(`href="${h}"`), h);
+  }
+});
+
+test('feature deep links open the Features page for that part of the tour', () => {
+  for (const part of ['portfolio', 'buy', 'send', 'swap', 'keys', 'review']) {
+    const site = loadSite(`#features/${part}`);
+    assert.equal(site.context.document.title, 'Features · FYNX Wallet');
+    assert.match(site.app.innerHTML, new RegExp(`id="ft-${part}"`));
+    assert.deepEqual(site.nav.filter(a => a.attrs['aria-current'] === 'page').map(a => a.attrs.href), ['#features']);
+  }
+});
+
+test('homepage feature cards and the security checklist link into the Features tour', () => {
+  const home = loadSite('').app.innerHTML;
+  for (const part of ['portfolio', 'buy', 'send']) assert.ok(home.includes(`href="#features/${part}"`), part);
+  assert.ok(loadSite('#security').app.innerHTML.includes('href="#features/review"'));
 });
 
 test('the current section is marked in the header navigation', () => {

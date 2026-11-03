@@ -50,3 +50,4 @@
 @media(max-width:1000px){.next-list{grid-template-columns:1fr 1fr}}
 @media(max-width:800px){.ft-row{grid-template-columns:1fr;gap:24px;padding:32px 0}.ft-row.flip .ft-copy{order:0}.review-grid{grid-template-columns:1fr}.review-tour{padding:22px}.review-explain{min-height:0}}
 @media(max-width:600px){.next-list{grid-template-columns:1fr}.ft-mock{padding:16px}.ft-mock-row{padding:12px 13px;font-size:12px}.review-line{grid-template-columns:24px 1fr;}.review-line b{grid-column:2;text-align:left}}
+.notfound-links{margin:10px 0 0}.notfound-links a.card{display:block;transition:border-color .2s}.notfound-links a.card:hover{border-color:#cfd1d4}

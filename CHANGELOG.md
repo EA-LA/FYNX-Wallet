@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-03 22:17 UTC — [autopilot] Typo-catching address check, a proper "page not found", and links into the Features tour
+- The address checker on the Networks page now verifies the built-in Ethereum checksum. If an address uses mixed capital letters and they don't match, it shows a red "Checksum does not match: likely a typo" warning and tells you not to send. Correct addresses show "Checksum verified". It still runs only in your browser. See https://ea-la.github.io/FYNX-Wallet/#networks
+- Mistyped or old links (for example https://ea-la.github.io/FYNX-Wallet/#typo) now show a clear "This page doesn't exist" page with links to every section. Before, they showed the "You're a little early" log-in page, which was confusing.
+- The three cards on the homepage now say "See how it works" and open the matching part of the Features tour (Portfolio, Buy and sell, Send and receive). See https://ea-la.github.io/FYNX-Wallet/
+- The Security page checklist now links to the example review-screen walkthrough. Each part of the tour has its own link that can be shared, e.g. https://ea-la.github.io/FYNX-Wallet/#features/review
+- The year in the footer now updates automatically.
+
 ## 2026-11-03 18:15 UTC — [autopilot] A full Features tour and "what happens next" on the waitlist
 - The Features page is now a proper tour: Portfolio, Buy and sell, Send and receive, Swap and Your keys, each with a plain explanation, what you will see, an honest status label (for example "Planned · needs provider approval") and an example preview. Buttons at the top jump to each part. See https://ea-la.github.io/FYNX-Wallet/#features
 - New "Walk through the review screen" on the same page: tap each line of an example send (recipient, network, amount, fee, approval, after sending) to learn what to check before approving. It is clearly marked as an example and nothing is sent.
