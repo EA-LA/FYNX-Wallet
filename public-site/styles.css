@@ -5,3 +5,4 @@
 
 /* Keep the public login and waitlist actions visible on compact screens. */
 .globalnav .button{display:inline-flex}
+.globalnav a.button{color:#fff}.globalnav a.button.light{color:#222}#app h1:focus{outline:none}
