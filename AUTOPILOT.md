@@ -14,7 +14,10 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [ ] Load Google Fonts with `preconnect` hints for faster first paint
 - [ ] Footer "© 2026" — generate the year automatically
 - [ ] Add a visible "Back to top" control on long pages on mobile
-- [ ] Networks page: show what each network will support (send / receive / swap / buy) as a simple comparison table, clearly marked as planned
-- [ ] Security page: add a "How to spot a scam" checklist (never share recovery phrase, check the address, official contact only)
-- [ ] Homepage: the illustrative portfolio lists Bitcoin and Solana, which the Networks page says need separate work — add a clear note or align the example
+- [x] Networks page: planned-support table (send / receive / swap / buy) and an in-browser address format checker (2026-11-03)
+- [x] Security page: "Is this a scam?" self-check, approve-before checklist, official contact and U.S. fraud reporting links (2026-11-03)
+- [x] Homepage: illustrative portfolio labels BTC/SOL as later, separate work (2026-11-03)
 - [ ] Waitlist page: short "What happens next" timeline under the form
+- [ ] Features page: only three short cards — add a fuller tour (portfolio, buy, send/receive, swap, review screen) with honest "planned" labels
+- [ ] Address checker: optional checksum verification for mixed-case Ethereum addresses (needs a small keccak helper)
+- [ ] Preview terms page: very short; expand into sections (no financial advice, eligibility, changes) after checking with the legal review brief

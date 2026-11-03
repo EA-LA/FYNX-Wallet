@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-03 14:30 UTC — [autopilot] Address checker on Networks and a scam self-check on Security
+- Networks page: a new table shows, for Ethereum, Base, Solana and Bitcoin, whether sending, receiving, swapping and buying are planned, possible or not yet planned. See https://ea-la.github.io/FYNX-Wallet/#networks
+- Networks page: paste any wallet address into "Which network is this address for?" to see whether it is an Ethereum/Base, Bitcoin or Solana address, with a warning if it looks incomplete. If someone pastes a recovery phrase, it is cleared straight away with a warning. Nothing typed there leaves the browser.
+- Security page: a new "Is this a scam?" check lets visitors tick warning signs and get a clear verdict, plus a "Before you approve anything" checklist, how FYNX will contact people, and where to report fraud in the U.S. See https://ea-la.github.io/FYNX-Wallet/#security
+- Homepage example portfolio now labels Bitcoin and Solana as "later, separate work" so it matches the Networks page.
+
 ## 2026-11-03 10:15 UTC — [autopilot] Searchable help page and a menu for phones
 - The Questions page grew from 4 to 19 answers, grouped into The waitlist, The product, and Security and privacy. It covers fees, countries, networks, card payments, how long your email is kept, how to leave the list, and who holds the keys.
 - A search box filters the questions as you type, and an "Expand all" button opens every answer at once. See https://ea-la.github.io/FYNX-Wallet/#faq

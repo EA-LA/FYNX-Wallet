@@ -12,3 +12,24 @@
 @media(max-width:600px){.globalnav a.button.light{display:none}.menu-toggle{padding:11px 14px;font-size:10px}}
 .faq-tools{display:flex;gap:12px;align-items:center;margin:10px 0 0}.faq-search{flex:1;font-size:14px}.faq-tools .button{white-space:nowrap}.faq-count{margin:12px 0 0}.faq-group{margin-top:34px}.faq-group h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 4px}.faq details[hidden],.faq-group[hidden]{display:none}.faq p a,.faq-contact a{text-decoration:underline}.faq-empty{padding:30px 0;color:var(--muted);font-size:13px}.faq-contact{margin-top:34px}
 @media(max-width:600px){.faq-tools{flex-direction:column;align-items:stretch}.faq summary{font-size:15px;line-height:1.5}.faq p{font-size:14px;line-height:1.7}}
+/* Networks plan table, address checker and security safety check. */
+.net-section{margin:34px 0 0}.net-section h2,.scam-check h2,.addr-tool h2{font-size:22px;letter-spacing:-.5px;margin:0 0 14px}
+.net-table{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:#fff}
+.net-row{display:grid;grid-template-columns:1.3fr 1fr repeat(4,1fr);gap:12px;align-items:center;padding:16px 20px;border-top:1px solid var(--line);font-size:12px}
+.net-row:first-child{border-top:0}.net-head{background:var(--surface);color:#5f6266;font-size:11px;font-weight:600}
+.net-name b{display:block;font-size:13px}.net-name small{color:#6d7074;font-size:11px}.net-note{grid-column:1/-1;color:#6d7074;font-size:11px;margin-top:-6px}
+.net-status{font-style:normal;display:inline-block;padding:4px 9px;border-radius:20px;font-size:11px;border:1px solid var(--line);color:#5f6266}
+.net-status.planned{background:#eaf3ee;border-color:#cfe3d7;color:#2f5f49}.net-status.possible{background:#f4f2ea;border-color:#e6e0c8;color:#6b5a1f}
+.addr-tool,.scam-check{padding:28px;margin-top:34px}.addr-tool .muted,.scam-check .muted{font-size:13px;margin:0 0 16px}
+.addr-row{display:flex;gap:10px}.addr-row .control{flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+.addr-result:not(:empty),.scam-result:not(:empty){margin:16px 0 4px;padding:16px 18px;border-radius:14px;background:var(--surface);font-size:13px;border-left:4px solid #b9bcc0}
+.addr-result p,.scam-result p{margin:6px 0 0;color:#4f5256;line-height:1.6}.addr-result small{display:block;margin-top:8px;color:#5f6266}
+.addr-result.ok{background:#eef6f1;border-left-color:var(--green)}.addr-result.warn,.scam-result.warn{background:#fbf6e8;border-left-color:#c79a1e}.addr-result.danger,.scam-result.danger{background:#fbeeee;border-left-color:#b3261e}
+.scam-list{border:0;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.scam-item{display:flex;gap:10px;align-items:flex-start;padding:13px 14px;border:1px solid var(--line);border-radius:12px;font-size:13px;line-height:1.5;cursor:pointer}
+.scam-item input{margin-top:3px;flex:none;width:16px;height:16px}.scam-item:has(input:checked){border-color:#202122;background:var(--surface)}
+.scam-check .button{margin-top:12px}
+.approve-list{margin:0;padding:0 0 0 22px;display:grid;gap:10px;font-size:13px;line-height:1.6;color:#3f4246}
+.security-grid+.security-grid,.net-section+.security-grid{margin-top:34px}
+@media(max-width:800px){.net-head{display:none}.net-row{grid-template-columns:1fr 1fr;gap:10px 14px}.net-name{grid-column:1/-1}.net-row [data-label]::before{content:attr(data-label);display:block;color:#6d7074;font-size:10px;margin-bottom:4px}.net-note{margin-top:0}.scam-list{grid-template-columns:1fr}.addr-tool,.scam-check{padding:22px}}
+@media(max-width:600px){.addr-row{flex-direction:column}}
