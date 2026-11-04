@@ -11,7 +11,7 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [ ] SEO: a share image for link previews (needs a new approved public file)
 - [ ] Add a privacy-friendly `sitemap.xml` / `robots.txt` to the Pages release (requires adding them to the approved public-file list)
 - [x] FAQ: 19 grouped questions with live search and Expand all (2026-11-03)
-- [ ] Waitlist form: show the email field's error inline with a clearer message before submit
+- [x] Waitlist form: specific inline email messages (missing @, spaces, bad domain) and a one-tap fix for common typos like gmial.com (2026-11-04)
 - [ ] Load Google Fonts with `preconnect` hints for faster first paint
 - [x] Footer year is filled in automatically (2026-11-03)
 - [ ] Add a visible "Back to top" control on long pages on mobile
@@ -31,6 +31,9 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Features, Networks and Security end with a "Words used on this page" row linking each term to the glossary (2026-11-04)
 - [x] Homepage: "New to crypto? Start here." row with four free tools (glossary, backup check, scam check, address check) (2026-11-04)
 - [x] Security page: "Is your recovery phrase backup safe?" nine-statement check with a score, urgent items first and a fix plus glossary link for each gap; deep links #security/backup, #security/scam, #security/approve, #networks/check, #networks/plan (2026-11-04)
-- [ ] Security page: printable one-page backup instructions sheet (no phrase fields) to keep with a will
+- [x] Security page: printable backup instructions sheet for family (#security/sheet), optional fields, blank lines for hand-filling, refuses anything that looks like a phrase or key, prints only the sheet (2026-11-04)
 - [ ] Glossary: link terms inline inside Features/Networks/Security paragraphs, not only in the end-of-page row
-- [ ] Waitlist page: "Start here" tools row under the form for people who just joined
+- [x] Waitlist page: "While you wait" free tools row under the form, and tool links in the success message (2026-11-04)
+- [ ] Homepage "Start here" row: add the backup instructions sheet as a fifth tool (needs a 5-column or 2+3 layout)
+- [ ] Preview terms page and Learn page: printable versions
+- [ ] Security sheet: optional second wallet (some people keep two)

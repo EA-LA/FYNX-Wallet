@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-04 10:17 UTC — [autopilot] A printable backup sheet for your family, and a friendlier waitlist form
+
+- New on the Security page: "Backup instructions for your family". Fill in which wallet you use, how many words your phrase has, where the copies are kept and who to call, then print it or save it as a PDF to keep with a will. Anything left empty prints as a line to fill in by hand, and the sheet explains step by step how a family member can safely recover the wallet. It never asks for the recovery phrase: if someone types or pastes one, it is wiped straight away with a warning. Nothing is sent or saved. https://ea-la.github.io/FYNX-Wallet/#security/sheet
+- The backup check on the same page now points to the new sheet as the next step.
+- Waitlist form: if the email is mistyped, a clear message appears right under the field ("An email address needs an @", "Check the part after the @"…), and common slips like gmial.com or hotmial.com get a "Did you mean …gmail.com? Use this" fix. https://ea-la.github.io/FYNX-Wallet/#waitlist
+- Waitlist page: a "While you wait" row of the free tools under the form, and the "You're on the list" message now links to them too.
+
 ## 2026-11-04 06:20 UTC — [autopilot] A recovery-phrase backup check and a "Start here" row for newcomers
 
 - New on the Security page: "Is your recovery phrase backup safe?" Tick nine plain statements and get a score, with the risky gaps shown first in red and a clear fix for each one. Answers never leave the page. https://ea-la.github.io/FYNX-Wallet/#security/backup
