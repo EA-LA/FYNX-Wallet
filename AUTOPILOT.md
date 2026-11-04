@@ -24,9 +24,13 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Security page: "Before you approve anything" links to the example review-screen walkthrough (#features/review) (2026-11-03)
 - [x] Address checker: verifies the Ethereum (EIP-55) checksum of mixed-case addresses with an in-browser Keccak-256 and warns on a mismatch (2026-11-03)
 - [ ] Preview terms page: very short; expand into sections (no financial advice, eligibility, changes) after checking with the legal review brief
-- [ ] Networks page: a "Copy" button next to the address checker result
-- [ ] Features tour: update the browser address (#features/<part>) when a jump chip is pressed so the part can be shared
+- [x] Networks page: a "Copy address" button under the address checker (hidden for anything that looks like a key or phrase) (2026-11-04)
+- [x] Features tour: jump chips update the browser address (#features/<part>) so the part can be shared (2026-11-04)
 - [x] FAQ: shareable links to a single answer (#faq/<question>) with a Copy link button; the answer opens and is highlighted (2026-11-04)
 - [x] New Learn page (#learn): 33-term plain-English crypto glossary in five topics, with search, topic filters, related terms, links to the matching tool or page, and shareable #learn/<term> links; linked from header, phone menu, footer, FAQ and page-not-found (2026-11-04)
-- [ ] Learn page: link glossary words from Features, Networks and Security text (e.g. "network fee" → #learn/network-fee)
-- [ ] Homepage: a short "New to crypto?" strip pointing at the glossary and the scam self-check
+- [x] Features, Networks and Security end with a "Words used on this page" row linking each term to the glossary (2026-11-04)
+- [x] Homepage: "New to crypto? Start here." row with four free tools (glossary, backup check, scam check, address check) (2026-11-04)
+- [x] Security page: "Is your recovery phrase backup safe?" nine-statement check with a score, urgent items first and a fix plus glossary link for each gap; deep links #security/backup, #security/scam, #security/approve, #networks/check, #networks/plan (2026-11-04)
+- [ ] Security page: printable one-page backup instructions sheet (no phrase fields) to keep with a will
+- [ ] Glossary: link terms inline inside Features/Networks/Security paragraphs, not only in the end-of-page row
+- [ ] Waitlist page: "Start here" tools row under the form for people who just joined

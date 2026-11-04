@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-04 06:20 UTC — [autopilot] A recovery-phrase backup check and a "Start here" row for newcomers
+
+- New on the Security page: "Is your recovery phrase backup safe?" Tick nine plain statements and get a score, with the risky gaps shown first in red and a clear fix for each one. Answers never leave the page. https://ea-la.github.io/FYNX-Wallet/#security/backup
+- Homepage: a new "New to crypto? Start here." row with four free tools: glossary, backup check, scam check and address check. https://ea-la.github.io/FYNX-Wallet/
+- Features, Networks and Security pages now end with a row of the crypto words they use, each linking to its glossary explanation.
+- Address checker: a "Copy address" button (not shown for anything that looks like a key or recovery phrase). https://ea-la.github.io/FYNX-Wallet/#networks/check
+- Features tour: pressing a jump button updates the link in the address bar, so you can share that exact part.
+- New direct links to sections: #security/scam, #security/approve, #networks/plan.
+
 ## 2026-11-04 02:20 UTC — [autopilot] A crypto glossary, shareable answers, and better link previews
 
 - New **Learn** page in the top menu: 33 crypto words explained in plain English (wallet, recovery phrase, network fee, token approval, slippage, KYC and more), grouped into five topics. Search it, filter by topic, jump between related words, and follow each word to the matching tool on the site. https://ea-la.github.io/FYNX-Wallet/#learn
