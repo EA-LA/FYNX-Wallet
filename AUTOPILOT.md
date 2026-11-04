@@ -14,7 +14,7 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Waitlist form: specific inline email messages (missing @, spaces, bad domain) and a one-tap fix for common typos like gmial.com (2026-11-04)
 - [ ] Load Google Fonts with `preconnect` hints for faster first paint
 - [x] Footer year is filled in automatically (2026-11-03)
-- [ ] Add a visible "Back to top" control on long pages on mobile
+- [x] A "↑ Top" button appears after scrolling down on any long page (phone and desktop) and returns focus to the page heading (2026-11-04)
 - [x] Networks page: planned-support table (send / receive / swap / buy) and an in-browser address format checker (2026-11-03)
 - [x] Security page: "Is this a scam?" self-check, approve-before checklist, official contact and U.S. fraud reporting links (2026-11-03)
 - [x] Homepage: illustrative portfolio labels BTC/SOL as later, separate work (2026-11-03)
@@ -40,6 +40,7 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Networks page: "Look up a transaction or address" (#networks/lookup) builds links to Etherscan, Basescan, their Sepolia test explorers, mempool.space and the Solana explorer for transaction IDs, addresses and ENS names; refuses recovery phrases, Bitcoin private keys and xpubs; hides links for 64-character IDs (which look like private keys) until the visitor confirms where it came from; "What to check on the explorer" guide (2026-11-04)
 - [x] Networks page: exact unit converter (ETH/gwei/wei, USDC/base units, BTC/sats, SOL/lamports) and network-fee arithmetic (gas × gas price), no prices (#networks/units) (2026-11-04)
 - [x] Glossary: new terms "Gwei and wei" and "Token decimals"; transaction ID and block explorer entries link to the lookup tool (2026-11-04)
-- [ ] Mobile: a visible "Back to top" control on long pages (Networks and Security are now very long)
-- [ ] Networks page: an in-page contents row (plan · check · lookup · units) at the top
-- [ ] Lookup tool: also accept full explorer links (etherscan.io/tx/…) and pull out the ID
+- [x] Networks and Security pages: "On this page" row at the top linking to each tool, with shareable addresses (2026-11-04)
+- [x] Lookup tool: accepts links copied from Etherscan, Basescan (and their Sepolia sites), mempool.space, Blockstream, Solana Explorer and Solscan; shows the ID it found, puts the link's own network first, and warns on look-alike sites, links without an ID and mismatched contents (2026-11-04)
+- [ ] Lookup tool: also accept token pages (/token/…) and Arbitrum/Optimism explorers once those networks are considered
+- [ ] Learn page: "On this page" topic row at the top, like Networks and Security

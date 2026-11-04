@@ -117,3 +117,49 @@ test('homepage Start here row includes the new lookup and family sheet tools', (
   assert.match(app.innerHTML, /href="#networks\/lookup"/);
   assert.match(app.innerHTML, /href="#security\/sheet"/);
 });
+
+test('lookup accepts explorer links and puts their network first', () => {
+  const { context } = load('#networks');
+  const t = v => context.lookupTarget(v);
+  const tx = `0x${'ab'.repeat(32)}`;
+  const base = t(`https://basescan.org/tx/${tx}`);
+  assert.equal(base.kind, 'ok');
+  assert.equal(base.found, tx);
+  assert.equal(base.secret, false);
+  assert.equal(base.links[0][1], `https://basescan.org/tx/${tx}`);
+  assert.equal(base.links.length, 4);
+  assert.match(base.title, /Base explorer link/);
+  const sep = t(`sepolia.etherscan.io/address/0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045#tokentxns`);
+  assert.equal(sep.links[0][0], 'Ethereum Sepolia (test)');
+  const btc = t('https://mempool.space/testnet4/tx/f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16');
+  assert.equal(btc.links[0][0], 'Bitcoin testnet4 (test)');
+  assert.equal(t('https://blockstream.info/address/bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq').links[0][0], 'Bitcoin');
+  assert.equal(t('https://explorer.solana.com/address/So11111111111111111111111111111111111111112?cluster=devnet').links[0][0], 'Solana devnet (test)');
+  assert.equal(t('https://solscan.io/account/So11111111111111111111111111111111111111112').links[0][0], 'Solana');
+  const html = context.lookupResultHtml(base, false);
+  assert.match(html, /Found in the link/);
+  assert.match(html, /href="https:\/\/basescan\.org\/tx\//);
+});
+
+test('lookup warns on look-alike, empty and mismatched explorer links', () => {
+  const { context } = load('#networks');
+  const t = v => context.lookupTarget(v);
+  const fake = t(`https://etherscan.io.verify-wallet.com/tx/0x${'ab'.repeat(32)}`);
+  assert.equal(fake.kind, 'warn');
+  assert.equal(fake.links.length, 0);
+  assert.match(fake.body, /look-alike/);
+  assert.equal(t('https://etherscan.io/').links.length, 0);
+  assert.match(t('https://etherscan.io/gastracker').title, /no transaction or address/);
+  assert.match(t('https://etherscan.io/address/bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq').title, /do not match/);
+  assert.equal(t('https://etherscan.io/tx/0x12').kind, 'warn');
+  assert.equal(t('https://etherscan.io/tx/%E0%A4%A').kind, 'warn');
+  assert.equal(t('vitalik.eth').type, 'Name');
+});
+
+test('networks and security pages have an "On this page" row with deep links', () => {
+  for (const [hash, ids] of [['#networks', ['plan', 'check', 'lookup', 'units']], ['#security', ['scam', 'approve', 'backup', 'sheet']]]) {
+    const { app } = load(hash);
+    assert.match(app.innerHTML, /aria-label="On this page"/);
+    for (const id of ids) assert.match(app.innerHTML, new RegExp(`href="${hash}/${id}"`));
+  }
+});

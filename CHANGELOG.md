@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-04 18:40 UTC — [autopilot] Paste an explorer link, jump around long pages, and a "Top" button
+
+- The transaction lookup on the Networks page now understands whole links copied from Etherscan, Basescan, mempool.space, Blockstream, Solana Explorer and Solscan. It pulls out the transaction or address, shows it, and lists the link's own network first. Links from look-alike or unknown sites get a clear warning instead of buttons. See https://ea-la.github.io/FYNX-Wallet/#networks/lookup
+- The Networks and Security pages now open with an "On this page" row so visitors can jump straight to each tool (and share that spot): https://ea-la.github.io/FYNX-Wallet/#networks and https://ea-la.github.io/FYNX-Wallet/#security
+- A small "↑ Top" button appears after scrolling down on any long page, which helps most on phones.
+
 ## 2026-11-04 14:18 UTC — [autopilot] Look up any transaction, and a unit and fee converter
 
 - New on the Networks page: "Look up a transaction or address". Paste a transaction ID, a wallet address or a name like vitalik.eth and get one-tap buttons to open it on the right public block explorer (Etherscan, Basescan, their test networks, mempool.space for Bitcoin, the Solana explorer). A short guide explains what to check there: status, from and to, amount, fee and confirmations. https://ea-la.github.io/FYNX-Wallet/#networks/lookup
