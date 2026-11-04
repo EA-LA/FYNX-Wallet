@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-04 14:18 UTC — [autopilot] Look up any transaction, and a unit and fee converter
+
+- New on the Networks page: "Look up a transaction or address". Paste a transaction ID, a wallet address or a name like vitalik.eth and get one-tap buttons to open it on the right public block explorer (Etherscan, Basescan, their test networks, mempool.space for Bitcoin, the Solana explorer). A short guide explains what to check there: status, from and to, amount, fee and confirmations. https://ea-la.github.io/FYNX-Wallet/#networks/lookup
+- Built-in safety: recovery phrases and Bitcoin private keys are wiped straight away with a warning, and because a private key can look just like a transaction ID, the explorer buttons only appear after you confirm where the ID came from.
+- New on the Networks page: "Convert amounts and understand fees". Convert exactly between ETH, gwei and wei, USDC and its base units, BTC and sats, SOL and lamports, and see how a network fee is worked out (gas used × gas price). Pure arithmetic, no prices. https://ea-la.github.io/FYNX-Wallet/#networks/units
+- Glossary: two new words, "Gwei and wei" and "Token decimals", each linked to the converter. https://ea-la.github.io/FYNX-Wallet/#learn/gwei
+- Homepage: the "Start here" row now has six free tools, adding "Track a transaction" and "Plan for your family". https://ea-la.github.io/FYNX-Wallet/
+
 ## 2026-11-04 10:17 UTC — [autopilot] A printable backup sheet for your family, and a friendlier waitlist form
 
 - New on the Security page: "Backup instructions for your family". Fill in which wallet you use, how many words your phrase has, where the copies are kept and who to call, then print it or save it as a PDF to keep with a will. Anything left empty prints as a line to fill in by hand, and the sheet explains step by step how a family member can safely recover the wallet. It never asks for the recovery phrase: if someone types or pastes one, it is wiped straight away with a warning. Nothing is sent or saved. https://ea-la.github.io/FYNX-Wallet/#security/sheet

@@ -34,6 +34,12 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Security page: printable backup instructions sheet for family (#security/sheet), optional fields, blank lines for hand-filling, refuses anything that looks like a phrase or key, prints only the sheet (2026-11-04)
 - [ ] Glossary: link terms inline inside Features/Networks/Security paragraphs, not only in the end-of-page row
 - [x] Waitlist page: "While you wait" free tools row under the form, and tool links in the success message (2026-11-04)
-- [ ] Homepage "Start here" row: add the backup instructions sheet as a fifth tool (needs a 5-column or 2+3 layout)
+- [x] Homepage "Start here" row: six tools in a 3×2 layout, now including the transaction lookup and the family backup sheet (2026-11-04)
 - [ ] Preview terms page and Learn page: printable versions
 - [ ] Security sheet: optional second wallet (some people keep two)
+- [x] Networks page: "Look up a transaction or address" (#networks/lookup) builds links to Etherscan, Basescan, their Sepolia test explorers, mempool.space and the Solana explorer for transaction IDs, addresses and ENS names; refuses recovery phrases, Bitcoin private keys and xpubs; hides links for 64-character IDs (which look like private keys) until the visitor confirms where it came from; "What to check on the explorer" guide (2026-11-04)
+- [x] Networks page: exact unit converter (ETH/gwei/wei, USDC/base units, BTC/sats, SOL/lamports) and network-fee arithmetic (gas × gas price), no prices (#networks/units) (2026-11-04)
+- [x] Glossary: new terms "Gwei and wei" and "Token decimals"; transaction ID and block explorer entries link to the lookup tool (2026-11-04)
+- [ ] Mobile: a visible "Back to top" control on long pages (Networks and Security are now very long)
+- [ ] Networks page: an in-page contents row (plan · check · lookup · units) at the top
+- [ ] Lookup tool: also accept full explorer links (etherscan.io/tx/…) and pull out the ID

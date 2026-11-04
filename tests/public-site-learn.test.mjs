@@ -10,7 +10,7 @@ function loadSite(hash) {
   const app = { innerHTML: '' };
   const context = {
     Object, Map, Set, location: { hash, href: `https://example.test/${hash}` },
-    window: { addEventListener() {}, scrollTo() {} },
+    window: { addEventListener() {}, scrollTo() {} }, requestAnimationFrame() {},
     document: { title: '', addEventListener() {}, querySelector: s => (s === '#app' ? app : null), querySelectorAll: () => [] },
   };
   vm.createContext(context);
