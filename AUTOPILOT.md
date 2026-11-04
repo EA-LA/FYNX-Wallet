@@ -42,5 +42,8 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Glossary: new terms "Gwei and wei" and "Token decimals"; transaction ID and block explorer entries link to the lookup tool (2026-11-04)
 - [x] Networks and Security pages: "On this page" row at the top linking to each tool, with shareable addresses (2026-11-04)
 - [x] Lookup tool: accepts links copied from Etherscan, Basescan (and their Sepolia sites), mempool.space, Blockstream, Solana Explorer and Solscan; shows the ID it found, puts the link's own network first, and warns on look-alike sites, links without an ID and mismatched contents (2026-11-04)
+- [x] Security page: "Check a website link" (#security/link) reads a pasted link without opening it: real site shown, fake brand names, look-alike spellings (incl. letter swaps and rn/m, 0/o tricks), other-alphabet letters, "@" disguises, IP addresses, shorteners, http, free hosting, risky endings and wallet-bait words; recognises a short list of official addresses; refuses phrases/keys; linked from the jump row and the Phishing glossary entry (2026-11-04)
+- [ ] Link checker: optional "report this site" links (e.g. Google Safe Browsing report form) and more official addresses if visitors ask
+- [ ] Homepage "Start here" row: consider adding the link checker (needs a 4×2 or carousel layout so the grid stays even)
 - [ ] Lookup tool: also accept token pages (/token/…) and Arbitrum/Optimism explorers once those networks are considered
 - [ ] Learn page: "On this page" topic row at the top, like Networks and Security

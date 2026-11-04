@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-04 22:20 UTC — [autopilot] "Check a website link" scam-link checker
+- New free tool on the Security page: paste any link you were sent and it tells you, in plain words, whether it looks like a scam before you open it. https://ea-la.github.io/FYNX-Wallet/#security/link
+- It shows the site you would *really* be visiting (for example `metamask.io.wallet-sync.com` is really wallet-sync.com), and warns about fake brand names, look-alike spellings (metarnask.io, coinbsae.com), letters from other alphabets, hidden “@” tricks, bare number addresses, shortened links, unencrypted http links, free-hosting sites, cheap scam-prone endings and “claim / sync / restore your wallet” wording.
+- Known official addresses (MetaMask, Ledger, Trezor, Coinbase, Kraken, Binance, Uniswap, OpenSea, Phantom, Trust Wallet, Rabby, Robinhood, Etherscan, Basescan, Solscan and FYNX’s own sites) are recognised and confirmed.
+- The link is never opened or sent anywhere, and anything that looks like a recovery phrase or key is cleared straight away.
+- Includes a short “How to read any web address” guide. The Security page’s “On this page” row and the glossary’s Phishing entry link to it.
+
 ## 2026-11-04 18:40 UTC — [autopilot] Paste an explorer link, jump around long pages, and a "Top" button
 
 - The transaction lookup on the Networks page now understands whole links copied from Etherscan, Basescan, mempool.space, Blockstream, Solana Explorer and Solscan. It pulls out the transaction or address, shows it, and lists the link's own network first. Links from look-alike or unknown sites get a clear warning instead of buttons. See https://ea-la.github.io/FYNX-Wallet/#networks/lookup
