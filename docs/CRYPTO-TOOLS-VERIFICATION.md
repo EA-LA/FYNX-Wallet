@@ -44,7 +44,18 @@ The browser used a private ephemeral software wallet and a read-only RPC bridge 
 - Native ETH recipients and ERC20 recipients are limited to standard wallet addresses. Smart-contract wallets, Bitcoin, Solana, embedded wallet creation/recovery, bridges and arbitrary tokens are unsupported.
 - SwapRouter02 is an existing Uniswap v3 router; this is a deliberately narrow direct-contract integration, not Universal Router/Permit2 or a best-execution aggregator. It needs independent review before real funds. Spot-price impact is not an independent fair-price oracle or MEV protection.
 - Base's final fee can include an L1 data fee beyond the execution estimate. The wallet must display the final fee. Production fee estimation/reconciliation remains a gate.
-- Full indexed history, production RPC resilience, transaction replacement/reorg handling, customer isolation, legal/provider approval and operational response remain open. See [provider setup](PROVIDER-SETUP.md) and [launch checklist](LAUNCH-CHECKLIST.md).
+- Full indexed history, production RPC resilience, customer isolation, legal/provider approval and operational response remain open. See [provider setup](PROVIDER-SETUP.md) and [launch checklist](LAUNCH-CHECKLIST.md).
+
+## Transaction status: confirmations, reorgs and replacement (2026-11-02)
+
+`WalletConnection.transactionStatus` replaces the plain receipt check in the owner workspace. It reads the transaction, receipt and current block together and:
+
+- counts confirmations from the current head and marks an inclusion **settled** only at the network target (12 blocks on Ethereum Sepolia, 30 on Base Sepolia/Base) — a UI threshold, not a finality guarantee;
+- re-reads the canonical block at the receipt's height and reports **pending (reorganized)** when its hash differs;
+- reports **replaced** only when the transaction is no longer known *and* the sender's mined nonce has passed it, and **not seen** when the network does not know the hash (never confirmed);
+- rejects malformed hashes, receipts, nonces and block numbers, and discards results if the wallet account/network changes mid-check.
+
+Evidence: `tests/transaction-status.test.mjs` (7 cases) and `scripts/verify-transaction-status.mjs`, which on a local EVM confirmed 1 → 12 confirmations (settled), a mempool transaction as pending, its fee-bumped same-nonce replacement as confirmed and the original as replaced, and an unknown hash as not seen. During development a Ganache miner_stop/miner_start sequence produced a receipt pointing to a non-canonical block, and the check correctly reported it as reorganized rather than confirmed. A public-testnet speed-up/cancel with a real wallet has not yet been recorded.
 
 ## Reproduce the optional contract test
 
@@ -52,6 +63,12 @@ Install `ganache@7.9.2` into an isolated development tooling directory, then run
 
 ```sh
 FYNX_GANACHE_MODULE=/absolute/tooling/node_modules/ganache/dist/node/core.js node scripts/verify-crypto-fork.mjs
+```
+
+The transaction-status check runs the same way:
+
+```sh
+FYNX_GANACHE_MODULE=/absolute/tooling/node_modules/ganache/dist/node/core.js node scripts/verify-transaction-status.mjs
 ```
 
 This legacy test runner is not part of the website or deployed backend. Its OP block-transaction compatibility shim is only for the isolated fork. Quotes/output amounts depend on the forked state; successful receipts and independent balance/allowance assertions determine the result.

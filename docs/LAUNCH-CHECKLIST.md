@@ -1,6 +1,6 @@
 # FYNX Wallet launch checklist
 
-Updated 2026-10-20. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
+Updated 2026-11-02. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
 
 FYNX is its own product. Owner crypto tools support Ethereum Sepolia and Base Sepolia test transactions, plus read-only Base mainnet. Public access stays on the waitlist. No MoonPay integration is planned.
 
@@ -67,9 +67,9 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 ## Live assets, balances and transaction history
 
-**Current:** Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session transaction journal and hash lookup are implemented. The separate dashboard remains a simulation.
+**Current:** Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session journal and hash lookup now count confirmations (12 on Ethereum Sepolia, 30 on Base), re-check inclusion against the canonical block to detect reorganizations, and report replaced (speed-up/cancel) and unseen transactions instead of treating them as pending or confirmed. Unit tests and a local-EVM replacement test passed. The separate dashboard remains a simulation.
 
-**To finish:** Add complete indexed transaction history, reliable production RPC/failover, replacement/reorg handling and market prices. Bitcoin and Solana are not implemented.
+**To finish:** Verify confirmation/replacement reporting with a real wallet speed-up or cancel on a public testnet. Add complete indexed transaction history and market prices (requires choosing an indexer/price provider), and reliable production RPC/failover (requires a paid RPC provider). Bitcoin and Solana are not implemented.
 
 **Responsible:** Engineering + infrastructure provider. [Evidence and context](../docs/CRYPTO-TOOLS-VERIFICATION.md).
 
@@ -107,9 +107,9 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 ## Monitoring, backups and incident recovery
 
-**Current:** Audit retention, rate limits, a connection check and an incident procedure exist. There is no tested alert recipient or restore drill.
+**Current:** Audit retention, rate limits, a connection check and an incident procedure exist. Authorization denials are now logged with a fixed reason (no personal data), and scripts/setup-monitoring.sh creates log-based metrics, an email channel and alerts for backend/waitlist failures, denial spikes, non-owner sign-ins, IAM changes and an optional billing budget. It has not been run against the project yet; there is no tested alert recipient or restore drill.
 
-**To finish:** Assign monitored support/security contacts, set failure/authorization/billing alerts, test delivery, select backup retention and recovery objectives, and restore into an isolated environment. Connection checks are not continuous monitoring.
+**To finish:** Choose a monitored alert inbox, run scripts/setup-monitoring.sh with APPLY=1, run its --test mode and record that both alert emails arrived. Select backup retention and recovery objectives, and restore into an isolated environment. Connection checks are not continuous monitoring.
 
 **Responsible:** Owner + engineering. [Evidence and context](../docs/OPERATIONS.md).
 
