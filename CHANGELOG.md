@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-04 02:20 UTC — [autopilot] A crypto glossary, shareable answers, and better link previews
+
+- New **Learn** page in the top menu: 33 crypto words explained in plain English (wallet, recovery phrase, network fee, token approval, slippage, KYC and more), grouped into five topics. Search it, filter by topic, jump between related words, and follow each word to the matching tool on the site. https://ea-la.github.io/FYNX-Wallet/#learn
+- Every glossary word has its own link with a **Copy link** button, e.g. https://ea-la.github.io/FYNX-Wallet/#learn/token-approval
+- Every answer on the Questions page can now be shared too: the link opens that answer and highlights it, e.g. https://ea-la.github.io/FYNX-Wallet/#faq/how-do-i-leave-the-waitlist-or-delete-my-email
+- Links to the site shared in messages and social apps now show a proper title and description.
+
 ## 2026-11-03 22:17 UTC — [autopilot] Typo-catching address check, a proper "page not found", and links into the Features tour
 - The address checker on the Networks page now verifies the built-in Ethereum checksum. If an address uses mixed capital letters and they don't match, it shows a red "Checksum does not match: likely a typo" warning and tells you not to send. Correct addresses show "Checksum verified". It still runs only in your browser. See https://ea-la.github.io/FYNX-Wallet/#networks
 - Mistyped or old links (for example https://ea-la.github.io/FYNX-Wallet/#typo) now show a clear "This page doesn't exist" page with links to every section. Before, they showed the "You're a little early" log-in page, which was confusing.

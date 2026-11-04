@@ -7,7 +7,8 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Phones: compact Menu button with all sections (2026-11-03)
 - [x] Unknown links (e.g. #typo) now show a friendly "Page not found" view with links to every section; closed wallet routes still go to Log in (2026-11-03)
 - [x] "Skip to content" link for keyboard users (2026-11-03)
-- [ ] SEO: add a meta description, Open Graph/Twitter preview tags and a share image to index.html
+- [x] SEO: clearer meta description, Open Graph/Twitter preview tags and canonical link (2026-11-04)
+- [ ] SEO: a share image for link previews (needs a new approved public file)
 - [ ] Add a privacy-friendly `sitemap.xml` / `robots.txt` to the Pages release (requires adding them to the approved public-file list)
 - [x] FAQ: 19 grouped questions with live search and Expand all (2026-11-03)
 - [ ] Waitlist form: show the email field's error inline with a clearer message before submit
@@ -25,4 +26,7 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [ ] Preview terms page: very short; expand into sections (no financial advice, eligibility, changes) after checking with the legal review brief
 - [ ] Networks page: a "Copy" button next to the address checker result
 - [ ] Features tour: update the browser address (#features/<part>) when a jump chip is pressed so the part can be shared
-- [ ] FAQ: shareable links to a single answer (e.g. #faq/fees)
+- [x] FAQ: shareable links to a single answer (#faq/<question>) with a Copy link button; the answer opens and is highlighted (2026-11-04)
+- [x] New Learn page (#learn): 33-term plain-English crypto glossary in five topics, with search, topic filters, related terms, links to the matching tool or page, and shareable #learn/<term> links; linked from header, phone menu, footer, FAQ and page-not-found (2026-11-04)
+- [ ] Learn page: link glossary words from Features, Networks and Security text (e.g. "network fee" → #learn/network-fee)
+- [ ] Homepage: a short "New to crypto?" strip pointing at the glossary and the scam self-check
