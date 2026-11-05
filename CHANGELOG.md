@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-05 02:20 UTC — [autopilot] "Understand a signature request" tool, and more free tools on the homepage
+- New free tool on the Security page: before pressing "Confirm" or "Sign" in any wallet, paste what it asks you to sign and get a plain-English explanation of what it would allow. https://ea-la.github.io/FYNX-Wallet/#security/sign
+- It recognises the requests scammers use most: unlimited token approvals (shown in red), NFT "approve all" permissions, token sends and transfers, signed "permits" that cost no fee but let someone take tokens later, Uniswap Permit2 permissions, and marketplace listings, including the well-known trick of a listing that sells your NFT for nothing.
+- It also reads "Sign in with Ethereum" messages (and warns if the site named in the message doesn't match), plain text messages (with a warning for "claim", "verify" or "unlock" wording), and permission removals, which it marks as safe.
+- Six "Try an example" buttons show what each kind of request looks like (made-up addresses). Spender addresses get one-tap Etherscan and Basescan buttons.
+- Nothing is signed or sent. Recovery phrases, private keys and bare 64-character codes (blind signing) are cleared straight away with a warning.
+- Glossary: new word "Permit (signed approval)", and "Token approval" now links to the new tool. https://ea-la.github.io/FYNX-Wallet/#learn/permit
+- Homepage "Start here" row now shows eight free tools in two even rows, adding "Check a link" and "Read a signature request". https://ea-la.github.io/FYNX-Wallet/
+
 ## 2026-11-04 22:20 UTC — [autopilot] "Check a website link" scam-link checker
 - New free tool on the Security page: paste any link you were sent and it tells you, in plain words, whether it looks like a scam before you open it. https://ea-la.github.io/FYNX-Wallet/#security/link
 - It shows the site you would *really* be visiting (for example `metamask.io.wallet-sync.com` is really wallet-sync.com), and warns about fake brand names, look-alike spellings (metarnask.io, coinbsae.com), letters from other alphabets, hidden “@” tricks, bare number addresses, shortened links, unencrypted http links, free-hosting sites, cheap scam-prone endings and “claim / sync / restore your wallet” wording.

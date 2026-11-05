@@ -113,7 +113,9 @@ test('fee arithmetic multiplies gas by gas price exactly', () => {
 
 test('homepage Start here row includes the new lookup and family sheet tools', () => {
   const { app, context } = load('#home');
-  assert.equal(context.starters.length, 6);
+  assert.equal(context.starters.length, 8);
+  assert.match(app.innerHTML, /href="#security\/link"/);
+  assert.match(app.innerHTML, /href="#security\/sign"/);
   assert.match(app.innerHTML, /href="#networks\/lookup"/);
   assert.match(app.innerHTML, /href="#security\/sheet"/);
 });
