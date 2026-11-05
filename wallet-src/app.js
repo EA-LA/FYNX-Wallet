@@ -11,6 +11,7 @@ import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
 import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
+import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime } from './security-checkup.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 
 const $ = selector => document.querySelector(selector);
@@ -26,10 +27,12 @@ let waitlistCursor = null, waitlistEmail = '', waitlistTotal = 0;
 const waitlistRecords = new Map();
 let waitlistPeriod = 'day', waitlistLoadingAll = false;
 const providers = new Map();
+let signInInfo = null;
 function selectTab(name) {
   for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
   setText('#workspace-status', '');
+  if (name === 'security') renderSecurity();
 }
 function clearDashboard() {
   clearTimeout(dashboardTimer);
@@ -127,7 +130,7 @@ function clearPrivateWorkspace() {
   journal.clear(); $('#transaction-journal').replaceChildren(); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
-  $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights();
+  $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
   $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
@@ -158,15 +161,100 @@ async function refreshSession() {
 }
 function renderPasskeys() {
   const list = $('#passkey-list'); list.replaceChildren();
-  for (const key of session?.passkeys || []) {
+  const rows = passkeyRows(session?.passkeys);
+  for (const key of rows) {
     const row = document.createElement('div'); row.className = 'list-row';
-    const name = document.createElement('span'); name.textContent = `Passkey · added ${key.createdAt ? new Date(key.createdAt).toLocaleDateString() : 'recently'}`;
+    const name = document.createElement('span'), title = document.createElement('strong'), when = document.createElement('small');
+    title.textContent = key.label; when.textContent = ` · added ${key.added}${key.ago ? ` (${key.ago})` : ''}`; name.append(title, when);
     const remove = document.createElement('button'); remove.className = 'text-button'; remove.textContent = 'Remove';
-    remove.addEventListener('click', () => run(remove, async () => { if (!window.confirm('Remove this passkey? Keep Google or email access available.')) return; await api({ action: 'passkey-remove', id: key.id }); await refreshSession(); setText('#workspace-status', 'Passkey removed.'); }));
+    remove.setAttribute('aria-label', `Remove ${key.label}`);
+    remove.addEventListener('click', () => run(remove, async () => {
+      const others = signInMethods({ providers: providerIds(), passkeys: [] });
+      const warning = rows.length === 1 ? `This is your only passkey. You will still be able to sign in with ${others.join(' or ') || 'your other sign-in method'}. Remove it?` : `Remove ${key.label}? Keep Google or email access available.`;
+      if (!window.confirm(warning)) return; await api({ action: 'passkey-remove', id: key.id }); await refreshSession(); setText('#workspace-status', 'Passkey removed.');
+    }));
     row.append(name, remove); list.append(row);
   }
-  if (!session?.passkeys.length) list.textContent = 'No passkeys added yet.';
+  if (!rows.length) list.textContent = 'No passkeys added yet.';
+  renderSecurity();
 }
+// Account security checkup: computed from the signed-in account and session in this browser only.
+const providerIds = () => (auth?.currentUser?.providerData || []).map(p => p?.providerId).filter(Boolean);
+async function readSignInInfo() {
+  const user = auth?.currentUser; if (!user) { signInInfo = null; return; }
+  try {
+    const token = await user.getIdTokenResult();
+    if (auth.currentUser === user) signInInfo = { provider: token.signInProvider || '', authTime: Date.parse(token.authTime) || 0 };
+  } catch { if (auth.currentUser === user) signInInfo = { provider: '', authTime: 0 }; }
+}
+function clearSecurity() {
+  signInInfo = null;
+  for (const id of ['#sec-checks', '#sec-signin', '#sec-methods', '#sec-tests', '#sec-score']) $(id).replaceChildren();
+  setText('#sec-status', '');
+}
+function securityState() {
+  const user = auth?.currentUser;
+  const providers = providerIds(), passkeys = session?.passkeys || [];
+  return { user, providers, passkeys, result: checkup({ emailVerified: !!user?.emailVerified, providers, passkeys, wallet: session?.wallet }), methods: signInMethods({ providers, passkeys }) };
+}
+function securityFix(fix) {
+  if (fix === 'wallet') { selectTab('wallet'); window.scrollTo(0, 0); return; }
+  const button = $('#add-passkey'); button.scrollIntoView({ block: 'center' }); button.focus({ preventScroll: true });
+}
+function renderSecurityTimes() {
+  if (!session || $('#tab-security').hidden) return;
+  const dl = $('#sec-signin'); dl.replaceChildren();
+  const user = auth?.currentUser, now = Date.now(), fresh = freshness(signInInfo?.authTime, now);
+  const rows = [
+    ['Signed in with', signInInfo?.provider ? methodLabel(signInInfo.provider) : 'Checking…'],
+    ['Signed in', signInInfo?.authTime ? `${new Date(signInInfo.authTime).toLocaleString()} (${relativeTime(signInInfo.authTime, now)})` : 'Unknown'],
+    ['Security changes', fresh.fresh ? `Allowed for ${minutesText(fresh.leftMs)} more` : 'Sign out and in again first (sign-in is older than 5 minutes)'],
+    ['Automatic sign-out', `In ${minutesText(idleLeft(lastActivity, now))} without activity`],
+    ['Account created', user?.metadata?.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Unknown'],
+  ];
+  for (const [term, value] of rows) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = term; dd.textContent = value; if (term === 'Security changes') dd.className = fresh.fresh ? 'sec-ok' : 'sec-warn'; dl.append(dt, dd); }
+  setText('#passkey-fresh', fresh.fresh ? `You can add or remove a passkey for ${minutesText(fresh.leftMs)} more. After that, sign out and sign in again. Keep Google or email access as a backup.` : 'Your sign-in is more than five minutes old: sign out and sign in again before adding or removing a passkey. Keep Google or email access as a backup.');
+}
+function renderSecurity() {
+  if (!session || $('#tab-security').hidden) return;
+  const { result, methods, providers, passkeys } = securityState();
+  const score = $('#sec-score'); score.replaceChildren();
+  const num = document.createElement('strong'), of = document.createElement('span');
+  num.textContent = `${result.done}/${result.total}`; of.textContent = result.done === result.total ? 'all checks done' : 'checks done';
+  score.append(num, of); score.setAttribute('aria-label', `${result.done} of ${result.total} security checks done`);
+  score.className = `sec-score ${result.done === result.total ? 'is-done' : ''}`;
+  const list = $('#sec-checks'); list.replaceChildren();
+  for (const c of result.checks) {
+    const li = document.createElement('li'); li.className = `sec-check is-${c.state}`;
+    const mark = document.createElement('span'); mark.className = 'sec-mark'; mark.setAttribute('aria-hidden', 'true'); mark.textContent = c.state === 'done' ? '✓' : c.state === 'info' ? 'i' : '!';
+    const body = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('p');
+    title.textContent = `${c.title}${c.state === 'todo' ? ' — to do' : ''}`; detail.textContent = c.detail; body.append(title, detail);
+    if (c.fix) { const b = document.createElement('button'); b.type = 'button'; b.className = 'text-button'; b.textContent = c.fix === 'wallet' ? 'Open Crypto tools ↗' : 'Go to Add a passkey ↓'; b.addEventListener('click', () => securityFix(c.fix)); body.append(b); }
+    li.append(mark, body); list.append(li);
+  }
+  const ways = $('#sec-methods'); ways.replaceChildren();
+  const all = [['Google', providers.includes('google.com')], ['Email & password', providers.includes('password')], [passkeys.length ? (passkeys.length === 1 ? '1 passkey' : `${passkeys.length} passkeys`) : 'Passkey', passkeys.length > 0]];
+  for (const [label, on] of all) { const li = document.createElement('li'); li.className = on ? 'is-on' : 'is-off'; li.textContent = `${on ? '✓' : '—'} ${label}${on ? '' : ' · not set up'}`; ways.append(li); }
+  const tests = $('#sec-tests'); tests.replaceChildren();
+  const gate = launchPlan.items.find(g => g.id === 'identity');
+  for (const step of (gate?.steps || []).filter(s => s.by === 'you')) {
+    const state = stepState(gate, step, launchRecords), li = document.createElement('li'); li.className = `is-${state}`;
+    const mark = document.createElement('span'); mark.className = 'launch-mark'; mark.textContent = state === 'done' ? (step.done ? 'Done' : resultLabels[launchRecords[stepKey(gate.id, step.id)]?.result] || 'Done') : state === 'failed' ? 'Failed' : 'To do';
+    const text = document.createElement('span'); text.textContent = step.text; li.append(mark, text); tests.append(li);
+  }
+  if (gate) { const li = document.createElement('li'); li.className = 'sec-test-go'; const b = document.createElement('button'); b.type = 'button'; b.className = 'text-button'; b.textContent = 'Record results in Launch readiness ↗'; b.addEventListener('click', () => { selectTab('launch'); openGate('identity'); }); li.append(b); tests.append(li); }
+  renderSecurityTimes();
+}
+$('#sec-refresh').addEventListener('click', event => run(event.currentTarget, async () => {
+  await auth.currentUser?.reload(); await readSignInInfo(); await refreshSession(); setText('#sec-status', `Checked ${new Date().toLocaleTimeString()}.`);
+}, '#sec-status'));
+$('#sec-copy').addEventListener('click', async () => {
+  const { result, methods } = securityState();
+  const text = securitySummary({ result, methods, passkeys: passkeyRows(session?.passkeys), signInWith: signInInfo?.provider ? methodLabel(signInInfo.provider) : '' });
+  try { await navigator.clipboard.writeText(text); setText('#sec-status', 'Summary copied. It contains counts and dates only, no email or wallet address.'); }
+  catch { setText('#sec-status', 'Copying was blocked by the browser.'); }
+});
+setInterval(renderSecurityTimes, 15000);
 async function ready() {
   if (window.top !== window.self) throw new Error('Open the FYNX workspace directly in its own browser tab.');
   const app = initializeApp(firebaseConfig);
@@ -188,6 +276,7 @@ async function ready() {
     if (!user) return;
     setText('#auth-status', 'Checking owner access…');
     try {
+      await readSignInInfo();
       await refreshSession();
       if (current !== generation) return;
       setText('#account-name', user.email || 'Verified owner');

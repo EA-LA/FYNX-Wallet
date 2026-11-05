@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-05 22:30 UTC — [autopilot] Owner workspace: Account security checkup
+
+- The **Account security** tab now opens with a **Security checkup**: a score (for example "3/5 checks done") and five clear checks: owner email verified, a passkey added, a passkey on a second device, at least two ways to sign in, and your wallet ownership proven. Each one that still needs doing says why it matters and has a button that takes you straight to the fix.
+- **This sign-in** shows how you signed in (Google, email & password or passkey), when, how long you still have to add or remove a passkey (the 5-minute rule), how long until the automatic sign-out, and when the account was created. It updates on its own.
+- **Ways back into your account** lists Google, email & password and your passkeys, ticked or "not set up", so you can see at a glance if you could get locked out.
+- **Your account-security launch tests**: the eight login and passkey steps from Launch readiness are listed with your saved result, plus a button that opens that gate to record results.
+- Passkeys are now numbered (Passkey 1, Passkey 2…) with the date added and how long ago, and removing your only passkey warns you first and tells you which sign-in method remains.
+- **Copy checkup summary** copies the results with counts and dates only (no email or wallet address).
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Account security.
+
 ## 2026-11-05 18:25 UTC — [autopilot] Owner workspace: waitlist sign-up insights, chart and CSV download
 
 - In your owner workspace, the **Waitlist** tab now shows a **Sign-up insights** panel as soon as you press Load registrations: total sign-ups, how many came in today, this week (with the change from the week before) and this month, and what share gave recorded consent.
