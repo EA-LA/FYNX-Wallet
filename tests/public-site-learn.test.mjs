@@ -15,7 +15,7 @@ function loadSite(hash) {
   };
   vm.createContext(context);
   vm.runInContext(source.replace(/^import[^\n]+\n/, '').replace('connectFirebase();', '')
-    .replace('const glossary=', 'var glossary=').replace('const learnTopics=', 'var learnTopics=').replace('const faqGroups=', 'var faqGroups=') + '\nthis.faqSlugs=faqSlugs;', context);
+    .replace('const glossary=', 'var glossary=').replace('const learnTopics=', 'var learnTopics=').replace('const faqGroups=', 'var faqGroups=').replace('const lessons=', 'var lessons=') + '\nthis.faqSlugs=faqSlugs;', context);
   return { context, app };
 }
 
@@ -83,4 +83,40 @@ test('homepage has search and social sharing metadata', () => {
     assert.match(page, /<meta name="twitter:card" content="summary">/);
     assert.match(page, /<link rel="canonical" href="https:\/\/ea-la\.github\.io\/FYNX-Wallet\/">/);
   }
+});
+
+test('learn page starts with six beginner lessons, each with a self-check question and real links', () => {
+  const { app, context } = loadSite('#learn');
+  const { lessons, glossary } = context;
+  const slugs = new Set(glossary.map(g => g[0]));
+  assert.equal(lessons.length, 6);
+  assert.match(app.innerHTML, /id="lt-lessons"/);
+  assert.match(app.innerHTML, /aria-label="On this page"/);
+  assert.ok(app.innerHTML.indexOf('id="lt-lessons"') < app.innerHTML.indexOf('id="learn-search"'), 'lessons come before the glossary');
+  assert.equal((app.innerHTML.match(/<details class="lesson"/g) || []).length, 6);
+  const ids = lessons.map(l => l[0]);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const [id, title, min, paras, points, terms, tool, quiz] of lessons) {
+    assert.match(id, /^[a-z]+$/);
+    assert.ok(min > 0 && paras.length >= 2 && points.length >= 2, title);
+    for (const t of terms) assert.ok(slugs.has(t), `${title}: glossary ${t}`);
+    assert.notEqual(loadSite(`#${tool[0]}`).context.document.title, 'Page not found · FYNX Wallet', `${title}: tool #${tool[0]}`);
+    const [q, opts, right, why] = quiz;
+    assert.ok(q.endsWith('?') && opts.length === 3 && Number.isInteger(right) && right >= 0 && right < opts.length && why.length > 40, title);
+    assert.equal((app.innerHTML.match(new RegExp(`name="quiz-${id}"`, 'g')) || []).length, 3);
+    assert.ok(!app.innerHTML.includes(why), `${title}: explanation is only shown after a correct answer`);
+  }
+  assert.match(app.innerHTML, /kept only in this browser/);
+});
+
+test('lessons and learn sections have shareable links; unknown lessons show page not found', () => {
+  for (const hash of ['#learn/lessons', '#learn/glossary', '#learn/keys', '#learn/lesson-fees', '#learn/lesson-holds']) {
+    assert.equal(loadSite(hash).context.document.title, 'Crypto glossary · FYNX Wallet', hash);
+  }
+  for (const hash of ['#learn/lesson-nope', '#learn/lesson-', '#learn/lesson-Fees']) {
+    assert.equal(loadSite(hash).context.document.title, 'Page not found · FYNX Wallet', hash);
+  }
+  const { context } = loadSite('#learn');
+  const terms = new Set(context.glossary.map(g => g[0]));
+  for (const id of ['lessons', 'glossary', ...context.learnTopics.map(t => t[0])]) assert.ok(!terms.has(id), `section id ${id} does not clash with a term`);
 });

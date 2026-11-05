@@ -46,9 +46,16 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [ ] Link checker: optional "report this site" links (e.g. Google Safe Browsing report form) and more official addresses if visitors ask
 - [x] Homepage "Start here" row: eight tools in a 4×2 grid (2 columns on tablets, 1 on phones), adding "Check a link" and "Read a signature request" (2026-11-05)
 - [ ] Lookup tool: also accept token pages (/token/…) and Arbitrum/Optimism explorers once those networks are considered
-- [ ] Learn page: "On this page" topic row at the top, like Networks and Security
+- [x] Learn page: "On this page" row at the top (Lessons, Glossary and each topic), with shareable #learn/<section> links; jumping to a topic clears any search or filter that would hide it (2026-11-05)
+- [x] Learn page: "New to crypto? Start with the basics." six short lessons (what a wallet holds, recovery phrase, addresses and networks, fees, approvals and signatures, scams), each with key points, glossary words, a matching free tool and one check-yourself question with an explanation; progress bar kept only in this browser; Next lesson and Copy link buttons; shareable #learn/lesson-<id> links (2026-11-05)
+- [ ] Lessons: a homepage link to the first lesson (the Start here grid is full at 8; consider a line under it)
+- [ ] Lessons: a seventh lesson on buying and selling (on-ramps, spreads, identity checks) once the buy flow is closer
 - [x] Security page: "Understand a signature request" (#security/sign) explains pasted wallet requests in plain words: approve / increaseAllowance / decreaseAllowance (unlimited = danger, zero = revoke), setApprovalForAll, transfer / transferFrom / NFT safeTransferFrom, on-chain permit and Permit2 approve; typed signatures (EIP-2612 Permit, Permit2 PermitSingle/Batch and one-time transfers, Seaport listings incl. the zero-price listing trick, other typed data); Sign-In with Ethereum (with a site/URI mismatch warning) and plain or hex-encoded text messages; refuses phrases, keys and raw 32-byte hashes (blind signing); six labelled examples with made-up addresses; explorer buttons for the spender (2026-11-05)
 - [x] Glossary: new "Permit (signed approval)" term; Token approval and Permit link to the signature tool (2026-11-05)
 - [ ] Signature tool: recognise Uniswap Universal Router / multicall swaps and show the token amounts in and out
 - [ ] Signature tool: optional decimals box so amounts can be shown in whole tokens when the visitor knows the token
 - [ ] Signature tool: Solana transaction messages (base58/base64) once Solana is closer
+
+## Bugs found and fixed
+
+- [x] Page click handlers piled up as visitors moved between pages: after opening Questions, a "Copy link" (or Next lesson) on the Learn page also ran the Questions handler and could copy a wrong `#faq/...` link. Handlers now reset on every page change (2026-11-05)

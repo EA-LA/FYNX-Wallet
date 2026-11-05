@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-05 06:20 UTC — [autopilot] Six beginner crypto lessons on the Learn page, and a copy-link fix
+
+- The Learn page now opens with **"New to crypto? Start with the basics."**: six short lessons (about 18 minutes in total) on what a wallet really holds, the recovery phrase, addresses and networks, network fees, approvals and signatures, and spotting scams. Each one has key points, links to the glossary words it uses, a matching free tool, and a one-question check with an explanation. A progress bar remembers which lessons you have checked, only in your own browser, and there is a "Clear my progress" button. https://ea-la.github.io/FYNX-Wallet/#learn/lessons
+- Each lesson has its own link to share, for example https://ea-la.github.io/FYNX-Wallet/#learn/lesson-phrase, and a "Next lesson" button.
+- An "On this page" row at the top of the Learn page jumps to the lessons, the glossary or any topic.
+- Fixed: after visiting the Questions page, "Copy link" buttons on other pages could also copy a wrong Questions link. Each page's buttons now only do their own job.
+
 ## 2026-11-05 02:20 UTC — [autopilot] "Understand a signature request" tool, and more free tools on the homepage
 - New free tool on the Security page: before pressing "Confirm" or "Sign" in any wallet, paste what it asks you to sign and get a plain-English explanation of what it would allow. https://ea-la.github.io/FYNX-Wallet/#security/sign
 - It recognises the requests scammers use most: unlimited token approvals (shown in red), NFT "approve all" permissions, token sends and transfers, signed "permits" that cost no fee but let someone take tokens later, Uniswap Permit2 permissions, and marketplace listings, including the well-known trick of a listing that sells your NFT for nothing.
