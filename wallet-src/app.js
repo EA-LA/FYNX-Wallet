@@ -11,6 +11,7 @@ import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
 import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
+import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 
 const $ = selector => document.querySelector(selector);
 const setText = (id, text) => { $(id).textContent = text; };
@@ -23,6 +24,7 @@ let generation = 0, verifiedAddress = null, busy = false, lastActivity = Date.no
 let dashboardFrame = null, dashboardLoading = false, dashboardTimer;
 let waitlistCursor = null, waitlistEmail = '', waitlistTotal = 0;
 const waitlistRecords = new Map();
+let waitlistPeriod = 'day', waitlistLoadingAll = false;
 const providers = new Map();
 function selectTab(name) {
   for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
@@ -125,7 +127,7 @@ function clearPrivateWorkspace() {
   journal.clear(); $('#transaction-journal').replaceChildren(); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
-  $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren();
+  $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights();
   $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
@@ -412,14 +414,17 @@ async function loadRegistrations({ more = false, email = waitlistEmail } = {}) {
 function renderRegistrations() {
   setText('#waitlist-count', waitlistEmail ? `${waitlistTotal} matching registration${waitlistTotal === 1 ? '' : 's'}` : `${waitlistTotal} registrations · ${waitlistRecords.size} loaded`);
   show('#more-waitlist', !!waitlistCursor);
+  renderWaitlistInsights();
   const body = $('#waitlist-rows'); body.replaceChildren();
-  if (!waitlistRecords.size) {
+  const visible = waitlistEmail ? [...waitlistRecords.values()] : filterRecords(waitlistRecords.values(), waitlistFilter());
+  if (!visible.length) {
     const row = document.createElement('tr'), cell = document.createElement('td'); cell.colSpan = 4;
-    cell.textContent = waitlistEmail ? 'No registration found for this email.' : 'No registrations yet.'; row.append(cell); body.append(row);
+    cell.textContent = waitlistEmail ? 'No registration found for this email.' : waitlistRecords.size ? 'No loaded registration matches this filter.' : 'No registrations yet.'; row.append(cell); body.append(row);
   }
-  for (const record of waitlistRecords.values()) {
+  if (!waitlistEmail && visible.length !== waitlistRecords.size) setText('#waitlist-count', `${waitlistTotal} registrations · ${waitlistRecords.size} loaded · ${visible.length} shown`);
+  for (const record of visible) {
     const tr = document.createElement('tr');
-    for (const [label, value] of [['Email', record.email], ['Registered', record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Pending timestamp']]) { const td = document.createElement('td'); td.dataset.label = label; td.textContent = value; tr.append(td); }
+    for (const [label, value] of [['Email', isTestAddress(record.email) ? `${record.email} (test address)` : record.email], ['Registered', record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Pending timestamp']]) { const td = document.createElement('td'); td.dataset.label = label; td.textContent = value; tr.append(td); }
     const info = document.createElement('td'), details = document.createElement('details'), summary = document.createElement('summary');
     summary.textContent = record.status || 'Unknown status'; details.append(summary);
     for (const value of [`Consent: ${record.consent ? 'Recorded' : 'Not recorded'}`, `Notice: ${record.noticeVersion || 'Not recorded'}`, `Source: ${record.source || 'Not recorded'}`, `Expires: ${record.expiresAt ? new Date(record.expiresAt).toLocaleDateString() : 'Not recorded'}`]) { const line = document.createElement('p'); line.textContent = value; line.className = 'hint'; details.append(line); }
@@ -435,6 +440,85 @@ function renderRegistrations() {
     td.dataset.label = 'Action'; td.append(remove); tr.append(td); body.append(tr);
   }
 }
+// Waitlist insights: counts, sign-up chart, breakdowns and exports from the rows loaded in this browser only.
+const waitlistFilter = () => ({ query: $('#wl-query').value, hideTests: $('#wl-hide-tests').checked, consent: $('#wl-consent').value });
+function clearWaitlistInsights() {
+  waitlistLoadingAll = false; waitlistPeriod = 'day';
+  $('#wl-stats').replaceChildren(); $('#wl-chart').replaceChildren(); $('#wl-breakdowns').replaceChildren();
+  setText('#wl-coverage', ''); setText('#wl-status', ''); $('#wl-query').value = ''; $('#wl-hide-tests').checked = false; $('#wl-consent').value = 'all';
+  show('#waitlist-insights', false); show('#wl-filter', false);
+}
+const shortDate = (time, opts) => new Date(time).toLocaleDateString(undefined, opts || { month: 'short', day: 'numeric' });
+function renderWaitlistChart() {
+  const records = [...waitlistRecords.values()].filter(r => !isTestAddress(r.email));
+  const buckets = waitlistPeriod === 'week' ? perWeek(records) : perDay(records), max = Math.max(1, ...buckets.map(b => b.count));
+  const total = buckets.reduce((n, b) => n + b.count, 0), chart = $('#wl-chart'); chart.replaceChildren();
+  for (const b of document.querySelectorAll('[data-wl-period]')) b.setAttribute('aria-pressed', String(b.dataset.wlPeriod === waitlistPeriod));
+  setText('#wl-chart-title', waitlistPeriod === 'week' ? `Sign-ups per week · ${total} in 12 weeks` : `Sign-ups per day · ${total} in 30 days`);
+  const axis = el('div', 'wl-axis'); axis.setAttribute('aria-hidden', 'true'); axis.append(el('span', '', String(max)), el('span', '', max > 1 ? String(Math.round(max / 2)) : ''), el('span', '', '0'));
+  const bars = el('div', 'wl-bars'); bars.setAttribute('role', 'list');
+  bars.setAttribute('aria-label', waitlistPeriod === 'week' ? 'Sign-ups per week, oldest first' : 'Sign-ups per day, oldest first');
+  const labels = el('div', 'wl-labels'); labels.setAttribute('aria-hidden', 'true');
+  const step = waitlistPeriod === 'week' ? 2 : 5;
+  buckets.forEach((b, i) => {
+    const when = waitlistPeriod === 'week' ? `Week of ${shortDate(b.start)}` : shortDate(b.start, { weekday: 'short', month: 'short', day: 'numeric' });
+    const bar = el('div', `wl-bar${b.count ? '' : ' zero'}${i === buckets.length - 1 ? ' today' : ''}`); bar.setAttribute('role', 'listitem');
+    const text = `${when}: ${b.count} sign-up${b.count === 1 ? '' : 's'}`; bar.title = text; bar.setAttribute('aria-label', text);
+    const fill = el('span'); fill.style.height = `${Math.round(b.count / max * 100)}%`; bar.append(fill); bars.append(bar);
+    const k = (buckets.length - 1 - i) / step, labelled = Number.isInteger(k);
+    labels.append(el('span', labelled && k % 2 ? 'minor' : '', labelled ? shortDate(b.start) : ''));
+  });
+  chart.append(axis, bars, labels);
+  const s = summarize(waitlistRecords.values(), { total: waitlistTotal });
+  if (!s.complete) chart.append(el('p', 'hint wl-chart-note', `Older sign-ups may be missing: only the ${s.loaded} newest registrations are loaded. Use Load all registrations for complete numbers.`));
+}
+function renderWaitlistInsights() {
+  const searching = !!waitlistEmail, has = waitlistRecords.size > 0;
+  show('#waitlist-insights', !searching && has); show('#wl-filter', !searching && has);
+  if (searching || !has) return;
+  const s = summarize(waitlistRecords.values(), { total: waitlistTotal });
+  setText('#wl-coverage', s.complete ? `All ${s.total} registrations loaded${s.tests ? ` · ${s.tests} test address${s.tests === 1 ? '' : 'es'} left out` : ''}` : `Based on the ${s.loaded} newest of ${s.total} registrations${s.tests ? ` · ${s.tests} test address${s.tests === 1 ? '' : 'es'} left out` : ''}`);
+  show('#wl-load-all', !s.complete);
+  const stats = $('#wl-stats'); stats.replaceChildren();
+  for (const [value, label] of [
+    [String(s.total), `registrations in total${s.complete ? '' : ` · ${s.real} real loaded`}`],
+    [String(s.last7), `in the last 7 days · ${trendText(s.last7, s.prev7)}`],
+    [String(s.last30), `in the last 30 days · ${s.today} today`],
+    [`${s.consentPercent}%`, `consent recorded (${s.consented} of ${s.real})${s.consentMissing ? ` · ${s.consentMissing} missing` : ''}`],
+  ]) { const li = el('li'), box = el('div', 'launch-stat'); box.append(el('strong', '', value), el('span', '', label)); li.append(box); stats.append(li); }
+  renderWaitlistChart();
+  const wrap = $('#wl-breakdowns'); wrap.replaceChildren();
+  const retention = [['Ends within 30 days', s.expiring], ['Past retention date', s.expired], ['Without sign-up time', s.noTimestamp]];
+  if (s.first) retention.push(['First sign-up', shortDate(s.first, { year: 'numeric', month: 'short', day: 'numeric' })], ['Latest sign-up', shortDate(s.latest, { year: 'numeric', month: 'short', day: 'numeric' })]);
+  for (const [title, pairs] of [['Privacy notice version', s.byNotice], ['Where they signed up', s.bySource], ['Status', s.byStatus], ['Retention', retention]]) {
+    const box = el('section'); box.append(el('h4', '', title)); const list = el('ul');
+    for (const [key, count] of pairs.length ? pairs : [['None yet', '']]) { const li = el('li'); li.append(el('span', '', String(key)), el('strong', '', String(count))); list.append(li); }
+    box.append(list); wrap.append(box);
+  }
+}
+for (const button of document.querySelectorAll('[data-wl-period]')) button.addEventListener('click', () => { waitlistPeriod = button.dataset.wlPeriod; renderWaitlistChart(); });
+for (const [id, type] of [['#wl-query', 'input'], ['#wl-hide-tests', 'change'], ['#wl-consent', 'change']]) $(id).addEventListener(type, () => renderRegistrations());
+$('#wl-load-all').addEventListener('click', event => run(event.currentTarget, async checkSession => {
+  waitlistLoadingAll = true;
+  try {
+    for (let page = 0; page < 20 && waitlistCursor && waitlistLoadingAll; page++) {
+      setText('#wl-status', `Loading… ${waitlistRecords.size} of ${waitlistTotal}`);
+      await loadRegistrations({ more: true }); checkSession();
+    }
+    setText('#wl-status', waitlistCursor ? `Loaded ${waitlistRecords.size} of ${waitlistTotal}. Press again to continue.` : `All ${waitlistRecords.size} registrations loaded.`);
+  } finally { waitlistLoadingAll = false; }
+}, '#wl-status'));
+$('#wl-download').addEventListener('click', () => {
+  const rows = filterRecords(waitlistRecords.values(), waitlistFilter());
+  if (!rows.length) { setText('#wl-status', 'Nothing to download: no loaded registration matches the filter.'); return; }
+  const url = URL.createObjectURL(new Blob([toCSV(rows)], { type: 'text/csv;charset=utf-8' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-waitlist-${new Date().toISOString().slice(0, 10)}.csv`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setText('#wl-status', `Downloaded ${rows.length} registration${rows.length === 1 ? '' : 's'}${rows.length < waitlistTotal ? ` (of ${waitlistTotal}; only loaded rows matching the filter are included)` : ''}. The file contains email addresses — keep it private.`);
+});
+$('#wl-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(summaryText(summarize(waitlistRecords.values(), { total: waitlistTotal }))); setText('#wl-status', 'Summary copied (counts only, no email addresses).'); }
+  catch { setText('#wl-status', 'Copying was blocked by the browser.'); }
+});
 $('#load-waitlist').addEventListener('click', event => run(event.currentTarget, () => loadRegistrations()));
 $('#more-waitlist').addEventListener('click', event => run(event.currentTarget, () => loadRegistrations({ more: true })));
 $('#waitlist-search').addEventListener('submit', event => { event.preventDefault(); run($('#find-registration'), () => loadRegistrations({ email: $('#waitlist-email').value.trim() })); });

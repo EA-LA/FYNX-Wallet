@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-05 18:25 UTC — [autopilot] Owner workspace: waitlist sign-up insights, chart and CSV download
+
+- In your owner workspace, the **Waitlist** tab now shows a **Sign-up insights** panel as soon as you press Load registrations: total sign-ups, how many came in today, this week (with the change from the week before) and this month, and what share gave recorded consent.
+- A **sign-up chart** shows sign-ups per day for the last 30 days, or per week for the last 12 weeks.
+- Breakdowns show which privacy-notice version people agreed to, where they signed up, their status, and how many reach the end of their retention period within 30 days.
+- Test addresses (like owner-test@example.com) are marked "(test address)" and left out of the numbers.
+- **Load all registrations** fetches the rest of the list in one press, so the numbers cover everyone.
+- New filter above the list: type part of an email, show only people with or without recorded consent, or hide test addresses.
+- **Download CSV** saves the shown registrations as a spreadsheet file (it contains email addresses, so keep it private). **Copy summary** copies the numbers only, without any email addresses.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Waitlist.
+
 ## 2026-11-05 15:20 UTC — [autopilot] Owner workspace: Launch readiness becomes a working to-do list
 - Launch readiness tab (owner workspace): a progress summary at the top (percent of launch steps done, gates done / needing you / waiting on others, your tests done) and "Your next steps", each one click away. https://ea-la.github.io/FYNX-Wallet/owner.html
 - Every one of the 14 gates now lists concrete steps (83 in total), labelled You, Engineering or Outside party. Your steps have Passed / Failed / Not applicable buttons, a note box, and a button that opens the right tab (Crypto tools, Account security, Waitlist).

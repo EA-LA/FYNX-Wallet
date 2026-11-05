@@ -72,7 +72,9 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Launch readiness: overview (percent, gate groups, your tests), next steps, filters, 83 concrete steps across 14 gates (You / Engineering / Outside), Passed/Failed/N/A + notes saved in this browser only (secret-looking notes refused), copy/download test report, tab shortcuts (2026-11-05)
 - [x] Dashboard tab: iOS/iPadOS Safari widened the sandboxed iframe to its content, cutting off the right column; parent-side fix (width:1px;min-width:100%) (2026-11-05) — needs a check on the owner's iPad
 - [ ] When the owner shares a test report: mark the matching steps done in wallet-src/launch-checklist.json and add the evidence to docs/VERIFICATION.md
-- [ ] Waitlist tab: sign-ups per day/week chart and totals, consent-version breakdown, CSV export of loaded rows (owner data only)
+- [x] Waitlist tab: "Sign-up insights" panel: total, last 7 days with trend vs the previous week, last 30 days and today, consent-recorded share; daily (30 days) / weekly (12 weeks) sign-up chart; privacy-notice version, source, status and retention breakdowns; test addresses (example.com, .test, .invalid) labelled and left out of the figures; "Load all registrations" (up to 1,000 per press, within the rate limit); filter loaded rows by text, consent and test addresses; CSV download of the filtered rows (formula-safe cells); "Copy summary" with counts only, no emails; cleared on sign-out (2026-11-05)
+- [ ] Waitlist tab: sign-up totals across ALL registrations without loading them (needs a small backend count-by-day endpoint and a function redeploy; owner decision)
+- [ ] Waitlist tab: highlight registrations whose retention date has passed and offer a reviewed bulk removal (needs backend support)
 - [ ] Account security tab: show last sign-in time/method, passkey device names and created dates more clearly
 - [ ] Crypto tools: UI-only clarity (step numbers, faucet links, empty states); transfer/swap/signing logic stays untouched
 - [ ] Operations gate: alert-setup guide page in docs with exact Google Cloud console steps
