@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-05 14:40 UTC — [autopilot] "Spot the scam" practice on the Security page
+- New practice game on the Security page: ten everyday situations (a fake "support" message, a surprise token in your wallet, a copied look-alike address, a sign-in request, a withdrawal "tax", a fake sponsored search result, a phone call asking to share your screen, and some safe ones too). For each, choose "Go ahead" or "Stop" and see the red flags, what to do instead, and a link to the matching free tool. At the end you get a score and a list of the ones to review. Nothing is sent or saved. https://ea-la.github.io/FYNX-Wallet/#security/practice
+- The "Is this a scam?" check now links to the practice, and the Security page's "On this page" row has a Practice button.
+- The Learn page's browser tab now says "Learn crypto" instead of "Crypto glossary". https://ea-la.github.io/FYNX-Wallet/#learn
+
 ## 2026-11-05 10:20 UTC — [autopilot] "Which kind of wallet fits you?" chooser on the Learn page
 
 - New on the Learn page: answer four quick questions (how much, how often you move it, whether you can keep a backup, who needs to approve) and get a plain-English suggestion — exchange account, app wallet, hardware wallet, a savings + spending pair, or a shared multi-signature setup — with the reasons, honest warnings, first steps and links to the matching lesson or tool. https://ea-la.github.io/FYNX-Wallet/#learn/chooser

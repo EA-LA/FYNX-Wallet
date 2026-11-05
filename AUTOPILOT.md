@@ -52,7 +52,7 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [x] Learn page: "Which kind of wallet fits you?" chooser (#learn/chooser): four questions (amount, how often, backup, who approves) suggest an exchange account, app wallet, hardware wallet, savings + spending pair or multi-signature, with reasons, warnings (concentration risk, unsure backups), first steps, links, and a five-way comparison of who holds the keys, recovery, company failure, risks and fit; no brands, nothing saved (2026-11-05)
 - [x] Glossary: new "Multi-signature (multisig)" term; Custodial account links to the chooser (2026-11-05)
 - [ ] Chooser: remember the last answers in this browser (optional) and add a printable summary
-- [ ] Learn page: browser tab title still says "Crypto glossary"; rename to "Learn crypto" (update tests with it)
+- [x] Learn page: browser tab title now says "Learn crypto" instead of "Crypto glossary" (2026-11-05)
 - [ ] Lessons: a seventh lesson on buying and selling (on-ramps, spreads, identity checks) once the buy flow is closer
 - [x] Security page: "Understand a signature request" (#security/sign) explains pasted wallet requests in plain words: approve / increaseAllowance / decreaseAllowance (unlimited = danger, zero = revoke), setApprovalForAll, transfer / transferFrom / NFT safeTransferFrom, on-chain permit and Permit2 approve; typed signatures (EIP-2612 Permit, Permit2 PermitSingle/Batch and one-time transfers, Seaport listings incl. the zero-price listing trick, other typed data); Sign-In with Ethereum (with a site/URI mismatch warning) and plain or hex-encoded text messages; refuses phrases, keys and raw 32-byte hashes (blind signing); six labelled examples with made-up addresses; explorer buttons for the spender (2026-11-05)
 - [x] Glossary: new "Permit (signed approval)" term; Token approval and Permit link to the signature tool (2026-11-05)
@@ -63,3 +63,7 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 ## Bugs found and fixed
 
 - [x] Page click handlers piled up as visitors moved between pages: after opening Questions, a "Copy link" (or Next lesson) on the Learn page also ran the Questions handler and could copy a wrong `#faq/...` link. Handlers now reset on every page change (2026-11-05)
+- [x] Security page: "Spot the scam: practice" (#security/practice): ten everyday situations (fake support DM, surprise airdrop token, address poisoning, safe family transfer, honest sign-in request, withdrawal "tax", sponsored fake site, exchange email handled safely, unlimited approval from an ad, remote-access caller), one at a time; Go ahead / Stop, then red flags or why it is fine, what to do, tool and glossary links; progress dots, a score with the missed situations to review, Try again; nothing sent or saved; linked from the scam self-check and the On this page row (2026-11-05)
+- [ ] Practice: link it from the "Spotting a scam" lesson and the homepage Start here row
+- [ ] Practice: a second set of situations (romance, giveaway livestreams, fake job/task apps, QR-code payments)
+- [ ] Header/phone menu label "Crypto glossary" could become "Learn" to match the page (update nav tests)

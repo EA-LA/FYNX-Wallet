@@ -22,7 +22,7 @@ function loadSite(hash) {
 test('glossary page lists every term, grouped by topic, with search and topic filters', () => {
   const { app, context } = loadSite('#learn');
   const { glossary, learnTopics } = context;
-  assert.equal(context.document.title, 'Crypto glossary · FYNX Wallet');
+  assert.equal(context.document.title, 'Learn crypto · FYNX Wallet');
   assert.ok(glossary.length >= 30, `expected a substantial glossary, got ${glossary.length}`);
   assert.equal((app.innerHTML.match(/<article class="card term"/g) || []).length, glossary.length);
   assert.match(app.innerHTML, /id="learn-search"/);
@@ -51,7 +51,7 @@ test('glossary entries are unique, use known topics and only link to real terms 
 
 test('glossary terms and FAQ answers have shareable deep links; unknown ones show page not found', () => {
   const term = loadSite('#learn/token-approval');
-  assert.equal(term.context.document.title, 'Crypto glossary · FYNX Wallet');
+  assert.equal(term.context.document.title, 'Learn crypto · FYNX Wallet');
   assert.match(term.app.innerHTML, /id="term-token-approval"/);
   const slugs = loadSite('#faq').context.faqSlugs();
   assert.equal(new Set(slugs).size, slugs.length, 'unique FAQ slugs');
@@ -111,7 +111,7 @@ test('learn page starts with six beginner lessons, each with a self-check questi
 
 test('lessons and learn sections have shareable links; unknown lessons show page not found', () => {
   for (const hash of ['#learn/lessons', '#learn/glossary', '#learn/keys', '#learn/lesson-fees', '#learn/lesson-holds']) {
-    assert.equal(loadSite(hash).context.document.title, 'Crypto glossary · FYNX Wallet', hash);
+    assert.equal(loadSite(hash).context.document.title, 'Learn crypto · FYNX Wallet', hash);
   }
   for (const hash of ['#learn/lesson-nope', '#learn/lesson-', '#learn/lesson-Fees']) {
     assert.equal(loadSite(hash).context.document.title, 'Page not found · FYNX Wallet', hash);

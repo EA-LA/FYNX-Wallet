@@ -23,7 +23,7 @@ const pick = a => context.chooseWallet(a);
 
 test('wallet chooser renders on the Learn page with a shareable deep link and an On this page chip', () => {
   const { app, context: c } = loadSite('#learn/chooser');
-  assert.equal(c.document.title, 'Crypto glossary · FYNX Wallet');
+  assert.equal(c.document.title, 'Learn crypto · FYNX Wallet');
   assert.match(app.innerHTML, /id="lt-chooser"/);
   assert.match(app.innerHTML, /href="#learn\/chooser" data-target="lt-chooser"/);
   for (const [id, , opts] of c.chooserQuestions) for (const [v] of opts) assert.ok(app.innerHTML.includes(`name="choose-${id}" value="${v}"`), `${id}=${v}`);
