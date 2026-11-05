@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-20",
+  "updated": "2026-11-05",
   "product": "FYNX Wallet",
   "operator": "FYNX finance world inc.",
   "marketPlan": "United States first; expand internationally only where the final product is permitted and supported.",
@@ -12,7 +12,35 @@
       "responsibility": "Engineering",
       "current": "GitHub hosts the public site and owner dashboard. Firebase stores confirmed registrations with consent and retention metadata.",
       "next": "Maintain the waitlist until the public-launch gates are approved.",
-      "evidence": "firebase-waitlist/VERIFICATION.md"
+      "evidence": "firebase-waitlist/VERIFICATION.md",
+      "steps": [
+        {
+          "id": "site-live",
+          "by": "engineering",
+          "text": "Public website and waitlist published from GitHub Pages.",
+          "done": true
+        },
+        {
+          "id": "consent",
+          "by": "engineering",
+          "text": "Registrations saved with consent, notice version and a 365-day expiry.",
+          "done": true
+        },
+        {
+          "id": "join-phone",
+          "by": "you",
+          "text": "On your phone, open the public website, join the waitlist with a test address ending in @example.com and confirm the success message.",
+          "done": false,
+          "tab": "public"
+        },
+        {
+          "id": "find-remove",
+          "by": "you",
+          "text": "In the Waitlist tab, find that test address, check its consent details, then remove it.",
+          "done": false,
+          "tab": "registrations"
+        }
+      ]
     },
     {
       "id": "identity",
@@ -21,7 +49,66 @@
       "responsibility": "Owner + engineering",
       "current": "Google, email/password and passkeys are implemented for the verified owner. Virtual passkey and authorization tests passed.",
       "next": "Test Google, email recovery, passkey creation/sign-in/removal, and browser attestation on actual supported devices. Account recovery does not recover wallet funds.",
-      "evidence": "docs/VERIFICATION.md"
+      "evidence": "docs/VERIFICATION.md",
+      "steps": [
+        {
+          "id": "virtual",
+          "by": "engineering",
+          "text": "Google, email/password and passkey sign-in built; virtual passkey and owner-only authorization tests pass.",
+          "done": true
+        },
+        {
+          "id": "google-desktop",
+          "by": "you",
+          "text": "Sign in with Google in a normal (not private) desktop browser. Note the browser and version.",
+          "done": false
+        },
+        {
+          "id": "email-reset",
+          "by": "you",
+          "text": "Use “Set or reset an email password”, open the email, set a password, then sign in with email and password.",
+          "done": false
+        },
+        {
+          "id": "passkey-add",
+          "by": "you",
+          "text": "Account security → Add a passkey on this computer and confirm it appears in the list.",
+          "done": false,
+          "tab": "security"
+        },
+        {
+          "id": "passkey-signin",
+          "by": "you",
+          "text": "Sign out, then sign back in with “Use a passkey”.",
+          "done": false
+        },
+        {
+          "id": "passkey-phone",
+          "by": "you",
+          "text": "Add a passkey on your iPhone or iPad in Safari and sign in with it.",
+          "done": false,
+          "tab": "security"
+        },
+        {
+          "id": "passkey-remove",
+          "by": "you",
+          "text": "Remove one passkey and confirm it can no longer be used to sign in.",
+          "done": false,
+          "tab": "security"
+        },
+        {
+          "id": "idle",
+          "by": "you",
+          "text": "Leave the workspace untouched for 15 minutes and confirm it signs you out.",
+          "done": false
+        },
+        {
+          "id": "other-account",
+          "by": "you",
+          "text": "Try to sign in with a Google account that is not the owner and confirm access is refused.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "public-accounts",
@@ -30,7 +117,33 @@
       "responsibility": "Engineering",
       "current": "Public customer accounts are deliberately closed; the backend authorizes one owner.",
       "next": "Implement per-user profiles, wallet ownership, session revocation, abuse limits and cross-account isolation tests on the selected production infrastructure. Open registration only after approval.",
-      "evidence": "docs/LAUNCH-READINESS.md"
+      "evidence": "docs/LAUNCH-READINESS.md",
+      "steps": [
+        {
+          "id": "profiles",
+          "by": "engineering",
+          "text": "Per-customer profiles and wallet ownership records.",
+          "done": false
+        },
+        {
+          "id": "isolation",
+          "by": "engineering",
+          "text": "Cross-account isolation tests: one customer can never read or act on another’s data.",
+          "done": false
+        },
+        {
+          "id": "abuse",
+          "by": "engineering",
+          "text": "Session revocation, rate limits and abuse controls for public sign-up.",
+          "done": false
+        },
+        {
+          "id": "approve-open",
+          "by": "you",
+          "text": "Approve opening registration only after the security, legal and pilot gates pass.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "wallet-recovery",
@@ -39,7 +152,34 @@
       "responsibility": "Owner + security engineering",
       "current": "Version one connects an existing user-controlled wallet. FYNX does not create a wallet, generate 24 words, or recover signing keys from email.",
       "next": "Prove external-wallet recovery first. If creating a wallet inside FYNX is required, select and independently review key generation, encrypted storage, device/passkey access, backup, export and recovery before implementation. Never ask users for an existing Ledger phrase.",
-      "evidence": "docs/LAUNCH-READINESS.md"
+      "evidence": "docs/LAUNCH-READINESS.md",
+      "steps": [
+        {
+          "id": "external",
+          "by": "engineering",
+          "text": "Version one connects an existing wallet; FYNX never creates, stores or asks for recovery words.",
+          "done": true
+        },
+        {
+          "id": "decide",
+          "by": "you",
+          "text": "Decide: is connecting your own wallet (for example MetaMask or Ledger) enough for launch, or must FYNX create wallets inside the app? Write your decision in the note.",
+          "done": false
+        },
+        {
+          "id": "restore-test",
+          "by": "you",
+          "text": "Restore a test wallet from its recovery phrase in that wallet’s own app (never on FYNX) and confirm the same address appears in Crypto tools.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "embedded-review",
+          "by": "outside",
+          "text": "Only if FYNX must create wallets: independent review of key generation, encrypted storage, backup, export and recovery before any build.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "signing",
@@ -48,7 +188,83 @@
       "responsibility": "Owner + engineering",
       "current": "ETH and canonical USDC test transfers have address/network/fee review, token simulation, bounded amounts, one-use approval and receipt lookup. Receive QR codes include the chain and asset. Real contracts executed successfully in an isolated Base Sepolia fork.",
       "next": "Record physical-wallet approval/rejection, public testnet transfers and independent recipient balances. Test recovery and supported browsers/devices. Mainnet signing remains disabled.",
-      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md"
+      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md",
+      "steps": [
+        {
+          "id": "fork",
+          "by": "engineering",
+          "text": "ETH and USDC transfers with review, simulation, limits and receipts passed on an isolated Base Sepolia copy.",
+          "done": true
+        },
+        {
+          "id": "mainnet-off",
+          "by": "engineering",
+          "text": "Sending on Base mainnet is blocked; only test networks can sign.",
+          "done": true
+        },
+        {
+          "id": "test-funds",
+          "by": "you",
+          "text": "In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed in Base’s documentation.",
+          "done": false
+        },
+        {
+          "id": "verify-wallet",
+          "by": "you",
+          "text": "Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve. Confirm the wallet shows as verified.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "reject-sign",
+          "by": "you",
+          "text": "Repeat, but reject the ownership signature in the wallet. Confirm the page says nothing was approved.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "receive-qr",
+          "by": "you",
+          "text": "Scan the Receive QR code with a phone wallet and confirm the address and network match exactly.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "send-eth",
+          "by": "you",
+          "text": "Send 0.001 test ETH to a second address you control. Note the transaction ID and confirm the recipient balance on the Base Sepolia block explorer.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "send-usdc",
+          "by": "you",
+          "text": "Send 1 test USDC the same way (test USDC comes from Circle’s testnet faucet).",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "reject-send",
+          "by": "you",
+          "text": "Start a transfer and reject it in the wallet. Confirm nothing was sent.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "ledger",
+          "by": "you",
+          "text": "Repeat one transfer with a Ledger, approving on the device screen.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "mainnet-check",
+          "by": "you",
+          "text": "Switch to Base mainnet and confirm sending and swapping stay disabled.",
+          "done": false,
+          "tab": "wallet"
+        }
+      ]
     },
     {
       "id": "assets",
@@ -57,7 +273,59 @@
       "responsibility": "Engineering + infrastructure provider",
       "current": "Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session transaction journal and hash lookup are implemented. The separate dashboard remains a simulation.",
       "next": "Add complete indexed transaction history, reliable production RPC/failover, replacement/reorg handling and market prices. Bitcoin and Solana are not implemented.",
-      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md"
+      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md",
+      "steps": [
+        {
+          "id": "live",
+          "by": "engineering",
+          "text": "Live ETH and USDC balances on Ethereum Sepolia, Base Sepolia and Base (read-only).",
+          "done": true
+        },
+        {
+          "id": "journal",
+          "by": "engineering",
+          "text": "Session transaction list and transaction lookup.",
+          "done": true
+        },
+        {
+          "id": "compare",
+          "by": "you",
+          "text": "Compare the balances shown in Crypto tools with the block explorer on both test networks.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "lookup",
+          "by": "you",
+          "text": "Paste a transaction ID into “Track confirmation” and confirm the status matches the explorer.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "history",
+          "by": "engineering",
+          "text": "Complete transaction history from an indexing provider.",
+          "done": false
+        },
+        {
+          "id": "rpc",
+          "by": "engineering",
+          "text": "Production network connection with a backup provider if the first fails.",
+          "done": false
+        },
+        {
+          "id": "replace",
+          "by": "engineering",
+          "text": "Handle replaced, dropped and reorganised transactions.",
+          "done": false
+        },
+        {
+          "id": "prices",
+          "by": "outside",
+          "text": "Market prices from a licensed data provider.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "fiat",
@@ -66,7 +334,59 @@
       "responsibility": "Business owner + counsel + engineering",
       "current": "A server-only Transak sandbox checkout and order-status adapter is implemented with fixed hosts, verified-wallet binding and private secrets. No partner credentials are supplied; it fails closed. No live payments are enabled.",
       "next": "Create a provider sandbox account, enable BUY/SELL, arrange required IP allowlisting and supply staging credentials in Secret Manager. Test purchases, sales, cancellations, refunds and reconciliation. Business approval, production credentials and legal review are separate gates.",
-      "evidence": "docs/PROVIDER-SETUP.md"
+      "evidence": "docs/PROVIDER-SETUP.md",
+      "steps": [
+        {
+          "id": "adapter",
+          "by": "engineering",
+          "text": "Transak sandbox checkout and order check built; stays off until credentials are added.",
+          "done": true
+        },
+        {
+          "id": "partner",
+          "by": "you",
+          "text": "Create a Transak partner account and get its staging (test) API key and access token. Never paste them into chat or GitHub.",
+          "done": false
+        },
+        {
+          "id": "allowlist",
+          "by": "outside",
+          "text": "Transak approves the backend’s fixed IP address (needs a static outbound address set up first).",
+          "done": false
+        },
+        {
+          "id": "secret",
+          "by": "you",
+          "text": "Put the staging key in Google Cloud Secret Manager (FYNX_TRANSAK_SANDBOX), following docs/PROVIDER-SETUP.md.",
+          "done": false
+        },
+        {
+          "id": "redeploy",
+          "by": "engineering",
+          "text": "Redeploy only the owner function so it picks up the new secret.",
+          "done": false
+        },
+        {
+          "id": "sandbox-test",
+          "by": "you",
+          "text": "Crypto tools → Check integration status, then create a sandbox Buy and a Sell checkout, and verify each order ID.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "failures",
+          "by": "you",
+          "text": "Test a cancelled and a failed sandbox order and confirm they never show as paid.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "approval",
+          "by": "outside",
+          "text": "Provider business approval, production contract and legal review before real payments.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "swaps",
@@ -75,7 +395,56 @@
       "responsibility": "Engineering + approved liquidity/provider arrangements",
       "current": "Direct ETH/USDC Uniswap v3 swaps on Base Sepolia: bounded slippage/price impact, one-minute quotes, exact/reset/revoke approvals, simulation and on-chain minimum output. Base mainnet quotes are read-only. Local-fork swaps passed in both directions.",
       "next": "Verify public-testnet and hardware-wallet execution; independently review the pinned contracts, pricing/manipulation risks, routing, fee handling and production release policy. Mainnet swaps stay disabled.",
-      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md"
+      "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md",
+      "steps": [
+        {
+          "id": "fork",
+          "by": "engineering",
+          "text": "ETH ↔ USDC swaps with slippage, price-impact, expiry and minimum-received limits passed on an isolated Base Sepolia copy.",
+          "done": true
+        },
+        {
+          "id": "quote",
+          "by": "you",
+          "text": "Crypto tools → Base Sepolia → get a quote for 0.001 ETH → USDC and check the minimum received.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "swap-eth",
+          "by": "you",
+          "text": "Complete that swap in your wallet and confirm both balances on the explorer.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "swap-usdc",
+          "by": "you",
+          "text": "Swap a small amount of USDC back to ETH: approve the exact amount, request a fresh quote, swap.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "revoke",
+          "by": "you",
+          "text": "Use “Revoke swap allowance” and confirm the allowance is zero.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "ledger",
+          "by": "you",
+          "text": "Repeat one swap approving on a Ledger.",
+          "done": false,
+          "tab": "wallet"
+        },
+        {
+          "id": "review",
+          "by": "outside",
+          "text": "Independent review of the pinned contracts, pricing risks and fee handling before real funds.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "production-security",
@@ -84,7 +453,39 @@
       "responsibility": "Owner + engineering + independent reviewer",
       "current": "Owner authorization, App Check, challenge replay protection, dependency checks and an internal review are in place. Current GitHub origin and Firebase project are shared with other applications.",
       "next": "Choose a dedicated production origin/backend boundary, configure response headers and secrets/IAM, retest App Check on normal browsers, and commission an independent signing/auth review with fixes and retesting.",
-      "evidence": "security_best_practices_report.md"
+      "evidence": "security_best_practices_report.md",
+      "steps": [
+        {
+          "id": "internal",
+          "by": "engineering",
+          "text": "Owner-only authorization, App Check, replay protection, dependency checks and an internal review.",
+          "done": true
+        },
+        {
+          "id": "domain",
+          "by": "you",
+          "text": "Choose a dedicated web address and a separate Firebase project for the production wallet.",
+          "done": false
+        },
+        {
+          "id": "headers",
+          "by": "engineering",
+          "text": "Security headers, secrets and access permissions on that dedicated setup; retest App Check in normal browsers.",
+          "done": false
+        },
+        {
+          "id": "auditor",
+          "by": "you",
+          "text": "Choose and hire an independent security reviewer for signing and sign-in.",
+          "done": false
+        },
+        {
+          "id": "audit",
+          "by": "outside",
+          "text": "Independent review completed, issues fixed and retested.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "releases",
@@ -93,7 +494,27 @@
       "responsibility": "Engineering",
       "current": "The Pages workflow waits for tests, generated-file checks and dependency audits. Only approved public assets are packaged, with a revision/hash manifest.",
       "next": "Keep deployment gated; use the published manifest and Actions run to identify each release. Backend deployments and rollbacks remain separately scoped.",
-      "evidence": "docs/RELEASE-PROCESS.md"
+      "evidence": "docs/RELEASE-PROCESS.md",
+      "steps": [
+        {
+          "id": "gated",
+          "by": "engineering",
+          "text": "Website updates publish only after tests, generated-file checks and dependency audits pass.",
+          "done": true
+        },
+        {
+          "id": "manifest",
+          "by": "engineering",
+          "text": "Each release publishes a revision and file-hash manifest.",
+          "done": true
+        },
+        {
+          "id": "check-run",
+          "by": "you",
+          "text": "Open the GitHub Actions page and confirm the latest “Verify and publish FYNX Wallet” run is green.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "operations",
@@ -102,7 +523,51 @@
       "responsibility": "Owner + engineering",
       "current": "Audit retention, rate limits, a connection check and an incident procedure exist. There is no tested alert recipient or restore drill.",
       "next": "Assign monitored support/security contacts, set failure/authorization/billing alerts, test delivery, select backup retention and recovery objectives, and restore into an isolated environment. Connection checks are not continuous monitoring.",
-      "evidence": "docs/OPERATIONS.md"
+      "evidence": "docs/OPERATIONS.md",
+      "steps": [
+        {
+          "id": "procedure",
+          "by": "engineering",
+          "text": "Audit retention, rate limits, connection checks and a written incident procedure.",
+          "done": true
+        },
+        {
+          "id": "inbox",
+          "by": "you",
+          "text": "Name who reads fynxteam5@gmail.com every day, and a backup person.",
+          "done": false
+        },
+        {
+          "id": "alert-dest",
+          "by": "you",
+          "text": "Choose where alerts go (email or phone) for failures, sign-in problems and billing.",
+          "done": false
+        },
+        {
+          "id": "alerts",
+          "by": "engineering",
+          "text": "Set up those alerts in Google Cloud and send a test alert.",
+          "done": false
+        },
+        {
+          "id": "backup",
+          "by": "you",
+          "text": "Choose how long backups are kept and how quickly the service must be restored after an outage.",
+          "done": false
+        },
+        {
+          "id": "restore",
+          "by": "engineering",
+          "text": "Restore a backup into a separate test project and record the result.",
+          "done": false
+        },
+        {
+          "id": "drill",
+          "by": "you",
+          "text": "Walk through the incident procedure once with your team (a 30-minute practice run).",
+          "done": false
+        }
+      ]
     },
     {
       "id": "legal",
@@ -111,7 +576,45 @@
       "responsibility": "Business owner + qualified counsel",
       "current": "The owner supplied the name FYNX finance world inc. and selected the United States as the first intended market. Incorporation state, registration details and legal permissions are unverified.",
       "next": "Confirm entity details and the exact custody/payment model. Have counsel determine federal/state licensing, AML/KYC, sanctions, age/eligibility, privacy, consumer terms, disclosures and complaints duties. Finish the required registrations, contracts and controls before serving customers.",
-      "evidence": "docs/LEGAL-OPERATING-REVIEW.md"
+      "evidence": "docs/LEGAL-OPERATING-REVIEW.md",
+      "steps": [
+        {
+          "id": "entity",
+          "by": "you",
+          "text": "Confirm FYNX finance world inc.’s state of incorporation and registration details.",
+          "done": false
+        },
+        {
+          "id": "model",
+          "by": "you",
+          "text": "Confirm the model: customers keep their own keys and a licensed provider handles card and bank payments.",
+          "done": false
+        },
+        {
+          "id": "counsel",
+          "by": "you",
+          "text": "Hire qualified U.S. counsel experienced with crypto and payments.",
+          "done": false
+        },
+        {
+          "id": "analysis",
+          "by": "outside",
+          "text": "Counsel reviews federal and state licensing, anti-money-laundering, sanctions, age and eligibility, privacy and complaints duties.",
+          "done": false
+        },
+        {
+          "id": "terms",
+          "by": "outside",
+          "text": "Customer terms, privacy notice and risk disclosures drafted and approved.",
+          "done": false
+        },
+        {
+          "id": "registrations",
+          "by": "you",
+          "text": "Complete the registrations and contracts counsel requires.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "international",
@@ -120,7 +623,27 @@
       "responsibility": "Business owner + counsel + providers",
       "current": "Worldwide access is a future goal, not current eligibility or authorization.",
       "next": "Approve each country and product separately for local requirements, sanctions, payment/provider coverage, data handling and support. Implement an approved-country policy before expansion; do not promise all countries.",
-      "evidence": "docs/LEGAL-OPERATING-REVIEW.md"
+      "evidence": "docs/LEGAL-OPERATING-REVIEW.md",
+      "steps": [
+        {
+          "id": "first-country",
+          "by": "you",
+          "text": "Pick the first country after the U.S.",
+          "done": false
+        },
+        {
+          "id": "country-review",
+          "by": "outside",
+          "text": "Counsel and payment provider confirm what is allowed and supported in that country.",
+          "done": false
+        },
+        {
+          "id": "country-policy",
+          "by": "engineering",
+          "text": "An approved-country list that blocks sign-up from anywhere not approved.",
+          "done": false
+        }
+      ]
     },
     {
       "id": "pilot",
@@ -129,7 +652,33 @@
       "responsibility": "Owner + engineering + reviewers",
       "current": "Public customers remain on the waitlist. No launch date, real-funds readiness or flawless operation is claimed.",
       "next": "After the applicable gates pass, run a small approved pilot with limits, staffed support, recovery/incident procedures, reconciliation, measured reliability and a rollback decision. Obtain explicit owner release approval before removing the waitlist.",
-      "evidence": "docs/LAUNCH-READINESS.md"
+      "evidence": "docs/LAUNCH-READINESS.md",
+      "steps": [
+        {
+          "id": "limits",
+          "by": "you",
+          "text": "Decide the pilot: how many people, which states, and the maximum amounts.",
+          "done": false
+        },
+        {
+          "id": "support",
+          "by": "you",
+          "text": "Arrange who answers support during the pilot, and how fast.",
+          "done": false
+        },
+        {
+          "id": "rollback",
+          "by": "engineering",
+          "text": "A tested rollback plan and reconciliation reports for the pilot.",
+          "done": false
+        },
+        {
+          "id": "approve",
+          "by": "you",
+          "text": "Give final written approval to remove the waitlist for the pilot group.",
+          "done": false
+        }
+      ]
     }
   ]
 }

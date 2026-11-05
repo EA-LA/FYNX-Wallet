@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-05 15:20 UTC — [autopilot] Owner workspace: Launch readiness becomes a working to-do list
+- Launch readiness tab (owner workspace): a progress summary at the top (percent of launch steps done, gates done / needing you / waiting on others, your tests done) and "Your next steps", each one click away. https://ea-la.github.io/FYNX-Wallet/owner.html
+- Every one of the 14 gates now lists concrete steps (83 in total), labelled You, Engineering or Outside party. Your steps have Passed / Failed / Not applicable buttons, a note box, and a button that opens the right tab (Crypto tools, Account security, Waitlist).
+- Results are saved in your browser only. Notes that look like a recovery phrase or key are refused.
+- "Copy test report" and "Download report" turn your results into a dated report you can share, so the checklist can be updated with real evidence.
+- Filter the gates by All / Needs you / Waiting on others / Done.
+- Dashboard tab: on iPad/iPhone Safari the dashboard preview could spill past the right edge and get cut off; it now fits the frame.
+- The full checklist document on GitHub now lists the same steps with ticks.
+
 ## 2026-11-05 14:40 UTC — [autopilot] "Spot the scam" practice on the Security page
 - New practice game on the Security page: ten everyday situations (a fake "support" message, a surprise token in your wallet, a copied look-alike address, a sign-in request, a withdrawal "tax", a fake sponsored search result, a phone call asking to share your screen, and some safe ones too). For each, choose "Go ahead" or "Stop" and see the red flags, what to do instead, and a link to the matching free tool. At the end you get a score and a list of the ones to review. Nothing is sent or saved. https://ea-la.github.io/FYNX-Wallet/#security/practice
 - The "Is this a scam?" check now links to the practice, and the Security page's "On this page" row has a Practice button.

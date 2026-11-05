@@ -67,3 +67,14 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [ ] Practice: link it from the "Spotting a scam" lesson and the homepage Start here row
 - [ ] Practice: a second set of situations (romance, giveaway livestreams, fake job/task apps, QR-code payments)
 - [ ] Header/phone menu label "Crypto glossary" could become "Learn" to match the page (update nav tests)
+
+## Owner workspace (owner.html) — owner asked on 2026-11-05 to focus here and finish the launch checklist
+- [x] Launch readiness: overview (percent, gate groups, your tests), next steps, filters, 83 concrete steps across 14 gates (You / Engineering / Outside), Passed/Failed/N/A + notes saved in this browser only (secret-looking notes refused), copy/download test report, tab shortcuts (2026-11-05)
+- [x] Dashboard tab: iOS/iPadOS Safari widened the sandboxed iframe to its content, cutting off the right column; parent-side fix (width:1px;min-width:100%) (2026-11-05) — needs a check on the owner's iPad
+- [ ] When the owner shares a test report: mark the matching steps done in wallet-src/launch-checklist.json and add the evidence to docs/VERIFICATION.md
+- [ ] Waitlist tab: sign-ups per day/week chart and totals, consent-version breakdown, CSV export of loaded rows (owner data only)
+- [ ] Account security tab: show last sign-in time/method, passkey device names and created dates more clearly
+- [ ] Crypto tools: UI-only clarity (step numbers, faucet links, empty states); transfer/swap/signing logic stays untouched
+- [ ] Operations gate: alert-setup guide page in docs with exact Google Cloud console steps
+- [ ] Legal gate: a "questions for your lawyer" printable sheet generated from the legal review brief
+- Note: the dashboard document itself (wallet-src/dashboard) is served by the Firebase function; changing it needs a backend redeploy, so autopilot leaves it alone.

@@ -9,6 +9,7 @@ import { networkFor } from '../firebase-wallet/functions/networks.js';
 import QRCode from 'qrcode';
 import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
+import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
 
 const $ = selector => document.querySelector(selector);
@@ -439,19 +440,136 @@ $('#more-waitlist').addEventListener('click', event => run(event.currentTarget, 
 $('#waitlist-search').addEventListener('submit', event => { event.preventDefault(); run($('#find-registration'), () => loadRegistrations({ email: $('#waitlist-email').value.trim() })); });
 $('#clear-waitlist-search').addEventListener('click', event => run(event.currentTarget, async () => { await loadRegistrations({ email: '' }); $('#waitlist-search').reset(); }));
 setText('#launch-market', launchPlan.marketPlan);
-for (const item of launchPlan.items) {
-  const details = document.createElement('details'); details.className = 'launch-item';
-  const summary = document.createElement('summary'), title = document.createElement('strong'), state = document.createElement('span');
-  title.textContent = item.title; state.textContent = statusLabels[item.status]; state.className = 'launch-state';
-  summary.append(title, state); details.append(summary);
-  for (const [label, text] of [['Current', item.current], ['To finish', item.next], ['Responsible', item.responsibility]]) {
-    const line = document.createElement('p'), lead = document.createElement('strong'); lead.textContent = `${label}: `;
-    line.append(lead, document.createTextNode(text)); details.append(line);
-  }
-  const link = document.createElement('a'); link.textContent = 'Evidence and context ↗';
-  link.href = `https://github.com/EA-LA/FYNX-Wallet/blob/main/${item.evidence}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
-  details.append(link); $('#launch-checklist').append(details);
+// Launch readiness: overview, filters, per-gate steps and owner test results kept only in this browser.
+let launchRecords = {}, launchFilter = 'all';
+try { launchRecords = cleanRecords(JSON.parse(localStorage.getItem(TRACKER_KEY) || '{}'), launchPlan); } catch { launchRecords = {}; }
+function saveLaunchRecords() { try { localStorage.setItem(TRACKER_KEY, JSON.stringify(launchRecords)); } catch { setText('#launch-save-status', 'This browser blocked saving. Results last until you close the page.'); } }
+const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; };
+function progressBar(done, total, label) {
+  const bar = el('span', 'launch-bar'); bar.setAttribute('role', 'img'); bar.setAttribute('aria-label', label);
+  const fill = el('span'); fill.style.width = `${total ? Math.round(done / total * 100) : 0}%`; bar.append(fill); return bar;
 }
+function openGate(id, focus = true) {
+  if (launchFilter !== 'all' && groupOf(launchPlan.items.find(i => i.id === id)?.status) !== launchFilter) { launchFilter = 'all'; renderLaunch(); }
+  const details = document.getElementById(`gate-${id}`); if (!details) return;
+  details.open = true; details.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  if (focus) details.querySelector('summary')?.focus({ preventScroll: true });
+}
+function renderLaunchOverview() {
+  const o = overview(launchPlan, launchRecords), box = $('#launch-overview'); box.replaceChildren();
+  const head = el('div', 'launch-headline');
+  head.append(el('strong', 'launch-percent', `${o.percent}%`), el('span', 'muted', `${o.done} of ${o.total} launch steps done across ${o.gates} gates`));
+  box.append(head, progressBar(o.done, o.total, `${o.percent}% of launch steps done`));
+  const stats = el('ul', 'launch-stats');
+  for (const [key, value] of [['done', o.counts.done], ['you', o.counts.you], ['others', o.counts.others]]) {
+    const li = el('li'); const b = el('button', `launch-stat stat-${key}`); b.type = 'button';
+    b.append(el('strong', '', String(value)), el('span', '', `${value === 1 ? 'gate' : 'gates'} · ${groupLabels[key].toLowerCase()}`));
+    b.addEventListener('click', () => { launchFilter = key; renderLaunch(); $('#launch-checklist').scrollIntoView({ block: 'start' }); });
+    li.append(b); stats.append(li);
+  }
+  const mine = el('li'); mine.append(el('div', 'launch-stat stat-mine', ''));
+  mine.firstChild.append(el('strong', '', `${o.yoursDone}/${o.yours}`), el('span', '', `your tests and decisions done${o.failed ? ` · ${o.failed} failed` : ''}`));
+  stats.append(mine); box.append(stats);
+  const next = nextActions(launchPlan, launchRecords, 3);
+  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length ? 'Your next steps' : 'All your steps are recorded'));
+  if (next.length) {
+    const list = el('ol');
+    for (const { gate, step, failed } of next) {
+      const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
+      b.append(el('span', 'launch-next-gate', `${failed ? 'Retest · ' : ''}${gate.title}`), el('span', '', step.text));
+      b.addEventListener('click', () => openGate(gate.id)); li.append(b); list.append(li);
+    }
+    wrap.append(list);
+  } else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
+  box.append(wrap);
+}
+function renderLaunchFilters() {
+  const nav = $('#launch-filters'); nav.replaceChildren();
+  for (const key of Object.keys(groupLabels)) {
+    const count = key === 'all' ? launchPlan.items.length : launchPlan.items.filter(i => groupOf(i.status) === key).length;
+    const b = el('button', 'launch-chip', `${groupLabels[key]} (${count})`); b.type = 'button'; b.setAttribute('aria-pressed', String(launchFilter === key));
+    b.addEventListener('click', () => { launchFilter = key; renderLaunch(); }); nav.append(b);
+  }
+}
+function recordStep(gate, step, patch) {
+  const key = stepKey(gate.id, step.id), prev = launchRecords[key] || { result: '', note: '', at: 0 };
+  const next = { ...prev, ...patch, at: Date.now() };
+  if (!next.result && !next.note) delete launchRecords[key]; else launchRecords[key] = next;
+  saveLaunchRecords(); renderLaunch({ keepOpen: gate.id, focusStep: key });
+}
+function stepRow(gate, step) {
+  const key = stepKey(gate.id, step.id), state = stepState(gate, step, launchRecords), rec = launchRecords[key];
+  const li = el('li', `launch-step is-${state}`); li.dataset.step = key;
+  const top = el('div', 'launch-step-top');
+  top.append(el('span', `launch-by by-${step.by}`, byLabels[step.by]), el('p', 'launch-step-text', step.text));
+  const mark = el('span', 'launch-mark', state === 'done' ? (step.done ? 'Done' : resultLabels[rec?.result] || 'Done') : state === 'failed' ? 'Failed' : step.by === 'you' ? 'To do' : 'Open');
+  top.append(mark); li.append(top);
+  if (step.by !== 'you' || step.done) return li;
+  const controls = el('div', 'launch-step-controls');
+  const group = el('div', 'launch-results'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Result: ${step.text}`);
+  for (const result of RESULTS) {
+    const b = el('button', `launch-result result-${result}`, resultLabels[result]); b.type = 'button'; b.dataset.result = result;
+    b.setAttribute('aria-pressed', String(rec?.result === result));
+    b.addEventListener('click', () => recordStep(gate, step, { result: rec?.result === result ? '' : result }));
+    group.append(b);
+  }
+  controls.append(group);
+  if (step.tab) {
+    const go = el('button', 'text-button launch-go', `Open ${tabLabels[step.tab]} ↗`); go.type = 'button';
+    go.addEventListener('click', () => { if (step.tab === 'public') window.open('./', '_blank', 'noopener'); else { selectTab(step.tab); window.scrollTo(0, 0); } });
+    controls.append(go);
+  }
+  li.append(controls);
+  const noteId = `note-${gate.id}-${step.id}`, label = el('label', 'launch-note-label', 'Note (browser, device, transaction ID; never keys or recovery words)'); label.htmlFor = noteId;
+  const note = el('input', 'launch-note'); note.id = noteId; note.maxLength = 280; note.autocomplete = 'off'; note.spellcheck = false; note.value = rec?.note || '';
+  const warn = el('p', 'launch-note-warn'); warn.setAttribute('role', 'status');
+  note.addEventListener('change', () => {
+    if (looksSecret(note.value)) { warn.textContent = 'This looks like a recovery phrase or key, so it was not saved. Delete it and never type it into any website.'; note.value = rec?.note || ''; return; }
+    recordStep(gate, step, { note: note.value.trim() });
+  });
+  li.append(label, note, warn);
+  if (rec?.at) li.append(el('p', 'launch-when', `Recorded ${new Date(rec.at).toLocaleString()}`));
+  return li;
+}
+function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
+  const open = new Set([...document.querySelectorAll('#launch-checklist details[open]')].map(d => d.dataset.gate));
+  if (keepOpen) open.add(keepOpen);
+  renderLaunchOverview(); renderLaunchFilters();
+  const list = $('#launch-checklist'); list.replaceChildren();
+  for (const item of launchPlan.items) {
+    if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;
+    const p = gateProgress(item, launchRecords);
+    const details = el('details', `launch-item group-${groupOf(item.status)}`); details.id = `gate-${item.id}`; details.dataset.gate = item.id; details.open = open.has(item.id);
+    const summary = el('summary'), title = el('strong', '', item.title), state = el('span', 'launch-state', statusLabels[item.status]);
+    const meter = el('span', 'launch-meter'); meter.append(progressBar(p.done, p.total, `${p.done} of ${p.total} steps done`), el('span', '', `${p.done}/${p.total}${p.failed ? ` · ${p.failed} failed` : ''}`));
+    summary.append(title, state, meter); details.append(summary);
+    for (const [label, text] of [['Current', item.current], ['To finish', item.next], ['Responsible', item.responsibility]]) {
+      const line = el('p'), lead = el('strong', '', `${label}: `); line.append(lead, document.createTextNode(text)); details.append(line);
+    }
+    const steps = el('ol', 'launch-steps'); for (const step of item.steps || []) steps.append(stepRow(item, step));
+    details.append(el('h3', 'launch-steps-h', 'Steps'), steps);
+    const link = el('a', '', 'Evidence and context ↗'); link.href = `https://github.com/EA-LA/FYNX-Wallet/blob/main/${item.evidence}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    details.append(link); list.append(details);
+  }
+  if (!list.children.length) list.append(el('p', 'muted', 'No gates in this view.'));
+  if (focusStep) document.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
+}
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent) });
+$('#copy-launch-report').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
+  catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
+});
+$('#download-launch-report').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([launchReport()], { type: 'text/markdown' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-launch-tests-${new Date().toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setText('#launch-save-status', 'Report downloaded.');
+});
+$('#clear-launch-results').addEventListener('click', () => {
+  if (!Object.keys(launchRecords).length || !window.confirm('Clear all test results and notes saved in this browser?')) return;
+  launchRecords = {}; try { localStorage.removeItem(TRACKER_KEY); } catch { /* ignore */ }
+  renderLaunch(); setText('#launch-save-status', 'Saved results cleared from this browser.');
+});
+renderLaunch();
 $('#run-connection-checks').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   $('#connection-results').replaceChildren(); setText('#connection-status', 'Checking your current connection…');
   const results = await checkConnections({ call: api, wallet: connection });
