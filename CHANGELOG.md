@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-05 10:20 UTC — [autopilot] "Which kind of wallet fits you?" chooser on the Learn page
+
+- New on the Learn page: answer four quick questions (how much, how often you move it, whether you can keep a backup, who needs to approve) and get a plain-English suggestion — exchange account, app wallet, hardware wallet, a savings + spending pair, or a shared multi-signature setup — with the reasons, honest warnings, first steps and links to the matching lesson or tool. https://ea-la.github.io/FYNX-Wallet/#learn/chooser
+- A side-by-side comparison of the five options: who holds the keys, what happens if you lose your phone, what happens if the company fails, main risks and who each one usually suits.
+- New glossary word "Multi-signature (multisig)". https://ea-la.github.io/FYNX-Wallet/#learn/multisig
+- Homepage: a line under "Start here" now links straight to the six beginner lessons and the wallet chooser. https://ea-la.github.io/FYNX-Wallet/
+
 ## 2026-11-05 06:20 UTC — [autopilot] Six beginner crypto lessons on the Learn page, and a copy-link fix
 
 - The Learn page now opens with **"New to crypto? Start with the basics."**: six short lessons (about 18 minutes in total) on what a wallet really holds, the recovery phrase, addresses and networks, network fees, approvals and signatures, and spotting scams. Each one has key points, links to the glossary words it uses, a matching free tool, and a one-question check with an explanation. A progress bar remembers which lessons you have checked, only in your own browser, and there is a "Clear my progress" button. https://ea-la.github.io/FYNX-Wallet/#learn/lessons

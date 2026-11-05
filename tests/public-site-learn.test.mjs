@@ -118,5 +118,5 @@ test('lessons and learn sections have shareable links; unknown lessons show page
   }
   const { context } = loadSite('#learn');
   const terms = new Set(context.glossary.map(g => g[0]));
-  for (const id of ['lessons', 'glossary', ...context.learnTopics.map(t => t[0])]) assert.ok(!terms.has(id), `section id ${id} does not clash with a term`);
+  for (const id of ['lessons', 'chooser', 'glossary', ...context.learnTopics.map(t => t[0])]) assert.ok(!terms.has(id), `section id ${id} does not clash with a term`);
 });
