@@ -77,8 +77,10 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [ ] Waitlist tab: highlight registrations whose retention date has passed and offer a reviewed bulk removal (needs backend support)
 - [x] Account security tab: "Security checkup" with a score and five checks (verified email, a passkey, a second-device passkey, two ways in, wallet ownership proven) plus fix buttons; "This sign-in" (method, time, 5-minute window for passkey changes, idle sign-out countdown, account created); "Ways back into your account"; the identity gate's owner steps with saved results and a link to record them; numbered passkeys with added date and age; last-passkey removal warning; counts-only "Copy checkup summary" (2026-11-05)
 - [ ] Account security tab: passkey device names (needs the backend to store a name at registration and a function redeploy; owner decision)
-- [ ] Account security tab: record the identity gate results inline (Passed/Failed buttons) without switching to Launch readiness
-- [ ] Crypto tools: UI-only clarity (step numbers, faucet links, empty states); transfer/swap/signing logic stays untouched
+- [ ] Account security tab: record the identity gate results inline (Passed/Failed buttons) without switching to Launch readiness — the same pattern now exists on Crypto tools (recordWalletStep), reuse it
+- [x] Crypto tools: "Test session guide" with seven self-ticking setup steps (wallet found, test network, connected, verified, test ETH, test USDC, a confirmed transaction), Go there buttons, per-network faucet links (Base docs list, CDP, Google Cloud Sepolia, Circle USDC); "Your crypto launch tests" (19 owner steps by gate) with inline Passed/Failed/N/A shared with Launch readiness and "Add latest transaction ID to note"; empty state for the session transaction list. Pure helpers in wallet-src/crypto-guide.js with tests; transfer/swap/signing code untouched (2026-11-06)
+- [ ] Crypto tools: step numbers on the cards below (Connect → Receive → Send → Swap → Track) and an empty-state hint on the swap card when the selected network has no pool
+- [ ] Crypto tools: a "copy test summary" (counts only) for the wallet tests, like the security checkup
 - [ ] Operations gate: alert-setup guide page in docs with exact Google Cloud console steps
 - [ ] Legal gate: a "questions for your lawyer" printable sheet generated from the legal review brief
 - Note: the dashboard document itself (wallet-src/dashboard) is served by the Firebase function; changing it needs a backend redeploy, so autopilot leaves it alone.

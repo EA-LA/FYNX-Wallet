@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-06 04:30 UTC — [autopilot] Owner workspace: Crypto tools test guide
+
+- The **Crypto tools** tab now opens with a **Test session guide**: seven numbered setup steps (wallet extension found, test network selected, wallet connected, ownership verified, test ETH, test USDC, a test transaction confirmed). They tick themselves off as you go, the next one is highlighted with a "Go there" button, and a score shows how close you are (for example "4/6 setup steps").
+- **Free test assets** box with the right faucet links for the network you picked: Base’s own faucet list and the Coinbase faucet for Base Sepolia, Google Cloud’s faucet for Ethereum Sepolia, and Circle’s test USDC faucet for both, with a reminder that faucets never need a recovery phrase. Base mainnet stays read-only and shows no faucets.
+- **Your crypto launch tests**: all 19 of your Crypto tools launch steps (signing, balances, swaps, buy/sell sandbox, wallet recovery) are listed by gate with Passed / Failed / Not applicable buttons right next to the tools. Results are the same as in Launch readiness and stay in this browser only.
+- For steps proven by a transaction (sends, swaps, revoke, lookup), one tap adds the latest transaction ID from this page to that step’s note, so your test report carries the evidence.
+- The transaction list now says when nothing has been sent on the selected network yet, instead of staying blank.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Crypto tools.
+
 ## 2026-11-05 22:30 UTC — [autopilot] Owner workspace: Account security checkup
 
 - The **Account security** tab now opens with a **Security checkup**: a score (for example "3/5 checks done") and five clear checks: owner email verified, a passkey added, a passkey on a second device, at least two ways to sign in, and your wallet ownership proven. Each one that still needs doing says why it matters and has a button that takes you straight to the fix.

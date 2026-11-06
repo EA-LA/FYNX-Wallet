@@ -12,6 +12,7 @@ import { statusLabels } from './launch-status.js';
 import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime } from './security-checkup.js';
+import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote } from './crypto-guide.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 
 const $ = selector => document.querySelector(selector);
@@ -28,11 +29,13 @@ const waitlistRecords = new Map();
 let waitlistPeriod = 'day', waitlistLoadingAll = false;
 const providers = new Map();
 let signInInfo = null;
+let lastBalances = { eth: null, usdc: null };
 function selectTab(name) {
   for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
   setText('#workspace-status', '');
   if (name === 'security') renderSecurity();
+  if (name === 'wallet') { renderCryptoSetup(); renderCryptoTests(); }
 }
 function clearDashboard() {
   clearTimeout(dashboardTimer);
@@ -122,7 +125,7 @@ function clearWallet() {
   show('#signing-review', false); show('#transfer-review', false);
   setText('#signing-message', ''); $('#transfer-details').replaceChildren();
   setText('#wallet-address', 'No wallet connected'); setText('#receive-address', 'Connect and verify your wallet first.');
-  setText('#wallet-balance', '— test ETH');
+  setText('#wallet-balance', '— test ETH'); lastBalances = { eth: null, usdc: null };
   setText('#wallet-proof', session?.wallet ? `Previously linked: ${session.wallet.address}. Connect again to prove current control.` : 'A connection alone does not prove wallet ownership.');
   updateWalletControls();
 }
@@ -152,6 +155,7 @@ function updateWalletControls() {
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
   $('#network-choice').disabled = busy;
   show('#unlink-wallet', !!session?.wallet);
+  renderCryptoSetup();
 }
 async function refreshSession() {
   const expected = generation;
@@ -409,6 +413,8 @@ async function refreshBalances(checkSession = () => {}) {
   if (current !== connection) throw new Error('Wallet changed.');
   setText('#wallet-balance', eth.status === 'fulfilled' ? eth.value + ' ETH' : 'ETH unavailable');
   setText('#token-balance', usdc.status === 'fulfilled' ? usdc.value + ' USDC' : 'USDC unavailable — retry when the network responds');
+  lastBalances = { eth: eth.status === 'fulfilled' ? String(eth.value) : null, usdc: usdc.status === 'fulfilled' ? String(usdc.value) : null };
+  renderCryptoSetup();
 }
 async function renderReceive() {
   if (!verifiedAddress || connection?.address !== verifiedAddress) return;
@@ -465,6 +471,8 @@ function renderJournal() {
     link.href = item.network.explorer + '/tx/' + item.hash; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.className = 'mono';
     row.append(label, link); list.append(row);
   }
+  if (!list.children.length) { const empty = document.createElement('li'); empty.className = 'journal-empty'; empty.textContent = `No transactions submitted on ${selectedNetwork().name} in this page session yet.`; list.append(empty); }
+  renderCryptoSetup();
 }
 $('#lookup-form').addEventListener('submit', event => { event.preventDefault(); run($('#lookup-transaction'), async checkSession => {
   const hash = $('#lookup-hash').value.trim(), result = await connection.inspectTransaction(hash); checkSession();
@@ -668,7 +676,7 @@ function recordStep(gate, step, patch) {
   const key = stepKey(gate.id, step.id), prev = launchRecords[key] || { result: '', note: '', at: 0 };
   const next = { ...prev, ...patch, at: Date.now() };
   if (!next.result && !next.note) delete launchRecords[key]; else launchRecords[key] = next;
-  saveLaunchRecords(); renderLaunch({ keepOpen: gate.id, focusStep: key });
+  saveLaunchRecords(); renderLaunch({ keepOpen: gate.id, focusStep: key }); renderCryptoTests();
 }
 function stepRow(gate, step) {
   const key = stepKey(gate.id, step.id), state = stepState(gate, step, launchRecords), rec = launchRecords[key];
@@ -740,9 +748,101 @@ $('#download-launch-report').addEventListener('click', () => {
 $('#clear-launch-results').addEventListener('click', () => {
   if (!Object.keys(launchRecords).length || !window.confirm('Clear all test results and notes saved in this browser?')) return;
   launchRecords = {}; try { localStorage.removeItem(TRACKER_KEY); } catch { /* ignore */ }
-  renderLaunch(); setText('#launch-save-status', 'Saved results cleared from this browser.');
+  renderLaunch(); renderCryptoTests(); setText('#launch-save-status', 'Saved results cleared from this browser.');
 });
 renderLaunch();
+
+// Crypto tools test guide: setup progress from this page's state plus the owner's wallet launch tests.
+// It only reads state and scrolls to controls; it never signs, sends or prepares a transaction.
+function guideEl(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
+function goToControl(id) {
+  const target = document.getElementById(id); if (!target) return;
+  target.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  let focusable = id === 'send-form' ? $('#recipient') : target;
+  if (focusable.disabled) { focusable = target.closest('.card')?.querySelector('h2'); focusable?.setAttribute('tabindex', '-1'); }
+  focusable?.focus({ preventScroll: true });
+}
+function renderCryptoSetup() {
+  const list = document.getElementById('cg-steps'); if (!list) return;
+  let network; try { network = selectedNetwork(); } catch { return; }
+  const verified = !!verifiedAddress && connection?.address === verifiedAddress;
+  const result = setupSteps({ walletsFound: providers.size > 0, network, connected: !!connection?.address, verified, eth: verified ? lastBalances.eth : null, usdc: verified ? lastBalances.usdc : null, transactions: [...journal.values()] });
+  const score = $('#cg-score'); score.replaceChildren(guideEl('strong', '', `${result.done}/${result.total}`), guideEl('span', '', result.ready ? 'ready to test' : 'setup steps'));
+  score.className = `sec-score ${result.ready ? 'is-done' : ''}`; score.setAttribute('aria-label', `${result.done} of ${result.total} setup steps done`);
+  list.replaceChildren();
+  result.steps.forEach((step, index) => {
+    const li = guideEl('li', `cg-step is-${step.state}`); if (step.state === 'current') li.setAttribute('aria-current', 'step');
+    const mark = guideEl('span', 'cg-mark', step.done ? '✓' : String(index + 1)); mark.setAttribute('aria-hidden', 'true');
+    const body = guideEl('div', 'cg-body');
+    body.append(guideEl('strong', '', `${step.title}${step.optional ? ' · optional' : ''}`), guideEl('p', '', step.detail));
+    if (!step.done && step.state === 'current') { const b = guideEl('button', 'text-button', step.faucet ? 'Show faucets ↓' : 'Go there ↓'); b.type = 'button'; b.addEventListener('click', () => step.faucet ? goToControl('cg-faucets') : goToControl(step.target)); body.append(b); }
+    li.append(mark, body); list.append(li);
+  });
+  const faucets = faucetsFor(network.id), box = $('#cg-faucets'); box.replaceChildren();
+  if (network.testnet && (faucets.eth.length || faucets.usdc.length)) {
+    box.tabIndex = -1;
+    box.append(guideEl('h3', '', `Free test assets for ${network.name}`));
+    for (const [kind, label] of [['eth', 'Test ETH (pays network fees)'], ['usdc', 'Test USDC']]) {
+      const row = guideEl('div', 'cg-faucet-row'); row.append(guideEl('span', 'cg-faucet-kind', label));
+      for (const f of faucets[kind]) { const a = guideEl('a', 'cg-faucet', `${f.label} ↗`); a.href = f.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; row.append(a); }
+      box.append(row);
+    }
+    box.append(guideEl('p', 'hint', 'Use a wallet that holds no real money. Faucets never need your recovery phrase or a private key: anyone who asks for one is a scam. Test assets have no monetary value; daily limits apply.'));
+    show('#cg-faucets', true);
+  } else show('#cg-faucets', false);
+}
+function latestTransaction() {
+  let id; try { id = selectedNetwork().id; } catch { return null; }
+  return [...journal.values()].filter(t => t.network.id === id).pop() || null;
+}
+function recordWalletStep(gate, step, patch, focusKey) {
+  const key = stepKey(gate.id, step.id), prev = launchRecords[key] || { result: '', note: '', at: 0 };
+  const next = { ...prev, ...patch, at: Date.now() };
+  if (!next.result && !next.note) delete launchRecords[key]; else launchRecords[key] = next;
+  saveLaunchRecords(); renderLaunch(); renderCryptoTests();
+  document.querySelector(`#cg-tests [data-step="${CSS.escape(key)}"] ${focusKey}`)?.focus({ preventScroll: true });
+}
+function renderCryptoTests() {
+  const box = document.getElementById('cg-tests'); if (!box) return;
+  const { groups, total, done, failed } = walletTests(launchPlan, launchRecords);
+  setText('#cg-tests-count', `${done} of ${total} recorded${failed ? ` · ${failed} failed` : ''}`);
+  const wasOpen = new Set([...box.querySelectorAll('details[open]')].map(d => d.dataset.gate)), first = !box.children.length;
+  const firstOpen = groups.find(g => g.steps.some(s => s.state !== 'done'))?.gate.id;
+  box.replaceChildren();
+  const latest = latestTransaction();
+  for (const { gate, steps } of groups) {
+    const section = guideEl('details', 'cg-gate'); section.dataset.gate = gate.id;
+    section.open = first ? gate.id === firstOpen : wasOpen.has(gate.id);
+    const recorded = steps.filter(s => s.state === 'done').length, bad = steps.filter(s => s.state === 'failed').length;
+    const summary = guideEl('summary'); summary.append(guideEl('strong', '', gate.title), guideEl('span', `cg-gate-count${recorded === steps.length ? ' is-done' : ''}`, `${recorded}/${steps.length}${bad ? ` · ${bad} failed` : ''}`));
+    section.append(summary);
+    const list = guideEl('ol', 'cg-test-list');
+    for (const { step, key, state, result } of steps) {
+      const li = guideEl('li', `cg-test is-${state}`); li.dataset.step = key;
+      li.append(guideEl('p', 'cg-test-text', step.text));
+      const controls = guideEl('div', 'launch-step-controls'), group = guideEl('div', 'launch-results');
+      group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Result: ${step.text}`);
+      for (const r of RESULTS) {
+        const b = guideEl('button', `launch-result result-${r}`, resultLabels[r]); b.type = 'button'; b.dataset.result = r; b.setAttribute('aria-pressed', String(result === r));
+        b.addEventListener('click', () => recordWalletStep(gate, step, { result: result === r ? '' : r }, `[data-result="${r}"]`)); group.append(b);
+      }
+      controls.append(group);
+      if (TX_STEPS.has(key) && latest) {
+        const note = txNote(latest, launchRecords[key]?.note);
+        const add = guideEl('button', 'text-button cg-add-tx', note && note === (launchRecords[key]?.note || '').trim() ? 'Latest transaction added ✓' : 'Add latest transaction ID to note'); add.type = 'button';
+        add.disabled = !note || note === (launchRecords[key]?.note || '').trim();
+        add.addEventListener('click', () => { const value = txNote(latest, launchRecords[key]?.note); if (!value) { setText('#cg-status', 'The note is full. Edit it in Launch readiness first.'); return; } recordWalletStep(gate, step, { note: value }, '.cg-add-tx'); setText('#cg-status', 'Transaction ID added to the note for this step.'); });
+        controls.append(add);
+      }
+      li.append(controls);
+      const rec = launchRecords[key];
+      if (rec?.note) li.append(guideEl('p', 'cg-note', `Note: ${rec.note}`));
+      list.append(li);
+    }
+    section.append(list); box.append(section);
+  }
+}
+$('#cg-open-launch').addEventListener('click', () => { selectTab('launch'); openGate('signing'); });
 $('#run-connection-checks').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   $('#connection-results').replaceChildren(); setText('#connection-status', 'Checking your current connection…');
   const results = await checkConnections({ call: api, wallet: connection });
