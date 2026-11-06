@@ -96,7 +96,7 @@ export function reportMarkdown(plan, records, { date = new Date(), browser = '' 
     lines.push(`## ${gate.title}`, '');
     for (const step of rows) {
       const r = records[stepKey(gate.id, step.id)];
-      const when = r.at ? ` (${new Date(r.at).toISOString().slice(0, 10)})` : '';
+      const when = r.at ? ` (${new Date(r.at).toISOString().slice(0, 16).replace('T', ' ')} UTC)` : '';
       lines.push(`- ${r.result ? resultLabels[r.result] : 'Note only'}${when}: ${mdLine(step.text)}${r.note ? ` Note: ${mdLine(r.note)}` : ''}`);
     }
     lines.push('');
@@ -104,6 +104,50 @@ export function reportMarkdown(plan, records, { date = new Date(), browser = '' 
   if (!any) lines.push('No test results recorded yet.', '');
   lines.push('Recorded by the owner in the FYNX workspace. Contains no keys, recovery phrases or passwords.');
   return lines.join('\n');
+}
+
+// Read a test report copied or downloaded on another device back into records, so results
+// recorded on a phone, iPad and computer can be combined. Unknown lines are counted, not guessed.
+const unescapeMd = s => String(s).replace(/\\([\\`*_[\]<>|])/g, '$1');
+const squash = s => String(s).replace(/\s+/g, ' ').trim();
+const labelResults = { Passed: 'pass', Failed: 'fail', 'Not applicable': 'skip', 'Note only': '' };
+const LINE = /^\s*[-*]\s+(Passed|Failed|Not applicable|Note only)(?:\s+\((\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2})(?:\s*UTC)?)?\))?\s*:\s*(.+)$/;
+
+export function parseReport(text, plan) {
+  const steps = plan.items.flatMap(gate => (gate.steps || []).filter(s => s.by === 'you' && !s.done).map(step => ({ gate, step, text: squash(step.text) })));
+  const raw = {}, unknown = [], other = [];
+  let gateTitle = '', product = false, refused = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 2000)) {
+    if (/^#\s+.*launch test report/i.test(line)) product = true;
+    const h = line.match(/^##\s+(.+)$/); if (h) { gateTitle = squash(unescapeMd(h[1])); continue; }
+    const m = line.match(LINE);
+    if (!m) { if (line.trim() && !/^Recorded by the owner in the FYNX workspace\./.test(line.trim())) other.push(line.trim()); continue; }
+    const rest = squash(unescapeMd(m[4]));
+    const pool = steps.filter(s => s.gate.title === gateTitle);
+    const hit = [...(pool.length ? pool : []), ...steps].find(s => rest === s.text || rest.startsWith(`${s.text} Note: `));
+    if (!hit) { unknown.push(squash(line).slice(0, 160)); other.push(line.trim()); continue; }
+    const note = rest === hit.text ? '' : rest.slice(hit.text.length + ' Note: '.length).trim();
+    if (note && looksSecret(note)) refused += 1;
+    const at = m[2] ? Date.parse(`${m[2]}T${m[3] || '00:00'}:00Z`) : 0;
+    raw[stepKey(hit.gate.id, hit.step.id)] = { result: labelResults[m[1]], note, at: Number.isFinite(at) ? at : 0 };
+  }
+  // Lines that are not recognised results are checked for secrets as a whole and one by one;
+  // recognised result lines are checked note by note above (a transaction ID in a note is fine).
+  const secret = other.some(looksSecret) || looksSecret(other.join(' '));
+  return { records: secret ? {} : cleanRecords(raw, plan), unknown, refused, secret, looksLikeReport: product || Object.keys(raw).length > 0 };
+}
+
+// Combine imported records with this browser's. A step only here or only in the import is kept;
+// when both have it and they differ, the more recently recorded one wins.
+export function mergeRecords(local, incoming) {
+  const merged = { ...local }, changes = { added: [], updated: [], same: [], kept: [] };
+  for (const [key, rec] of Object.entries(incoming)) {
+    const mine = local[key];
+    if (!mine) { merged[key] = rec; changes.added.push(key); continue; }
+    if (mine.result === rec.result && (mine.note || '') === (rec.note || '')) { changes.same.push(key); continue; }
+    if (rec.at > mine.at) { merged[key] = rec; changes.updated.push(key); } else changes.kept.push(key);
+  }
+  return { merged, ...changes };
 }
 
 export function browserSummary(ua = '') {

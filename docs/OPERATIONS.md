@@ -24,7 +24,7 @@ Use **Owner workspace → Waitlist → Load registrations**, then **Load more re
 
 `fynxWalletAudit` stores action, hashed actor, timestamp, and a 90-day expiry; no signature, raw email, IP, private key or token. `fynxWalletChallenges` uses short-lived one-use challenges (five minutes for wallet proof; two for passkeys), plus TTL cleanup. `fynxWalletRateLimits` expires after one day. Inspect Cloud Logging for `Wallet workspace operation failed` and `Waitlist persistence failed`.
 
-Log queries and an incident procedure are prepared below; no monitored alert destination or on-call service has been configured. Before public launch, route failure spikes, unexpected authorization failures, quota/billing anomalies and IAM changes to a monitored destination and perform a test alert.
+Log queries and an incident procedure are prepared below; no monitored alert destination or on-call service has been configured. Before public launch, route failure spikes, unexpected authorization failures, quota/billing anomalies and IAM changes to a monitored destination and perform a test alert. Step-by-step console instructions and the test-alert commands are in [ALERTS-SETUP.md](ALERTS-SETUP.md).
 
 ## Incident response
 

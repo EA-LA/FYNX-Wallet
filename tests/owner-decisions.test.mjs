@@ -78,7 +78,7 @@ test('notes are short, readable and fit the launch note limit', () => {
   assert.equal(answerText(find('wallet-recovery', 'decide'), { model: 'connect' }), 'For launch: Customers connect their own wallet (for example MetaMask or a Ledger)');
   // A recorded decision survives the tracker's own cleaning and shows in the test report.
   const records = cleanRecords({ 'wallet-recovery/decide': { result: 'pass', note: decisionNote(find('wallet-recovery', 'decide'), { model: 'connect' }), at: Date.UTC(2026, 10, 6) } }, plan);
-  assert.match(reportMarkdown(plan, records), /Passed \(2026-11-06\): Decide: is connecting.*Note: Decision: For launch: Customers connect their own wallet/);
+  assert.match(reportMarkdown(plan, records), /Passed \(2026-11-06 00:00 UTC\): Decide: is connecting.*Note: Decision: For launch: Customers connect their own wallet/);
 });
 
 test('progress and states follow the shared launch records', () => {

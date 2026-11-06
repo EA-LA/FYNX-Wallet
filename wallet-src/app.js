@@ -9,7 +9,7 @@ import { networkFor } from '../firebase-wallet/functions/networks.js';
 import QRCode from 'qrcode';
 import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
-import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, browserSummary } from './launch-tracker.js';
+import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, parseReport, mergeRecords, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
@@ -135,7 +135,7 @@ function clearPrivateWorkspace() {
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
-  for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); renderDecisions();
+  for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); renderDecisions(); clearReportImport();
   $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
@@ -266,8 +266,7 @@ function renderSecurityTests() {
         b.addEventListener('click', () => recordSecurityStep(gate, step, { result: result === r ? '' : r }, `[data-result="${r}"]`));
         group.append(b);
       }
-      li.append(group);
-      if (note) li.append(guideEl('p', 'cg-note', `Note: ${note}`));
+      li.append(group, stepNoteEditor(key, note, value => recordSecurityStep(gate, step, { note: value }, '.step-note-toggle'), '#sec-status'));
     }
     box.append(li);
   }
@@ -278,7 +277,7 @@ function recordSecurityStep(gate, step, patch, focusKey) {
   if (!next.result && !next.note) delete launchRecords[key]; else launchRecords[key] = next;
   saveLaunchRecords(); renderLaunch(); renderSecurityTests();
   document.querySelector(`#sec-tests [data-step="${CSS.escape(key)}"] ${focusKey}`)?.focus({ preventScroll: true });
-  setText('#sec-status', next.result ? `Recorded: ${resultLabels[next.result]}. It also appears in Launch readiness and your test report.` : 'Result cleared.');
+  setText('#sec-status', 'note' in patch ? (next.note ? 'Note saved. It also appears in Launch readiness and your test report.' : 'Note removed.') : next.result ? `Recorded: ${resultLabels[next.result]}. It also appears in Launch readiness and your test report.` : 'Result cleared.');
 }
 $('#sec-open-launch').addEventListener('click', () => { selectTab('launch'); openGate('identity'); });
 $('#sec-refresh').addEventListener('click', event => run(event.currentTarget, async () => {
@@ -787,6 +786,85 @@ $('#clear-launch-results').addEventListener('click', () => {
   launchRecords = {}; try { localStorage.removeItem(TRACKER_KEY); } catch { /* ignore */ }
   renderLaunch(); renderCryptoTests(); setText('#launch-save-status', 'Saved results cleared from this browser.');
 });
+// A short note (browser, device, transaction ID) edited in place on the Account security and Crypto tools tabs.
+// Same records as Launch readiness; secret-looking text is refused and never saved.
+function stepNoteEditor(key, note, save, statusId) {
+  const wrap = guideEl('div', 'step-note-edit'), id = `inline-note-${key.replace(/[^a-z0-9-]/gi, '-')}`;
+  if (note) wrap.append(guideEl('p', 'cg-note', `Note: ${note}`));
+  const toggle = guideEl('button', 'text-button step-note-toggle', note ? 'Edit note' : 'Add a note'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', 'false'); toggle.setAttribute('aria-controls', id);
+  const form = guideEl('form', 'step-note-form'); form.id = id; form.hidden = true;
+  const label = guideEl('label', 'visually-hidden-label', 'Note (browser, device, transaction ID; never keys or recovery words)'); label.htmlFor = `${id}-input`;
+  const input = guideEl('input'); input.id = `${id}-input`; input.maxLength = 280; input.autocomplete = 'off'; input.spellcheck = false; input.value = note; input.placeholder = 'e.g. Safari 18 on iPhone 15';
+  const ok = guideEl('button', 'button secondary', 'Save note'), cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button';
+  const warn = guideEl('p', 'launch-note-warn'); warn.setAttribute('role', 'status');
+  form.append(label, input, ok, cancel, warn);
+  const close = () => { form.hidden = true; toggle.hidden = false; toggle.setAttribute('aria-expanded', 'false'); input.value = note; warn.textContent = ''; toggle.focus(); };
+  toggle.addEventListener('click', () => { form.hidden = false; toggle.hidden = true; toggle.setAttribute('aria-expanded', 'true'); input.focus(); });
+  cancel.addEventListener('click', close);
+  input.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); close(); } });
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    if (looksSecret(input.value)) { input.value = ''; warn.textContent = 'This looks like a recovery phrase or key, so it was not saved. Never type it into any website.'; input.focus(); return; }
+    const value = input.value.replace(/\s+/g, ' ').trim();
+    if (value === note) { close(); setText(statusId, 'Note unchanged.'); return; }
+    save(value);
+  });
+  wrap.append(toggle, form);
+  return wrap;
+}
+// Bring in results from another device: read a copied or downloaded test report and merge it,
+// newest result per step wins. Read in this browser only; nothing is uploaded.
+let pendingImport = null;
+function clearReportImport() {
+  pendingImport = null;
+  const text = document.getElementById('import-report'); if (text) text.value = '';
+  const file = document.getElementById('import-file'); if (file) file.value = '';
+  const box = document.getElementById('import-preview'); if (box) { box.replaceChildren(); box.hidden = true; }
+  setText('#import-status', '');
+}
+const launchStepIndex = () => new Map(launchPlan.items.flatMap(gate => (gate.steps || []).map(step => [stepKey(gate.id, step.id), { gate, step }])));
+function previewReport(text) {
+  const box = $('#import-preview'); box.replaceChildren(); box.hidden = true; pendingImport = null;
+  if (!text.trim()) { setText('#import-status', 'Paste a test report or choose a report file first.'); return; }
+  const parsed = parseReport(text, launchPlan), count = Object.keys(parsed.records).length;
+  if (parsed.secret) { clearReportImport(); setText('#import-status', 'This text looks like it contains a recovery phrase or key, so it was cleared and not read. Never paste those into any website.'); return; }
+  if (!count) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
+  pendingImport = m.merged;
+  const sum = guideEl('ul', 'launch-import-sum');
+  for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
+  if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
+  if (parsed.unknown.length) sum.append(guideEl('li', 'is-kept', `${parsed.unknown.length} line${parsed.unknown.length === 1 ? '' : 's'} not matched to a current step`));
+  box.append(guideEl('h4', '', `${count} result${count === 1 ? '' : 's'} found in the report`), sum);
+  const list = guideEl('ul', 'launch-import-list'), what = { added: 'New', updated: 'Newer', kept: 'Kept yours', same: 'Same' };
+  for (const kind of ['added', 'updated', 'kept', 'same']) for (const key of m[kind]) {
+    const hit = index.get(key), rec = parsed.records[key]; if (!hit) continue;
+    const li = guideEl('li'), body = guideEl('div');
+    body.append(guideEl('span', '', hit.step.text), guideEl('small', '', `${hit.gate.title} · ${rec.result ? resultLabels[rec.result] : 'Note only'}${rec.at ? ` · recorded ${new Date(rec.at).toLocaleString()}` : ''}${rec.note ? ` · Note: ${rec.note}` : ''}${kind === 'kept' ? ` · this browser has ${launchRecords[key]?.result ? resultLabels[launchRecords[key].result] : 'a note'} from later` : ''}`));
+    li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); list.append(li);
+  }
+  box.append(list);
+  const actions = guideEl('div', 'actions'), changes = m.added.length + m.updated.length;
+  const apply = guideEl('button', 'button', changes ? `Add ${changes} result${changes === 1 ? '' : 's'} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
+  apply.addEventListener('click', () => {
+    if (!pendingImport) return;
+    launchRecords = cleanRecords(pendingImport, launchPlan); saveLaunchRecords();
+    clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests();
+    setText('#import-status', `${changes} result${changes === 1 ? '' : 's'} added. Progress, next steps and your test report now include them.`);
+    $('#import-check').focus();
+  });
+  const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });
+  actions.append(apply, cancel); box.append(actions); box.hidden = false;
+  setText('#import-status', changes ? 'Check the list, then press Add to keep these results.' : 'Everything in this report is already here or older than this browser’s results.');
+}
+$('#import-check').addEventListener('click', () => previewReport($('#import-report').value));
+$('#import-clear').addEventListener('click', () => { clearReportImport(); $('#import-report').focus(); });
+$('#import-file').addEventListener('change', async event => {
+  const file = event.currentTarget.files?.[0]; if (!file) return;
+  if (file.size > 200000) { clearReportImport(); setText('#import-status', 'That file is too large to be a FYNX test report.'); return; }
+  try { const text = await file.text(); $('#import-report').value = text.slice(0, 100000); previewReport($('#import-report').value); }
+  catch { setText('#import-status', 'This browser could not read that file. Paste the report instead.'); }
+});
 // Owner decisions worksheet: structured answers for the twelve decision steps, kept only in this browser.
 // A complete answer records the matching launch step as Passed with a short "Decision: …" note.
 let decisionAnswers = {};
@@ -1031,12 +1109,11 @@ function renderCryptoTests() {
         const note = txNote(latest, launchRecords[key]?.note);
         const add = guideEl('button', 'text-button cg-add-tx', note && note === (launchRecords[key]?.note || '').trim() ? 'Latest transaction added ✓' : 'Add latest transaction ID to note'); add.type = 'button';
         add.disabled = !note || note === (launchRecords[key]?.note || '').trim();
-        add.addEventListener('click', () => { const value = txNote(latest, launchRecords[key]?.note); if (!value) { setText('#cg-status', 'The note is full. Edit it in Launch readiness first.'); return; } recordWalletStep(gate, step, { note: value }, '.cg-add-tx'); setText('#cg-status', 'Transaction ID added to the note for this step.'); });
+        add.addEventListener('click', () => { const value = txNote(latest, launchRecords[key]?.note); if (!value) { setText('#cg-status', 'The note is full. Edit the note first.'); return; } recordWalletStep(gate, step, { note: value }, '.cg-add-tx'); setText('#cg-status', 'Transaction ID added to the note for this step.'); });
         controls.append(add);
       }
       li.append(controls);
-      const rec = launchRecords[key];
-      if (rec?.note) li.append(guideEl('p', 'cg-note', `Note: ${rec.note}`));
+      li.append(stepNoteEditor(key, launchRecords[key]?.note || '', value => { recordWalletStep(gate, step, { note: value }, '.step-note-toggle'); setText('#cg-status', value ? 'Note saved. It also appears in Launch readiness and your test report.' : 'Note removed.'); }, '#cg-status'));
       list.append(li);
     }
     section.append(list); box.append(section);

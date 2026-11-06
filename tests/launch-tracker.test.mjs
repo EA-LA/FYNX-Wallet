@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, browserSummary, groupOf, stepKey, byLabels, tabLabels, RESULTS } from '../wallet-src/launch-tracker.js';
+import { looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, parseReport, mergeRecords, browserSummary, groupOf, stepKey, byLabels, tabLabels, RESULTS } from '../wallet-src/launch-tracker.js';
 import { statusLabels } from '../wallet-src/launch-status.js';
 
 const plan = JSON.parse(await readFile(new URL('../wallet-src/launch-checklist.json', import.meta.url), 'utf8'));
@@ -98,7 +98,7 @@ test('report lists recorded steps with results and escaped notes, never other da
   assert.match(md, /Date: 2026-11-05 15:00 UTC/);
   assert.match(md, /Browser: Safari on Mac/);
   assert.match(md, new RegExp(`## ${g.title}`));
-  assert.match(md, /- Failed \(2026-11-05\): /);
+  assert.match(md, /- Failed \(2026-11-05 00:00 UTC\): /);
   assert.match(md, /Note: Faucet \\\*empty\\\* \\<b\\>/);
   assert.match(md, /1 failed/);
   for (const r of RESULTS) assert.ok(['pass', 'fail', 'skip'].includes(r));
@@ -117,4 +117,58 @@ test('owner page has the tracker controls and the generated checklist lists the 
   const doc = await readFile(new URL('../docs/LAUNCH-CHECKLIST.md', import.meta.url), 'utf8');
   for (const gate of plan.items) assert.match(doc, new RegExp(`Steps \\(${gate.steps.filter(s => s.done).length} of ${gate.steps.length} recorded as done\\)`));
   assert.match(doc, /- \[ \] You: Sign in with Google/);
+});
+
+test('a copied report reads back into the same records, notes and times', () => {
+  const picks = ownerSteps.slice(0, 5);
+  const records = {
+    [stepKey(picks[0][0].id, picks[0][1].id)]: { result: 'pass', note: 'Safari 18 on iPhone [test] *ok* <b>|x|', at: Date.UTC(2026, 10, 5, 14, 20) },
+    [stepKey(picks[1][0].id, picks[1][1].id)]: { result: 'fail', note: '', at: Date.UTC(2026, 10, 6, 9, 5) },
+    [stepKey(picks[2][0].id, picks[2][1].id)]: { result: 'skip', note: 'No iPad', at: Date.UTC(2026, 10, 4, 23, 59) },
+    [stepKey(picks[3][0].id, picks[3][1].id)]: { result: '', note: 'Started, faucet empty', at: Date.UTC(2026, 10, 6, 1, 0) },
+  };
+  for (const s of ownerSteps.filter(([, st]) => /\bNote: /.test(st.text))) records[stepKey(s[0].id, s[1].id)] = { result: 'pass', note: 'x', at: 1 };
+  const md = reportMarkdown(plan, records, { date: new Date('2026-11-06T10:00:00Z'), browser: 'Safari on iPhone' });
+  const back = parseReport(md, plan);
+  assert.equal(back.looksLikeReport, true);
+  assert.deepEqual(back.unknown, []);
+  assert.deepEqual(back.records, records);
+});
+
+test('report import tolerates chat apps that drop escapes and old date-only lines, and refuses secrets', () => {
+  const [g, s] = ownerSteps[0], [g2, s2] = ownerSteps[1];
+  const phrase = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
+  const text = [`# FYNX Wallet launch test report`, '', `## ${g.title}`, '', `- Passed (2026-11-03): ${s.text} Note: Chrome *beta*`,
+    `* Failed: ${s2.text} Note: ${phrase}`, '- Passed (2026-11-03): A step that does not exist', 'random text'].join('\n');
+  const out = parseReport(text, plan);
+  assert.deepEqual(out.records[stepKey(g.id, s.id)], { result: 'pass', note: 'Chrome *beta*', at: Date.UTC(2026, 10, 3) });
+  assert.deepEqual(out.records[stepKey(g2.id, s2.id)], { result: 'fail', note: '', at: 0 });
+  assert.equal(out.refused, 1);
+  assert.equal(out.unknown.length, 1);
+  const none = parseReport('hello\nworld', plan);
+  assert.equal(none.looksLikeReport, false); assert.deepEqual(none.records, {});
+});
+
+test('merging keeps the most recently recorded result for each step', () => {
+  const local = { a: { result: 'pass', note: '', at: 10 }, b: { result: 'fail', note: 'x', at: 50 }, c: { result: 'pass', note: 'same', at: 5 }, d: { result: 'skip', note: '', at: 1 } };
+  const incoming = { b: { result: 'pass', note: '', at: 40 }, c: { result: 'pass', note: 'same', at: 99 }, d: { result: 'pass', note: 'retested', at: 2 }, e: { result: 'fail', note: '', at: 3 } };
+  const m = mergeRecords(local, incoming);
+  assert.deepEqual(m.added, ['e']); assert.deepEqual(m.updated, ['d']); assert.deepEqual(m.kept, ['b']); assert.deepEqual(m.same, ['c']);
+  assert.deepEqual(m.merged, { a: local.a, b: local.b, c: local.c, d: incoming.d, e: incoming.e });
+  assert.deepEqual(local.d, { result: 'skip', note: '', at: 1 });
+});
+
+test('a report with a transaction ID note imports, but a pasted phrase or key line is refused as a whole', () => {
+  const [g, s] = ownerSteps.find(([gg]) => gg.id === 'signing');
+  const tx = `0x${'a1'.repeat(32)}`;
+  const md = reportMarkdown(plan, { [stepKey(g.id, s.id)]: { result: 'pass', note: `Base Sepolia ${tx}`, at: Date.UTC(2026, 10, 6, 8, 0) } });
+  const ok = parseReport(md, plan);
+  assert.equal(ok.secret, false);
+  assert.equal(ok.records[stepKey(g.id, s.id)].note, `Base Sepolia ${tx}`);
+  const phrase = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
+  for (const extra of [phrase, `private key ${tx}`]) {
+    const bad = parseReport(`${md}\n${extra}`, plan);
+    assert.equal(bad.secret, true); assert.deepEqual(bad.records, {});
+  }
+  assert.equal(parseReport(phrase, plan).secret, true);
 });
