@@ -14,6 +14,7 @@ import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields } from './owner-decisions.js';
+import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp } from './incident-drill.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 
 const $ = selector => document.querySelector(selector);
@@ -689,7 +690,7 @@ function renderLaunchOverview() {
     for (const { gate, step, failed } of next) {
       const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
       b.append(el('span', 'launch-next-gate', `${failed ? 'Retest · ' : ''}${gate.title}`), el('span', '', step.text));
-      b.addEventListener('click', () => findDecision(stepKey(gate.id, step.id)) ? openDecision(stepKey(gate.id, step.id)) : openGate(gate.id)); li.append(b); list.append(li);
+      b.addEventListener('click', () => { const k = stepKey(gate.id, step.id); if (findDecision(k)) openDecision(k); else if (k === DRILL_STEP) openDrill(); else openGate(gate.id); }); li.append(b); list.append(li);
     }
     wrap.append(list);
   } else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
@@ -734,6 +735,10 @@ function stepRow(gate, step) {
   if (findDecision(key)) {
     const go = el('button', 'text-button launch-go', 'Answer in the decision worksheet ↓'); go.type = 'button';
     go.addEventListener('click', () => openDecision(key)); controls.append(go);
+  }
+  if (key === DRILL_STEP) {
+    const go = el('button', 'text-button launch-go', 'Run it with the practice guide ↓'); go.type = 'button';
+    go.addEventListener('click', () => openDrill()); controls.append(go);
   }
   li.append(controls);
   const noteId = `note-${gate.id}-${step.id}`, label = el('label', 'launch-note-label', 'Note (browser, device, transaction ID; never keys or recovery words)'); label.htmlFor = noteId;
@@ -1011,6 +1016,7 @@ function renderDecisions() {
   }
   if (focused) { const target = document.getElementById(focused); if (target && list.contains(target)) target.focus({ preventScroll: true }); }
   setText('#ld-counsel-preview', counselSheet(launchPlan, decisionAnswers));
+  renderDrill();
 }
 async function copyDecisionText(text, done) {
   try { await navigator.clipboard.writeText(text); setText('#ld-status', done); }
@@ -1028,6 +1034,149 @@ $('#ld-clear').addEventListener('click', () => {
   decisionAnswers = {}; for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); try { localStorage.removeItem(DECISIONS_KEY); } catch { /* ignore */ }
   renderDecisions(); setText('#ld-status', 'Decision answers cleared from this browser.');
 });
+// Incident practice run: a facilitator guide for the "operations/drill" launch step.
+// One made-up incident, seven stages from docs/OPERATIONS.md, kept only in this browser.
+let drill = { current: null, history: [] }, drillFocus = '';
+try { drill = cleanDrill(JSON.parse(localStorage.getItem(DRILL_KEY) || '{}')); } catch { drill = { current: null, history: [] }; }
+function saveDrill() { try { localStorage.setItem(DRILL_KEY, JSON.stringify(drill)); } catch { setText('#dr-status', 'This browser blocked saving. The practice run lasts until you close the page.'); } }
+function openDrill() {
+  const card = document.getElementById('launch-drill'); if (!card) return;
+  card.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  (card.querySelector('.dr-stage.is-current h4, input[name="dr-scenario"]:checked, input[name="dr-scenario"]') || card.querySelector('h2'))?.focus({ preventScroll: true });
+}
+const drillAgo = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m === 1 ? '1 minute ago' : `${m} minutes ago`; };
+async function copyDrill(text, done) {
+  try { await navigator.clipboard.writeText(text); setText('#dr-status', done); }
+  catch { setText('#dr-status', 'Copying was blocked by the browser. Use Download record instead.'); }
+}
+function downloadDrill(run) {
+  const url = URL.createObjectURL(new Blob([drillRecord(launchPlan, run)], { type: 'text/markdown' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-incident-practice-${new Date(run.startedAt || Date.now()).toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setText('#dr-status', 'Practice-run record downloaded.');
+}
+function drillStartForm(body) {
+  const form = el('form', 'dr-start'); form.noValidate = true;
+  const set = el('fieldset', 'ld-choice'); set.append(el('legend', '', 'Choose a made-up incident'));
+  SCENARIOS.forEach((sc, i) => {
+    const lab = el('label', `ld-option${i === 0 ? ' is-checked' : ''}`), input = el('input');
+    input.type = 'radio'; input.name = 'dr-scenario'; input.value = sc.id; input.checked = i === 0;
+    input.addEventListener('change', () => { for (const l of set.querySelectorAll('.ld-option')) l.classList.toggle('is-checked', l.querySelector('input').checked); });
+    const text = el('span', 'ld-option-text'); text.append(el('span', '', sc.title), el('small', '', sc.story));
+    lab.append(input, text); set.append(lab);
+  });
+  const field = el('div', 'ld-field'), lab = el('label', '', 'Who is taking part (names or roles, separated by commas)'); lab.htmlFor = 'dr-people';
+  const people = el('input'); people.id = 'dr-people'; people.maxLength = 300; people.autocomplete = 'off'; people.spellcheck = false; people.placeholder = 'for example Elham, co-founder, support';
+  field.append(lab, people, el('p', 'hint', `At least ${MIN_PEOPLE} people for the run to count. One person reads the situation and the questions aloud; everyone answers before anyone opens the procedure.`));
+  const warn = el('p', 'launch-note-warn'); warn.setAttribute('role', 'status');
+  const actions = el('div', 'ld-actions'), go = el('button', 'button', 'Start the practice run'); go.type = 'submit'; actions.append(go);
+  form.append(set, field, actions, warn);
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    if (looksSecret(people.value)) { people.value = ''; warn.textContent = 'That looks like a recovery phrase or key, so it was removed. Never type one into any website.'; return; }
+    const run = startRun(form.querySelector('input[name="dr-scenario"]:checked')?.value, people.value); if (!run) return;
+    drill = { ...drill, current: run }; saveDrill(); drillFocus = STAGES[0].id; renderDrill();
+    setText('#dr-status', `Practice run started: ${findScenario(run.scenario).title}.`);
+  });
+  body.append(form);
+}
+function drillStage(run, stage, index, current) {
+  const a = run.answers[stage.id], sc = findScenario(run.scenario);
+  const state = a ? `is-${a.result}` : current?.id === stage.id ? 'is-current' : 'is-later';
+  const li = el('li', `dr-stage ${state}`); li.dataset.stage = stage.id;
+  const head = el('h4', '', `${index + 1}. ${stage.title}`); head.tabIndex = -1; li.append(head);
+  if (a) {
+    li.append(el('p', 'dr-outcome', a.result === 'gap' ? `Gap found${a.followUp ? `: ${a.followUp}` : ''}` : `Handled${a.followUp ? `. Note: ${a.followUp}` : ''}`));
+    const change = el('button', 'text-button', 'Change'); change.type = 'button';
+    change.addEventListener('click', () => { const answers = { ...drill.current.answers }; delete answers[stage.id]; drill = { ...drill, current: { ...drill.current, answers } }; saveDrill(); drillFocus = stage.id; renderDrill(); });
+    li.append(change); return li;
+  }
+  if (current?.id !== stage.id) return li;
+  li.append(el('p', 'dr-prompt', sc.prompts[stage.id]));
+  const proc = el('details', 'dr-procedure'); proc.append(el('summary', '', 'Discussed it? Show what the procedure says'), el('p', '', stage.procedure)); li.append(proc);
+  const id = `dr-follow-${stage.id}`, lab = el('label', 'launch-note-label', 'What needs to change, or a note (optional unless you found a gap)'); lab.htmlFor = id;
+  const input = el('input', 'launch-note'); input.id = id; input.maxLength = 140; input.autocomplete = 'off'; input.spellcheck = false; input.placeholder = 'for example add a second person to the Google account recovery';
+  const warn = el('p', 'launch-note-warn'); warn.setAttribute('role', 'status');
+  const group = el('div', 'launch-results dr-results'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Outcome: ${stage.title}`);
+  for (const [result, label] of Object.entries(DRILL_RESULTS)) {
+    const b = el('button', `launch-result ${result === 'gap' ? 'result-fail' : 'result-pass'}`, label); b.type = 'button';
+    b.addEventListener('click', () => {
+      if (looksSecret(input.value)) { input.value = ''; warn.textContent = 'That looks like a recovery phrase or key, so it was removed. Never type one into any website.'; return; }
+      const text = cleanFollowUp(input.value);
+      if (result === 'gap' && !text) { warn.textContent = 'Write in a few words what needs to change, then press Gap found.'; input.focus(); return; }
+      drill = { ...drill, current: answerStage(drill.current, stage.id, result, text) }; saveDrill();
+      drillFocus = currentStage(drill.current)?.id || 'summary'; renderDrill();
+    });
+    group.append(b);
+  }
+  li.append(lab, input, group, warn); return li;
+}
+function drillSummaryBox(run) {
+  const s = runSummary(run), box = el('div', 'dr-summary'); box.id = 'dr-summary';
+  const h = el('h4', '', s.complete ? 'All seven stages discussed' : 'Not finished yet'); h.tabIndex = -1; box.append(h);
+  box.append(el('p', '', `${s.handled} of ${s.total} stages handled · ${s.gaps.length} gap${s.gaps.length === 1 ? '' : 's'} · ${s.minutes} min so far`));
+  if (s.followUps.length) { const ul = el('ul', 'dr-follow'); for (const f of s.followUps) ul.append(el('li', '', `${f.stage.title}: ${f.text}`)); box.append(el('strong', '', 'Follow-ups'), ul); }
+  if (s.reasons.length) { const ul = el('ul', 'dr-reasons'); for (const r of s.reasons) ul.append(el('li', '', r)); box.append(ul); }
+  const actions = el('div', 'ld-actions'), done = el('button', 'button', 'Finish and mark the step done'); done.type = 'button'; done.disabled = !s.canRecord;
+  done.addEventListener('click', () => {
+    const now = Date.now(), finished = { ...drill.current, finishedAt: now };
+    drill = finishRun(drill, now); saveDrill();
+    launchRecords[DRILL_STEP] = { result: 'pass', note: drillNote(finished, now), at: now }; saveLaunchRecords();
+    drillFocus = 'history'; renderLaunch({ keepOpen: 'operations' }); renderCryptoTests();
+    setText('#dr-status', 'Practice run recorded. The step is marked done in the checklist and the follow-ups are in its note and the record below.');
+  });
+  actions.append(done);
+  const copy = el('button', 'button secondary', 'Copy practice-run record'); copy.type = 'button';
+  copy.addEventListener('click', () => copyDrill(drillRecord(launchPlan, drill.current), 'Practice-run record copied. Share it with your team so the follow-ups get done.'));
+  const dl = el('button', 'button secondary', 'Download record'); dl.type = 'button'; dl.addEventListener('click', () => downloadDrill(drill.current));
+  const stop = el('button', 'text-button', 'Abandon this run'); stop.type = 'button';
+  stop.addEventListener('click', () => { if (!window.confirm('Abandon this practice run? Its answers are removed from this browser.')) return; drill = { ...drill, current: null }; saveDrill(); drillFocus = 'start'; renderDrill(); setText('#dr-status', 'Practice run abandoned.'); });
+  actions.append(copy, dl, stop); box.append(actions);
+  return box;
+}
+function renderDrill() {
+  const body = document.getElementById('dr-body'); if (!body) return;
+  const run = drill.current, rec = launchRecords[DRILL_STEP], recorded = rec?.result === 'pass' || rec?.result === 'skip';
+  const score = $('#dr-score'), s = runSummary(run);
+  score.replaceChildren(el('strong', '', run ? `${s.answered}/${s.total}` : recorded ? '✓' : '0/7'), el('span', '', run ? 'stages discussed' : recorded ? 'practice recorded' : 'not practised yet'));
+  score.className = `sec-score ${!run && recorded ? 'is-done' : ''}`; score.setAttribute('aria-label', run ? `${s.answered} of ${s.total} stages discussed` : recorded ? 'Practice run recorded' : 'No practice run recorded yet');
+  body.replaceChildren();
+  if (!run) {
+    if (recorded) body.append(el('p', 'ld-next', `Practice run recorded ${rec.at ? new Date(rec.at).toLocaleDateString() : ''}. Run another after big changes, new team members, or once a year.`));
+    drillStartForm(body);
+  } else {
+    const sc = findScenario(run.scenario), head = el('div', 'dr-run');
+    head.append(el('h3', '', sc.title), el('blockquote', 'dr-story', sc.story));
+    const meta = el('p', 'muted dr-meta'); meta.append(document.createTextNode(`${run.people.length ? run.people.join(', ') : 'No one listed yet'} · started `));
+    const ago = el('span', '', drillAgo(run.startedAt)); ago.id = 'dr-elapsed'; meta.append(ago); head.append(meta);
+    const edit = el('details', 'dr-edit-people'); edit.append(el('summary', '', 'Change who is taking part'));
+    const lab = el('label', 'launch-note-label', 'Names or roles, separated by commas'); lab.htmlFor = 'dr-people-edit';
+    const input = el('input', 'launch-note'); input.id = 'dr-people-edit'; input.maxLength = 300; input.autocomplete = 'off'; input.spellcheck = false; input.value = run.people.join(', ');
+    const save = el('button', 'text-button', 'Save people'); save.type = 'button';
+    save.addEventListener('click', () => { if (looksSecret(input.value)) { input.value = run.people.join(', '); return; } drill = { ...drill, current: { ...drill.current, people: parsePeople(input.value) } }; saveDrill(); renderDrill(); setText('#dr-status', 'People updated.'); });
+    edit.append(lab, input, save); head.append(edit);
+    const current = currentStage(run), list = el('ol', 'dr-stages');
+    STAGES.forEach((stage, i) => list.append(drillStage(run, stage, i, current)));
+    head.append(list, drillSummaryBox(run)); body.append(head);
+  }
+  const hist = $('#dr-history'); hist.replaceChildren();
+  if (!drill.history.length) hist.append(el('p', 'muted', 'None yet. Finished runs appear here (the last five).'));
+  else {
+    const ul = el('ul', 'dr-history');
+    for (const past of drill.history) {
+      const ps = runSummary(past), li = el('li');
+      li.append(el('span', '', `${new Date(past.finishedAt).toLocaleDateString()} · ${ps.scenario.title} · ${past.people.length} people · ${ps.handled}/${ps.total} handled${ps.gaps.length ? ` · ${ps.gaps.length} gap${ps.gaps.length === 1 ? '' : 's'}` : ''}`));
+      const c = el('button', 'text-button', 'Copy record'); c.type = 'button'; c.addEventListener('click', () => copyDrill(drillRecord(launchPlan, past), 'Practice-run record copied.'));
+      li.append(c); ul.append(li);
+    }
+    hist.append(ul);
+  }
+  if (drillFocus) {
+    const target = drillFocus === 'summary' ? $('#dr-summary h4') : drillFocus === 'history' ? $('#dr-history') : drillFocus === 'start' ? document.querySelector('input[name="dr-scenario"]') : document.querySelector(`.dr-stage[data-stage="${CSS.escape(drillFocus)}"] ${drillFocus === currentStage(drill.current)?.id ? 'input' : 'h4'}`);
+    if (drillFocus === 'history') hist.setAttribute('tabindex', '-1');
+    target?.focus({ preventScroll: false }); drillFocus = '';
+  }
+}
+setInterval(() => { const ago = document.getElementById('dr-elapsed'); if (ago && drill.current) ago.textContent = drillAgo(drill.current.startedAt); }, 30000);
 renderLaunch();
 
 // Crypto tools test guide: setup progress from this page's state plus the owner's wallet launch tests.
