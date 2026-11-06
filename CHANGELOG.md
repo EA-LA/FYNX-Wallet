@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-06 06:20 UTC — [autopilot] Owner workspace: decision worksheet and questions for your lawyer
+
+- The **Launch readiness** tab has a new **Decisions only you can make** section. Twelve launch steps are business choices rather than tests: how customers get a wallet, the production web address, the security reviewer, who reads the support inbox, where alerts go, backups and recovery time, company details, the business model, U.S. counsel, the first country after the U.S., pilot size and limits, and pilot support.
+- Each one explains why it matters and gives you simple choices or short boxes to fill in. When your answer is complete, that step is marked done in the checklist and goes into your test report, so the overall percentage moves forward. A score shows how many you have decided (for example "2/12").
+- Half-finished answers are kept as "In progress" with a clear reason (for example a lawyer only counts once they are engaged, a backup person must be someone else, the monthly pilot limit must be at least the per-transaction limit).
+- **Copy decision record** copies a short table of your decisions to share with your engineer or Claude.
+- **Questions for your lawyer**: a ready first-call sheet for U.S. counsel with 14 questions (licensing, anti-money-laundering and sanctions, customer terms, privacy, incidents, international), filled in with your answers so far and links to the documents to share. Copy it, download it, or preview it on the page. It is a list of questions, not legal advice.
+- In the checklist, decision steps now have an "Answer in the decision worksheet" button, and "Your next steps" opens the worksheet directly.
+- Answers stay in this browser only. Anything that looks like a recovery phrase or key is refused.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness.
+
 ## 2026-11-06 02:15 UTC — [autopilot] Owner workspace: Crypto tools test guide
 
 - The **Crypto tools** tab now opens with a **Test session guide**: seven numbered setup steps (wallet extension found, test network selected, wallet connected, ownership verified, test ETH, test USDC, a test transaction confirmed). They tick themselves off as you go, the next one is highlighted with a "Go there" button, and a score shows how close you are (for example "4/6 setup steps").

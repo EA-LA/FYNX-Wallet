@@ -82,5 +82,8 @@ Prioritized ideas, one focused change per run. Scope: public site, UI, docs and 
 - [ ] Crypto tools: step numbers on the cards below (Connect → Receive → Send → Swap → Track) and an empty-state hint on the swap card when the selected network has no pool
 - [ ] Crypto tools: a "copy test summary" (counts only) for the wallet tests, like the security checkup
 - [ ] Operations gate: alert-setup guide page in docs with exact Google Cloud console steps
-- [ ] Legal gate: a "questions for your lawyer" printable sheet generated from the legal review brief
+- [x] Legal gate: "Questions for your lawyer" sheet (14 questions by area, filled with the owner's answers, document links; copy, download, preview) (2026-11-06)
+- [x] Launch readiness: "Decisions only you can make" worksheet for the 12 owner decision steps (wallet model, production domain/project, security reviewer, inbox, alert destination, backups/RTO/RPO, entity, business model and fees, counsel, first country, pilot limits, pilot support); complete answers record the step as Passed with a "Decision: …" note (shared with the test report), drafts stay "In progress" with reasons; copy a decision record; "Answer in the decision worksheet" buttons on those steps; next steps open the worksheet. Pure helpers in wallet-src/owner-decisions.js with tests (2026-11-06)
+- [ ] Decision worksheet: keep unsaved typing when another part of the tab re-renders (currently a re-render resets unsaved fields)
+- [ ] When the owner shares a decision record: copy the decisions into docs (OPERATIONS.md inbox/alerts/backups, LEGAL-OPERATING-REVIEW.md entity row) and mark the matching steps done in launch-checklist.json
 - Note: the dashboard document itself (wallet-src/dashboard) is served by the Firebase function; changing it needs a backend redeploy, so autopilot leaves it alone.

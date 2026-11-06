@@ -13,6 +13,7 @@ import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, group
 import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote } from './crypto-guide.js';
+import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText } from './owner-decisions.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 
 const $ = selector => document.querySelector(selector);
@@ -658,7 +659,7 @@ function renderLaunchOverview() {
     for (const { gate, step, failed } of next) {
       const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
       b.append(el('span', 'launch-next-gate', `${failed ? 'Retest · ' : ''}${gate.title}`), el('span', '', step.text));
-      b.addEventListener('click', () => openGate(gate.id)); li.append(b); list.append(li);
+      b.addEventListener('click', () => findDecision(stepKey(gate.id, step.id)) ? openDecision(stepKey(gate.id, step.id)) : openGate(gate.id)); li.append(b); list.append(li);
     }
     wrap.append(list);
   } else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
@@ -700,6 +701,10 @@ function stepRow(gate, step) {
     go.addEventListener('click', () => { if (step.tab === 'public') window.open('./', '_blank', 'noopener'); else { selectTab(step.tab); window.scrollTo(0, 0); } });
     controls.append(go);
   }
+  if (findDecision(key)) {
+    const go = el('button', 'text-button launch-go', 'Answer in the decision worksheet ↓'); go.type = 'button';
+    go.addEventListener('click', () => openDecision(key)); controls.append(go);
+  }
   li.append(controls);
   const noteId = `note-${gate.id}-${step.id}`, label = el('label', 'launch-note-label', 'Note (browser, device, transaction ID; never keys or recovery words)'); label.htmlFor = noteId;
   const note = el('input', 'launch-note'); note.id = noteId; note.maxLength = 280; note.autocomplete = 'off'; note.spellcheck = false; note.value = rec?.note || '';
@@ -734,6 +739,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   }
   if (!list.children.length) list.append(el('p', 'muted', 'No gates in this view.'));
   if (focusStep) document.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
+  renderDecisions();
 }
 const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent) });
 $('#copy-launch-report').addEventListener('click', async () => {
@@ -749,6 +755,132 @@ $('#clear-launch-results').addEventListener('click', () => {
   if (!Object.keys(launchRecords).length || !window.confirm('Clear all test results and notes saved in this browser?')) return;
   launchRecords = {}; try { localStorage.removeItem(TRACKER_KEY); } catch { /* ignore */ }
   renderLaunch(); renderCryptoTests(); setText('#launch-save-status', 'Saved results cleared from this browser.');
+});
+// Owner decisions worksheet: structured answers for the twelve decision steps, kept only in this browser.
+// A complete answer records the matching launch step as Passed with a short "Decision: …" note.
+let decisionAnswers = {};
+try { decisionAnswers = cleanAnswers(JSON.parse(localStorage.getItem(DECISIONS_KEY) || '{}')); } catch { decisionAnswers = {}; }
+function saveDecisionAnswers() { try { localStorage.setItem(DECISIONS_KEY, JSON.stringify(decisionAnswers)); return true; } catch { setText('#ld-status', 'This browser blocked saving. Answers last until you close the page.'); return false; } }
+const decisionStateLabels = { decided: 'Decided', draft: 'In progress', open: 'To decide' };
+function openDecision(key) {
+  const details = document.querySelector(`#ld-list details[data-decision="${CSS.escape(key)}"]`); if (!details) return;
+  details.open = true; details.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  (details.querySelector('input:not([type="radio"]), select, input:checked') || details.querySelector('input'))?.focus({ preventScroll: true });
+}
+function decisionField(decision, field, value, onWarn) {
+  const id = `ld-${decision.gate}-${decision.step}-${field.id}`;
+  if (field.type === 'choice') {
+    const set = el('fieldset', 'ld-choice'); set.append(el('legend', '', `${field.label}${field.required ? '' : ' (optional)'}`));
+    for (const o of field.options) {
+      const lab = el('label', `ld-option${o.value === value ? ' is-checked' : ''}`), input = el('input');
+      input.type = 'radio'; input.name = id; input.value = o.value; input.checked = o.value === value; input.dataset.field = field.id;
+      input.addEventListener('change', () => { for (const l of set.querySelectorAll('.ld-option')) l.classList.toggle('is-checked', l.querySelector('input').checked); });
+      const text = el('span', 'ld-option-text'); text.append(el('span', '', o.label)); if (o.hint) text.append(el('small', '', o.hint));
+      lab.append(input, text); set.append(lab);
+    }
+    return set;
+  }
+  const wrap = el('div', 'ld-field'), lab = el('label', '', field.label); lab.htmlFor = id;
+  let input;
+  if (field.type === 'select') {
+    input = el('select'); input.append(new Option('Choose…', ''));
+    for (const o of field.options) input.append(new Option(o.label, o.value, false, o.value === value));
+  } else {
+    input = el('input'); input.type = field.type === 'number' ? 'text' : field.type; input.value = value || '';
+    if (field.type === 'number') { input.inputMode = 'decimal'; }
+    if (field.type === 'text') input.maxLength = 80;
+    if (field.placeholder) input.placeholder = field.placeholder;
+    input.autocomplete = 'off'; input.spellcheck = false;
+  }
+  input.id = id; input.dataset.field = field.id;
+  input.addEventListener('change', () => { if (looksSecret(input.value)) { input.value = ''; onWarn('That looks like a recovery phrase or key, so it was removed. Never type one into any website.'); } });
+  wrap.append(lab, input); if (field.hint) wrap.append(el('p', 'hint', field.hint));
+  return wrap;
+}
+function readDecisionForm(decision, form) {
+  const out = {}, rejected = [];
+  for (const field of decision.fields) {
+    const raw = field.type === 'choice' ? form.querySelector(`input[data-field="${field.id}"]:checked`)?.value : form.querySelector(`[data-field="${field.id}"]`)?.value;
+    const v = cleanValue(field, raw);
+    if (v) out[field.id] = v; else if (raw && String(raw).trim()) rejected.push(field.label);
+  }
+  return { out, rejected };
+}
+function saveDecision(decision, form, warn) {
+  const key = decisionKey(decision), { out, rejected } = readDecisionForm(decision, form);
+  if (rejected.length) { warn.textContent = `Check ${rejected.join(', ')}: the value was not accepted.`; return; }
+  if (!Object.keys(out).length) { warn.textContent = 'Nothing to save yet.'; return; }
+  decisionAnswers[key] = out; saveDecisionAnswers();
+  const issues = problems(decision, out), gate = launchPlan.items.find(g => g.id === decision.gate);
+  const prev = launchRecords[key] || { result: '', note: '', at: 0 };
+  if (!issues.length) launchRecords[key] = { result: 'pass', note: decisionNote(decision, out), at: Date.now() };
+  else if (prev.result === 'pass' || prev.result === 'skip') launchRecords[key] = { ...prev, result: '', at: Date.now() };
+  saveLaunchRecords();
+  renderLaunch({ keepOpen: gate.id }); renderCryptoTests();
+  const details = document.querySelector(`#ld-list details[data-decision="${CSS.escape(key)}"]`);
+  if (details) { details.open = true; details.querySelector('.ld-save')?.focus({ preventScroll: true }); }
+  setText('#ld-status', issues.length ? `${decision.title}: saved as in progress. ${issues[0]}` : `${decision.title}: decided and marked done in the checklist.`);
+}
+function renderDecisions() {
+  const list = document.getElementById('ld-list'); if (!list) return;
+  const open = new Set([...list.querySelectorAll('details[open]')].map(d => d.dataset.decision));
+  const p = decisionsProgress(launchPlan, launchRecords, decisionAnswers), score = $('#ld-score');
+  score.replaceChildren(el('strong', '', `${p.decided}/${p.total}`), el('span', '', p.decided === p.total ? 'all decided' : 'decided'));
+  score.className = `sec-score ${p.decided === p.total ? 'is-done' : ''}`; score.setAttribute('aria-label', `${p.decided} of ${p.total} decisions recorded`);
+  list.replaceChildren();
+  let group = '';
+  for (const decision of DECISIONS) {
+    const key = decisionKey(decision), state = decisionState(launchPlan, decision, launchRecords, decisionAnswers);
+    if (state === 'missing') continue;
+    const gate = launchPlan.items.find(g => g.id === decision.gate);
+    if (gate.id !== group) { group = gate.id; list.append(el('h3', 'ld-group', gate.title)); }
+    const answers = decisionAnswers[key] || {};
+    const details = el('details', `ld-item is-${state}`); details.dataset.decision = key; details.open = open.has(key);
+    const summary = el('summary'), head = el('span', 'ld-summary');
+    head.append(el('strong', '', decision.title), el('span', 'ld-answer', state === 'open' ? 'Not answered yet' : answerText(decision, answers)));
+    summary.append(head, el('span', `launch-mark ld-mark is-${state}`, decisionStateLabels[state])); details.append(summary);
+    details.append(el('p', 'ld-why', decision.why));
+    const form = el('form', 'ld-form'); form.noValidate = true;
+    const warn = el('p', 'launch-note-warn'); warn.setAttribute('role', 'status');
+    for (const field of decision.fields) form.append(decisionField(decision, field, answers[field.id], text => { warn.textContent = text; }));
+    const issues = state === 'open' ? [] : problems(decision, answers);
+    if (state === 'draft' && issues.length) form.append(el('p', 'ld-issue', issues.join(' ')));
+    const chosen = answers[decision.fields[0].id], next = decision.unlocks && (decision.unlocks[chosen] || decision.unlocks.any);
+    if (state === 'decided' && next) form.append(el('p', 'ld-next', `What happens next: ${next}`));
+    const actions = el('div', 'ld-actions'), save = el('button', 'button ld-save', state === 'decided' ? 'Update decision' : 'Save decision'); save.type = 'submit';
+    actions.append(save);
+    if (state !== 'open') {
+      const clear = el('button', 'text-button', 'Clear this answer'); clear.type = 'button';
+      clear.addEventListener('click', () => {
+        delete decisionAnswers[key]; saveDecisionAnswers();
+        const rec = launchRecords[key]; if (rec && rec.note === decisionNote(decision, answers)) delete launchRecords[key];
+        saveLaunchRecords(); renderLaunch({ keepOpen: gate.id }); renderCryptoTests(); setText('#ld-status', `${decision.title}: answer cleared.`);
+      });
+      actions.append(clear);
+    }
+    const rec = launchRecords[key];
+    if (state === 'decided' && rec?.at) actions.append(el('span', 'launch-when', `Recorded ${new Date(rec.at).toLocaleString()}`));
+    form.append(actions, warn);
+    form.addEventListener('submit', event => { event.preventDefault(); warn.textContent = ''; saveDecision(decision, form, warn); });
+    details.append(form); list.append(details);
+  }
+  setText('#ld-counsel-preview', counselSheet(launchPlan, decisionAnswers));
+}
+async function copyDecisionText(text, done) {
+  try { await navigator.clipboard.writeText(text); setText('#ld-status', done); }
+  catch { setText('#ld-status', 'Copying was blocked by the browser. Use Download lawyer sheet, or select the preview text.'); }
+}
+$('#ld-copy-record').addEventListener('click', () => copyDecisionText(decisionRecord(launchPlan, launchRecords, decisionAnswers), 'Decision record copied. Share it with your engineer or Claude so the checklist can be updated.'));
+$('#ld-copy-counsel').addEventListener('click', () => copyDecisionText(counselSheet(launchPlan, decisionAnswers), 'Lawyer questions copied. Paste them into an email or document for your first call with counsel.'));
+$('#ld-download-counsel').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([counselSheet(launchPlan, decisionAnswers)], { type: 'text/markdown' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-questions-for-counsel-${new Date().toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setText('#ld-status', 'Lawyer sheet downloaded.');
+});
+$('#ld-clear').addEventListener('click', () => {
+  if (!Object.keys(decisionAnswers).length || !window.confirm('Clear all decision answers saved in this browser? Steps already marked done stay done until you clear them in the checklist.')) return;
+  decisionAnswers = {}; try { localStorage.removeItem(DECISIONS_KEY); } catch { /* ignore */ }
+  renderDecisions(); setText('#ld-status', 'Decision answers cleared from this browser.');
 });
 renderLaunch();
 
