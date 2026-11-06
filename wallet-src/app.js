@@ -1104,6 +1104,7 @@ function drillStage(run, stage, index, current) {
       const text = cleanFollowUp(input.value);
       if (result === 'gap' && !text) { warn.textContent = 'Write in a few words what needs to change, then press Gap found.'; input.focus(); return; }
       drill = { ...drill, current: answerStage(drill.current, stage.id, result, text) }; saveDrill();
+      setText('#dr-status', `${stage.title}: ${result === 'gap' ? 'gap noted' : 'handled'}.`);
       drillFocus = currentStage(drill.current)?.id || 'summary'; renderDrill();
     });
     group.append(b);

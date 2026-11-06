@@ -4,6 +4,7 @@
 
 - **New in Launch readiness: "Incident practice run".** Pick one of four made-up bad days (a strange sign-in to your account, waitlist sign-ups failing, a fake FYNX site asking for recovery phrases, or the waitlist file sent to the wrong person) and walk your team through the seven steps of your incident procedure, one question at a time. Press "Show what the procedure says" after you discuss each step, then mark it handled or note a gap and what needs to change.
 - When all seven steps are discussed with at least two people, "Finish and mark the step done" ticks off the practice-run step in your checklist, with the follow-ups in its note. You can copy or download a short record to share, and your last five runs are listed.
+- After each step, a short message confirms what was noted (handy for screen readers).
 - The checklist step and "Your next steps" now have a button that jumps straight to the practice run.
 - **New guide for backups:** step-by-step instructions for choosing backup settings that match your answers in the decision worksheet and for testing a restore in a separate project, linked from the practice-run card.
 - See it: https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness (scroll below "Decisions only you can make").
