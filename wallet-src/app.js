@@ -13,8 +13,8 @@ import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, group
 import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
-import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields } from './owner-decisions.js';
-import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp } from './incident-drill.js';
+import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
+import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText } from './incident-drill.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 
 const $ = selector => document.querySelector(selector);
@@ -776,7 +776,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent) });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: decisionReportLines(decisionAnswers, decisionSavedTimes()) });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -833,14 +833,16 @@ function previewReport(text) {
   if (!text.trim()) { setText('#import-status', 'Paste a test report or choose a report file first.'); return; }
   const parsed = parseReport(text, launchPlan), count = Object.keys(parsed.records).length;
   if (parsed.secret) { clearReportImport(); setText('#import-status', 'This text looks like it contains a recovery phrase or key, so it was cleared and not read. Never paste those into any website.'); return; }
-  if (!count) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const dec = parseDecisions(text), decCount = Object.keys(dec.answers).length;
+  if (!count && !decCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
-  pendingImport = m.merged;
+  const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
+  pendingImport = { records: m.merged, decisions: dm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
   if (parsed.unknown.length) sum.append(guideEl('li', 'is-kept', `${parsed.unknown.length} line${parsed.unknown.length === 1 ? '' : 's'} not matched to a current step`));
-  box.append(guideEl('h4', '', `${count} result${count === 1 ? '' : 's'} found in the report`), sum);
+  if (count || sum.children.length) box.append(guideEl('h4', '', `${count} result${count === 1 ? '' : 's'} found in the report`), sum);
   const list = guideEl('ul', 'launch-import-list'), what = { added: 'New', updated: 'Newer', kept: 'Kept yours', same: 'Same' };
   for (const kind of ['added', 'updated', 'kept', 'same']) for (const key of m[kind]) {
     const hit = index.get(key), rec = parsed.records[key]; if (!hit) continue;
@@ -849,13 +851,33 @@ function previewReport(text) {
     li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); list.append(li);
   }
   box.append(list);
-  const actions = guideEl('div', 'actions'), changes = m.added.length + m.updated.length;
-  const apply = guideEl('button', 'button', changes ? `Add ${changes} result${changes === 1 ? '' : 's'} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
+  if (decCount) {
+    const dsum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', dm.added.length, 'new here'], ['is-update', dm.updated.length, 'saved later than this browser'], ['is-same', dm.same.length, 'already here'], ['is-kept', dm.kept.length, 'kept: this browser saved later']]) if (n) dsum.append(guideEl('li', cls, `${n} ${label}`));
+    if (dec.refused) dsum.append(guideEl('li', 'is-kept', `${dec.refused} answer${dec.refused === 1 ? '' : 's'} left out: looked like a key`));
+    box.append(guideEl('h4', '', `${decCount} decision${decCount === 1 ? '' : 's'} found in the report`), dsum);
+    const dl = guideEl('ul', 'launch-import-list');
+    for (const kind of ['added', 'updated', 'kept', 'same']) for (const key of dm[kind]) {
+      const d = findDecision(key); if (!d) continue;
+      const li = guideEl('li'), body = guideEl('div'), at = dec.times[key];
+      body.append(guideEl('span', '', d.title), guideEl('small', '', `${answerText(d, dec.answers[key])}${at ? ` · saved ${new Date(at).toLocaleString()}` : ''}${kind === 'kept' ? ' · this browser’s answer is newer and stays' : ''}`));
+      li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); dl.append(li);
+    }
+    box.append(dl);
+  }
+  const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length, changes = results + decisions;
+  const parts = [results ? `${results} result${results === 1 ? '' : 's'}` : '', decisions ? `${decisions} decision${decisions === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
+  const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    launchRecords = cleanRecords(pendingImport, launchPlan); saveLaunchRecords();
+    const { records, decisions: d } = pendingImport;
+    launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
+    if (decisions) {
+      for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
+      decisionAnswers = cleanAnswers(d.answers); decisionTimes = cleanTimes(d.times, decisionAnswers); saveDecisionAnswers();
+    }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests();
-    setText('#import-status', `${changes} result${changes === 1 ? '' : 's'} added. Progress, next steps and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });
@@ -872,9 +894,15 @@ $('#import-file').addEventListener('change', async event => {
 });
 // Owner decisions worksheet: structured answers for the twelve decision steps, kept only in this browser.
 // A complete answer records the matching launch step as Passed with a short "Decision: …" note.
-let decisionAnswers = {};
+let decisionAnswers = {}, decisionTimes = {};
 try { decisionAnswers = cleanAnswers(JSON.parse(localStorage.getItem(DECISIONS_KEY) || '{}')); } catch { decisionAnswers = {}; }
-function saveDecisionAnswers() { try { localStorage.setItem(DECISIONS_KEY, JSON.stringify(decisionAnswers)); return true; } catch { setText('#ld-status', 'This browser blocked saving. Answers last until you close the page.'); return false; } }
+try { decisionTimes = cleanTimes(JSON.parse(localStorage.getItem(DECISION_TIMES_KEY) || '{}'), decisionAnswers); } catch { decisionTimes = {}; }
+function saveDecisionAnswers() {
+  decisionTimes = cleanTimes(decisionTimes, decisionAnswers);
+  try { localStorage.setItem(DECISIONS_KEY, JSON.stringify(decisionAnswers)); localStorage.setItem(DECISION_TIMES_KEY, JSON.stringify(decisionTimes)); return true; } catch { setText('#ld-status', 'This browser blocked saving. Answers last until you close the page.'); return false; }
+}
+// When each answer was saved (older answers fall back to the time their step was recorded), so imports keep the latest.
+const decisionSavedTimes = () => Object.fromEntries(Object.keys(decisionAnswers).map(key => [key, decisionTimes[key] || launchRecords[key]?.at || 0]));
 const decisionStateLabels = { decided: 'Decided', draft: 'In progress', open: 'To decide' };
 function openDecision(key) {
   const details = document.querySelector(`#ld-list details[data-decision="${CSS.escape(key)}"]`); if (!details) return;
@@ -924,11 +952,12 @@ function saveDecision(decision, form, warn) {
   const key = decisionKey(decision), { out, rejected } = readDecisionForm(decision, form);
   if (rejected.length) { warn.textContent = `Check ${rejected.join(', ')}: the value was not accepted.`; return; }
   if (!Object.keys(out).length) { warn.textContent = 'Nothing to save yet.'; return; }
-  decisionAnswers[key] = out; saveDecisionAnswers();
+  const savedAt = Date.now();
+  decisionAnswers[key] = out; decisionTimes[key] = savedAt; saveDecisionAnswers();
   const issues = problems(decision, out), gate = launchPlan.items.find(g => g.id === decision.gate);
   const prev = launchRecords[key] || { result: '', note: '', at: 0 };
-  if (!issues.length) launchRecords[key] = { result: 'pass', note: decisionNote(decision, out), at: Date.now() };
-  else if (prev.result === 'pass' || prev.result === 'skip') launchRecords[key] = { ...prev, result: '', at: Date.now() };
+  if (!issues.length) launchRecords[key] = { result: 'pass', note: decisionNote(decision, out), at: savedAt };
+  else if (prev.result === 'pass' || prev.result === 'skip') launchRecords[key] = { ...prev, result: '', at: savedAt };
   saveLaunchRecords();
   renderLaunch({ keepOpen: gate.id }); renderCryptoTests();
   const details = document.querySelector(`#ld-list details[data-decision="${CSS.escape(key)}"]`);
@@ -1031,7 +1060,7 @@ $('#ld-download-counsel').addEventListener('click', () => {
 });
 $('#ld-clear').addEventListener('click', () => {
   if (!Object.keys(decisionAnswers).length || !window.confirm('Clear all decision answers saved in this browser? Steps already marked done stay done until you clear them in the checklist.')) return;
-  decisionAnswers = {}; for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); try { localStorage.removeItem(DECISIONS_KEY); } catch { /* ignore */ }
+  decisionAnswers = {}; decisionTimes = {}; for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); try { localStorage.removeItem(DECISIONS_KEY); localStorage.removeItem(DECISION_TIMES_KEY); } catch { /* ignore */ }
   renderDecisions(); setText('#ld-status', 'Decision answers cleared from this browser.');
 });
 // Incident practice run: a facilitator guide for the "operations/drill" launch step.
@@ -1159,6 +1188,7 @@ function renderDrill() {
     STAGES.forEach((stage, i) => list.append(drillStage(run, stage, i, current)));
     head.append(list, drillSummaryBox(run)); body.append(head);
   }
+  renderFollowUps();
   const hist = $('#dr-history'); hist.replaceChildren();
   if (!drill.history.length) hist.append(el('p', 'muted', 'None yet. Finished runs appear here (the last five).'));
   else {
@@ -1176,6 +1206,32 @@ function renderDrill() {
     if (drillFocus === 'history') hist.setAttribute('tabindex', '-1');
     target?.focus({ preventScroll: false }); drillFocus = '';
   }
+}
+// Follow-ups from finished runs as a to-do list. Ticking one off is saved with the run, in this browser only.
+function renderFollowUps() {
+  const box = document.getElementById('dr-followups'); if (!box) return;
+  const items = followUpList(drill), p = followUpProgress(drill), count = $('#dr-follow-count');
+  count.textContent = p.total ? (p.done === p.total ? `All ${p.total} done` : `${p.done} of ${p.total} done`) : 'None yet';
+  count.className = `launch-mark ${p.total && p.done === p.total ? 'is-done' : p.total ? 'is-open' : ''}`;
+  box.replaceChildren();
+  if (!items.length) { box.append(el('p', 'muted', 'No follow-ups yet. When a stage turns up a gap, the follow-up you write appears here after the run is finished.')); return; }
+  const ul = el('ul', 'dr-todo');
+  items.forEach(item => {
+    const id = `dr-todo-${item.runAt}-${item.stage.id}`, li = el('li', item.doneAt ? 'is-done' : '');
+    const input = el('input'); input.type = 'checkbox'; input.id = id; input.checked = Boolean(item.doneAt);
+    const lab = el('label'); lab.htmlFor = id;
+    lab.append(el('span', 'dr-todo-text', item.text), el('small', '', `${item.stage.title} · ${item.scenario?.title || 'Practice run'} · ${new Date(item.runAt).toLocaleDateString()}${item.doneAt ? ` · done ${new Date(item.doneAt).toLocaleDateString()}` : ''}`));
+    input.addEventListener('change', () => {
+      drill = setFollowUpDone(drill, item.runAt, item.stage.id, input.checked ? Date.now() : 0); saveDrill(); renderFollowUps();
+      document.getElementById(id)?.focus({ preventScroll: true });
+      const np = followUpProgress(drill);
+      setText('#dr-status', `${input.checked ? 'Marked done' : 'Opened again'}: ${item.text}. ${np.done} of ${np.total} follow-ups done.`);
+    });
+    li.append(input, lab); ul.append(li);
+  });
+  const actions = el('div', 'actions'), copy = el('button', 'button secondary', 'Copy follow-up list'); copy.type = 'button';
+  copy.addEventListener('click', () => copyDrill(followUpText(launchPlan, drill), 'Follow-up list copied. Share it with your team.'));
+  actions.append(copy); box.append(ul, actions);
 }
 setInterval(() => { const ago = document.getElementById('dr-elapsed'); if (ago && drill.current) ago.textContent = drillAgo(drill.current.startedAt); }, 30000);
 renderLaunch();

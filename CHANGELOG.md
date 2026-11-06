@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-06 22:18 UTC — [autopilot] Owner workspace: your decisions now move between devices, and a to-do list for practice-run follow-ups
+
+- **Decisions travel with your test report.** Answers you give in "Decisions only you can make" (on your phone, iPad or computer) are now included in Copy test report / Download report, in a short readable section. On your other device, paste the report into "Bring in results from another device": it lists the decisions it found (new, newer, already here, or kept because this browser saved later) and adds them together with your test results. Done steps and the overall percentage update straight away.
+- **New "Follow-ups to do" list** in the Incident practice run card. Every follow-up your team wrote during a finished practice run appears here with a tick box, open ones first, and a count (for example "1 of 2 done"). Ticking one off keeps the date, and "Copy follow-up list" gives you a checklist to share with your team. The practice-run record now shows which follow-ups are done.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness ("Record your test results" and "Incident practice run").
+
 ## 2026-11-06 18:25 UTC — [autopilot] Owner workspace: incident practice run and a backup restore guide
 
 - **New in Launch readiness: "Incident practice run".** Pick one of four made-up bad days (a strange sign-in to your account, waitlist sign-ups failing, a fake FYNX site asking for recovery phrases, or the waitlist file sent to the wrong person) and walk your team through the seven steps of your incident procedure, one question at a time. Press "Show what the procedure says" after you discuss each step, then mark it handled or note a gap and what needs to change.

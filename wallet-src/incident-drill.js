@@ -106,6 +106,7 @@ function cleanRun(raw) {
       const a = raw.answers[s.id];
       if (!a || typeof a !== 'object' || !RESULTS[a.result]) continue;
       answers[s.id] = { result: a.result, followUp: cleanFollowUp(a.followUp) };
+      if (answers[s.id].followUp && Number.isFinite(a.doneAt) && a.doneAt > 0) answers[s.id].doneAt = a.doneAt;
     }
   }
   const people = Array.isArray(raw.people) ? parsePeople(raw.people.join(',')) : [];
@@ -179,7 +180,7 @@ export function drillRecord(plan, run, now = Date.now()) {
     '| Stage | Outcome | Follow-up |', '| --- | --- | --- |'];
   for (const stage of STAGES) {
     const a = run.answers[stage.id];
-    L.push(`| ${md(stage.title)} | ${a ? (a.result === 'gap' ? 'Gap found' : 'Handled') : 'Not discussed'} | ${a?.followUp ? md(a.followUp) : '—'} |`);
+    L.push(`| ${md(stage.title)} | ${a ? (a.result === 'gap' ? 'Gap found' : 'Handled') : 'Not discussed'} | ${a?.followUp ? `${md(a.followUp)}${a.doneAt ? ` (done ${stamp(a.doneAt).slice(0, 10)})` : ''}` : '—'} |`);
   }
   L.push('', `Procedure used: ${REPO}/OPERATIONS.md#incident-response`, '', 'This was a practice discussion of a made-up situation, not a real incident. Recorded by the owner in the FYNX workspace; contains no keys, recovery phrases or passwords.');
   return L.join('\n');
@@ -190,4 +191,44 @@ export function finishRun(drill, now = Date.now()) {
   if (!drill.current) return drill;
   const done = { ...drill.current, finishedAt: Math.max(now, drill.current.startedAt || now) };
   return { current: null, history: [done, ...drill.history].slice(0, MAX_HISTORY) };
+}
+
+// Follow-ups from finished runs, as a to-do list the owner ticks off later (newest run first, open items first).
+export function followUpList(drill) {
+  const items = [];
+  for (const run of drill?.history || []) {
+    const scenario = findScenario(run.scenario);
+    for (const stage of STAGES) {
+      const a = run.answers[stage.id];
+      if (a?.followUp) items.push({ runAt: run.finishedAt, scenario, stage, text: a.followUp, gap: a.result === 'gap', doneAt: a.doneAt || 0 });
+    }
+  }
+  return [...items.filter(i => !i.doneAt), ...items.filter(i => i.doneAt)];
+}
+
+export function followUpProgress(drill) {
+  const items = followUpList(drill);
+  return { total: items.length, done: items.filter(i => i.doneAt).length };
+}
+
+// Mark one follow-up done (doneAt = time) or open again (doneAt = 0). Runs are identified by their finish time.
+export function setFollowUpDone(drill, runAt, stageId, doneAt) {
+  let changed = false;
+  const history = (drill?.history || []).map(run => {
+    const a = run.finishedAt === runAt ? run.answers[stageId] : null;
+    if (!a?.followUp) return run;
+    changed = true;
+    const next = { ...a }; if (doneAt > 0) next.doneAt = doneAt; else delete next.doneAt;
+    return { ...run, answers: { ...run.answers, [stageId]: next } };
+  });
+  return changed ? { ...drill, history } : drill;
+}
+
+// A short list of the still-open follow-ups to share with the team.
+export function followUpText(plan, drill, now = Date.now()) {
+  const items = followUpList(drill), open = items.filter(i => !i.doneAt);
+  const L = [`# ${plan.product} practice-run follow-ups`, '', `Date: ${stamp(now)} UTC`, `Open: ${open.length} of ${items.length}.`, ''];
+  for (const i of items) L.push(`- [${i.doneAt ? 'x' : ' '}] ${md(i.text)} (${md(i.stage.title)}; ${md(i.scenario?.title || 'practice run')}, ${stamp(i.runAt).slice(0, 10)})${i.doneAt ? ` done ${stamp(i.doneAt).slice(0, 10)}` : ''}`);
+  if (!items.length) L.push('No follow-ups yet.');
+  return L.join('\n');
 }

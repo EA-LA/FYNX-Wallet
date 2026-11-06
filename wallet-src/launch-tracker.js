@@ -83,7 +83,8 @@ export function nextActions(plan, records, limit = 3) {
 
 const mdLine = s => String(s).replace(/\s+/g, ' ').replace(/([\\`*_[\]<>|])/g, '\\$1').trim();
 
-export function reportMarkdown(plan, records, { date = new Date(), browser = '' } = {}) {
+// `appendix` holds extra report lines (the decision-worksheet answers) placed before the closing line.
+export function reportMarkdown(plan, records, { date = new Date(), browser = '', appendix = [] } = {}) {
   const o = overview(plan, records);
   const lines = [`# ${plan.product} launch test report`, '', `Date: ${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`];
   if (browser) lines.push(`Browser: ${mdLine(browser)}`);
@@ -102,6 +103,7 @@ export function reportMarkdown(plan, records, { date = new Date(), browser = '' 
     lines.push('');
   }
   if (!any) lines.push('No test results recorded yet.', '');
+  if (appendix.length) lines.push(...appendix);
   lines.push('Recorded by the owner in the FYNX workspace. Contains no keys, recovery phrases or passwords.');
   return lines.join('\n');
 }

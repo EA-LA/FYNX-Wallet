@@ -314,3 +314,78 @@ export function unsavedFields(decision, raw = {}, saved = {}) {
   }
   return out;
 }
+
+// Carry decision-worksheet answers between devices inside the launch test report.
+// Each answered decision is written as a readable block (title, saved time, one line per field)
+// and read back by matching titles and labels. Values are cleaned again on the way in.
+export const DECISION_TIMES_KEY = 'fynx-owner-decisions-times-v1';
+export const REPORT_SECTION = 'Decision worksheet answers';
+const stampUtc = ms => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+const unmd = s => String(s).replace(/\\([\\`*_[\]<>|])/g, '$1').replace(/\s+/g, ' ').trim();
+
+// Saved times (decision key → ms), only for decisions that still have answers.
+export function cleanTimes(raw, answers = {}) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const key of Object.keys(answers)) if (Number.isFinite(raw[key]) && raw[key] > 0) out[key] = raw[key];
+  return out;
+}
+
+export function decisionReportLines(answers = {}, times = {}) {
+  const lines = [];
+  for (const d of DECISIONS) {
+    const a = answers[decisionKey(d)]; if (!a || !Object.keys(a).length) continue;
+    const at = times[decisionKey(d)];
+    lines.push(`### ${md(d.title)}${at ? ` (saved ${stampUtc(at)} UTC)` : ''}`, '');
+    for (const f of d.fields) {
+      const v = a[f.id]; if (!v) continue;
+      lines.push(`- ${md(f.label)}: ${md(f.type === 'choice' || f.type === 'select' ? optionLabel(f, v) : v)}`);
+    }
+    lines.push('');
+  }
+  return lines.length ? [`## ${REPORT_SECTION}`, '', 'Answers from the decision worksheet, so they can be brought into another browser.', '', ...lines] : [];
+}
+
+const HEAD = /^###\s+(.+?)(?:\s+\(saved (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\))?\s*$/;
+export function parseDecisions(text) {
+  const answers = {}, times = {};
+  let inSection = false, current = null, refused = 0, unknown = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 2000)) {
+    if (/^##\s/.test(line)) { inSection = unmd(line.replace(/^##\s+/, '')) === REPORT_SECTION; current = null; continue; }
+    if (!inSection) continue;
+    const h = line.match(HEAD);
+    if (h) {
+      current = DECISIONS.find(d => d.title === unmd(h[1])) || null;
+      if (!current) { unknown += 1; continue; }
+      const at = h[2] ? Date.parse(`${h[2]}T${h[3]}:00Z`) : 0;
+      if (Number.isFinite(at) && at > 0) times[decisionKey(current)] = at;
+      continue;
+    }
+    const m = line.match(/^\s*[-*]\s+(.+)$/); if (!m || !current) continue;
+    const body = unmd(m[1]), cut = body.indexOf(': ');
+    if (cut < 0) { unknown += 1; continue; }
+    const label = body.slice(0, cut), shown = body.slice(cut + 2).trim();
+    const field = current.fields.find(f => f.label === label);
+    if (!field) { unknown += 1; continue; }
+    if (looksSecret(shown)) { refused += 1; continue; }
+    const raw = field.type === 'choice' || field.type === 'select' ? field.options.find(o => o.label === shown)?.value : shown;
+    const v = cleanValue(field, raw);
+    if (!v) { unknown += 1; continue; }
+    (answers[decisionKey(current)] ||= {})[field.id] = v;
+  }
+  const clean = cleanAnswers(answers);
+  return { answers: clean, times: cleanTimes(times, clean), refused, unknown };
+}
+
+const sameAnswer = (a = {}, b = {}) => { const ka = Object.keys(a), kb = Object.keys(b); return ka.length === kb.length && ka.every(k => a[k] === b[k]); };
+
+// Combine imported decisions with this browser's: new ones are added; when both differ, the later save wins.
+export function mergeDecisions(local = {}, localTimes = {}, incoming = {}, incomingTimes = {}) {
+  const answers = { ...local }, times = { ...localTimes }, changes = { added: [], updated: [], same: [], kept: [] };
+  for (const [key, a] of Object.entries(incoming)) {
+    if (!local[key]) { answers[key] = a; if (incomingTimes[key]) times[key] = incomingTimes[key]; changes.added.push(key); continue; }
+    if (sameAnswer(local[key], a)) { changes.same.push(key); continue; }
+    if ((incomingTimes[key] || 0) > (localTimes[key] || 0)) { answers[key] = a; times[key] = incomingTimes[key]; changes.updated.push(key); } else changes.kept.push(key);
+  }
+  return { answers, times, ...changes };
+}
