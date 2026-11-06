@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { methodLabel, relativeTime, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText, shortAddress, FRESH_SIGNIN_MS, IDLE_LIMIT_MS } from '../wallet-src/security-checkup.js';
+import { methodLabel, relativeTime, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText, shortAddress, FRESH_SIGNIN_MS, IDLE_LIMIT_MS, identityTests } from '../wallet-src/security-checkup.js';
 
 const now = Date.parse('2026-11-05T12:00:00Z');
 const core = await readFile(new URL('../firebase-wallet/functions/core.js', import.meta.url), 'utf8');
@@ -98,4 +98,44 @@ test('owner page has the checkup and the security tab steps exist in the launch 
   const plan = JSON.parse(await readFile(new URL('../wallet-src/launch-checklist.json', import.meta.url), 'utf8'));
   const identity = plan.items.find(g => g.id === 'identity');
   assert.ok(identity.steps.filter(s => s.by === 'you').length >= 5);
+});
+
+const plan = JSON.parse(await readFile(new URL('../wallet-src/launch-checklist.json', import.meta.url), 'utf8'));
+const ownerPage = await readFile(new URL('../owner.html', import.meta.url), 'utf8');
+const appSource = await readFile(new URL('../wallet-src/app.js', import.meta.url), 'utf8');
+
+test('account-security launch tests come from the identity gate and share Launch readiness records', () => {
+  const empty = identityTests(plan, {});
+  const yours = plan.items.find(g => g.id === 'identity').steps.filter(s => s.by === 'you');
+  assert.equal(empty.total, yours.length);
+  assert.ok(empty.total >= 5);
+  assert.equal(empty.done, yours.filter(s => s.done).length);
+  assert.ok(empty.steps.every(s => s.key.startsWith('identity/')));
+  const records = { 'identity/google-desktop': { result: 'pass', note: 'Chrome 131' }, 'identity/idle': { result: 'fail', note: '' }, 'identity/passkey-phone': { result: 'skip' }, 'signing/send-eth': { result: 'pass' } };
+  const r = identityTests(plan, records);
+  assert.equal(r.done, empty.done + 2, 'passed and not-applicable count as recorded');
+  assert.equal(r.failed, 1);
+  const google = r.steps.find(s => s.key === 'identity/google-desktop');
+  assert.equal(google.state, 'done'); assert.equal(google.result, 'pass'); assert.equal(google.note, 'Chrome 131');
+  assert.equal(r.steps.find(s => s.key === 'identity/idle').state, 'failed');
+  assert.deepEqual(identityTests({ items: [] }, {}), { gate: null, steps: [], total: 0, done: 0, failed: 0 });
+});
+
+test('the checkup summary adds launch-test counts without step notes', () => {
+  const result = checkup({ emailVerified: true, providers: ['google.com'], passkeys: [] });
+  const tests = identityTests(plan, { 'identity/google-desktop': { result: 'pass', note: 'secret note text' }, 'identity/idle': { result: 'fail' } });
+  const text = summaryText({ result, methods: ['Google'], passkeys: [], tests, now });
+  assert.match(text, new RegExp(`Account-security launch tests: ${tests.done} of ${tests.total} recorded, 1 failed\\.`));
+  assert.doesNotMatch(text, /secret note text/);
+  assert.doesNotMatch(summaryText({ result, methods: ['Google'], passkeys: [], now }), /launch tests/);
+});
+
+test('Account security records test results inline', () => {
+  assert.match(ownerPage, /id="sec-tests-count"/);
+  assert.match(ownerPage, /id="sec-open-launch"/);
+  assert.doesNotMatch(ownerPage, /Record each result there\./);
+  assert.match(appSource, /function recordSecurityStep\(gate, step, patch, focusKey\)/);
+  assert.match(appSource, /saveLaunchRecords\(\); renderLaunch\(\); renderSecurityTests\(\);/);
+  assert.match(appSource, /tests: identityTests\(launchPlan, launchRecords\)/);
+  assert.match(appSource, /list\.querySelector\(`\[data-step="\$\{CSS\.escape\(focusStep\)\}"\]/, 'checklist focus stays inside the checklist, not a hidden tab');
 });

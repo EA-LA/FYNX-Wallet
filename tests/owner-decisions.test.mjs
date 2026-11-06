@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, isReady, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, CURRENT_PROJECT } from '../wallet-src/owner-decisions.js';
+import { DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, isReady, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, CURRENT_PROJECT, unsavedFields } from '../wallet-src/owner-decisions.js';
 import { stepKey, overview, reportMarkdown, cleanRecords } from '../wallet-src/launch-tracker.js';
 
 const plan = JSON.parse(await readFile(new URL('../wallet-src/launch-checklist.json', import.meta.url), 'utf8'));
@@ -139,4 +139,26 @@ test('the workspace wires the worksheet into Launch readiness', () => {
   assert.match(app, /launchRecords\[key\] = \{ result: 'pass', note: decisionNote\(decision, out\)/);
   assert.match(app, /renderDecisions\(\);\n\}/);
   assert.equal(stepKey('a', 'b'), 'a/b');
+});
+
+test('unsaved typing is detected per field so a re-render can keep it', () => {
+  const inbox = find('operations', 'inbox');
+  const saved = { primary: 'Elham', backup: 'Co-founder', cadence: 'daily' };
+  assert.deepEqual(unsavedFields(inbox, { primary: 'Elham', backup: 'Co-founder', cadence: 'daily' }, saved), {});
+  assert.deepEqual(unsavedFields(inbox, { primary: '  Elham ', backup: 'Co-founder', cadence: 'daily' }, saved), {}, 'spacing alone is not a change');
+  assert.deepEqual(unsavedFields(inbox, { primary: 'Elham', backup: 'Sara', cadence: 'weekdays' }, saved), { backup: 'Sara', cadence: 'weekdays' });
+  assert.deepEqual(unsavedFields(inbox, { primary: '', backup: 'Co-founder', cadence: 'daily' }, saved), { primary: '' }, 'a cleared field is an unsaved change');
+  assert.deepEqual(unsavedFields(inbox, { primary: 'Elham' }, {}), { primary: 'Elham' }, 'typing into an unanswered decision');
+  assert.deepEqual(unsavedFields(inbox, { primary: phrase }, {}), {}, 'secret-looking text is never carried over');
+  assert.deepEqual(unsavedFields(inbox, { unknown: 'x' }, {}), {}, 'unknown fields are ignored');
+});
+
+test('the worksheet keeps unsaved typing across re-renders and drops it on save, clear and sign-out', () => {
+  assert.match(app, /const drafts = decisionDrafts\(list\)/);
+  assert.match(app, /applyDecisionDraft\(details, decision, drafts\[key\]\)/);
+  assert.match(app, /discardDrafts\.add\(key\); saveDecision\(/, 'saving discards the draft');
+  assert.match(app, /delete decisionAnswers\[key\]; saveDecisionAnswers\(\); discardDrafts\.add\(key\)/, 'clearing one answer discards its draft');
+  assert.match(app, /clearSecurity\(\);\s*for \(const d of DECISIONS\) discardDrafts\.add\(decisionKey\(d\)\); renderDecisions\(\);/, 'sign-out wipes unsaved typing');
+  assert.match(app, /'ld-unsaved'/);
+  assert.doesNotMatch(app.slice(app.indexOf('function decisionDrafts'), app.indexOf('function renderDecisions')), /localStorage/, 'drafts are never stored');
 });

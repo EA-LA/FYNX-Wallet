@@ -80,3 +80,25 @@ export function txNote(item, existing = '') {
   const note = prev ? `${prev}; ${line}` : line;
   return note.length <= 280 ? note : null;
 }
+
+// Plain-text summary of the wallet launch tests for a message or email. Step results only: no notes, addresses or transaction IDs.
+export function walletTestSummary(plan, records = {}, { now = Date.now() } = {}) {
+  const { groups, total, done, failed } = walletTests(plan, records);
+  const marks = { pass: '[x]', skip: '[-]', fail: '[!]' }, labels = { pass: 'Passed', fail: 'Failed', skip: 'Not applicable' };
+  const lines = [`FYNX crypto launch tests, ${new Date(now).toISOString().slice(0, 16).replace('T', ' ')} UTC`, `${done} of ${total} recorded${failed ? `, ${failed} failed` : ''}.`];
+  for (const { gate, steps } of groups) {
+    const recorded = steps.filter(s => s.state === 'done').length;
+    lines.push('', `${gate.title}: ${recorded}/${steps.length}`);
+    for (const { step, result } of steps) lines.push(`- ${marks[result] || '[ ]'} ${step.text}${result ? ` (${labels[result]})` : ''}`);
+  }
+  lines.push('', 'Notes and transaction IDs are kept in the full test report on Launch readiness.');
+  return lines.join('\n');
+}
+
+// What the swap card should say for the selected network and wallet state.
+export function swapHint(network = {}, { verified = false } = {}) {
+  if (!network.router) return { state: 'blocked', text: `${network.name || 'This network'} has no swap route in FYNX. Switch Network (step 1) to Base Sepolia to test a swap with test assets.` };
+  if (!verified) return { state: 'todo', text: 'Connect and verify your wallet in step 1 first, then enter an amount and press Get quote.' };
+  if (!network.transactionsEnabled) return { state: 'info', text: `${network.name} is read-only: you can compare a real quote, but swapping is off. Switch to Base Sepolia to complete a test swap.` };
+  return { state: 'ready', text: 'Ready. Enter an amount and press Get quote. Test pools can be thin: if no quote comes back, try a smaller amount or the other direction.' };
+}

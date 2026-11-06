@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-06 10:25 UTC — [autopilot] Owner workspace: record security tests in place, clearer Crypto tools, worksheet keeps your typing
+- Account security: each of your 8 sign-in and passkey launch tests now has Passed / Failed / Not applicable buttons right there, with a "1 of 8 recorded" count. Results are the same ones shown in Launch readiness and your test report. "Copy checkup summary" now also says how many of these tests you have recorded. https://ea-la.github.io/FYNX-Wallet/owner.html (Account security tab)
+- Crypto tools: the cards are numbered Step 1 to Step 5 (Connect, Balances & receive, Send, Swap, Track), and the swap card now tells you what to do for the network you picked (for example: Ethereum Sepolia has no swap route, switch to Base Sepolia). New "Copy test summary" button lists your 19 wallet tests and their results, without notes, addresses or transaction IDs. https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools tab)
+- Fixed: in "Decisions only you can make", anything you typed but had not saved yet was wiped when another part of the Launch readiness tab refreshed. It now stays, marked "unsaved", until you save or clear it (and it is wiped when you sign out).
+- Fixed: recording a result in the Launch readiness checklist could lose your place (keyboard focus jumped to a hidden copy of that step on another tab).
+
 ## 2026-11-06 06:20 UTC — [autopilot] Owner workspace: decision worksheet and questions for your lawyer
 
 - The **Launch readiness** tab has a new **Decisions only you can make** section. Twelve launch steps are business choices rather than tests: how customers get a wallet, the production web address, the security reviewer, who reads the support inbox, where alerts go, backups and recovery time, company details, the business model, U.S. counsel, the first country after the U.S., pilot size and limits, and pilot support.

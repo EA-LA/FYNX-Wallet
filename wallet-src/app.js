@@ -11,9 +11,9 @@ import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
 import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
-import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime } from './security-checkup.js';
-import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote } from './crypto-guide.js';
-import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText } from './owner-decisions.js';
+import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests } from './security-checkup.js';
+import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
+import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields } from './owner-decisions.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 
 const $ = selector => document.querySelector(selector);
@@ -135,6 +135,7 @@ function clearPrivateWorkspace() {
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
+  for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); renderDecisions();
   $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
@@ -156,6 +157,10 @@ function updateWalletControls() {
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
   $('#network-choice').disabled = busy;
   show('#unlink-wallet', !!session?.wallet);
+  let network = connection?.network || null; if (!network) { try { network = selectedNetwork(); } catch { network = {}; } }
+  const hint = swapHint(network, { verified }), hintBox = $('#swap-hint');
+  if (hintBox.textContent !== hint.text) hintBox.textContent = hint.text;
+  hintBox.className = `swap-hint is-${hint.state}`;
   renderCryptoSetup();
 }
 async function refreshSession() {
@@ -195,7 +200,7 @@ async function readSignInInfo() {
 function clearSecurity() {
   signInInfo = null;
   for (const id of ['#sec-checks', '#sec-signin', '#sec-methods', '#sec-tests', '#sec-score']) $(id).replaceChildren();
-  setText('#sec-status', '');
+  setText('#sec-status', ''); setText('#sec-tests-count', '');
 }
 function securityState() {
   const user = auth?.currentUser;
@@ -240,22 +245,48 @@ function renderSecurity() {
   const ways = $('#sec-methods'); ways.replaceChildren();
   const all = [['Google', providers.includes('google.com')], ['Email & password', providers.includes('password')], [passkeys.length ? (passkeys.length === 1 ? '1 passkey' : `${passkeys.length} passkeys`) : 'Passkey', passkeys.length > 0]];
   for (const [label, on] of all) { const li = document.createElement('li'); li.className = on ? 'is-on' : 'is-off'; li.textContent = `${on ? '✓' : '—'} ${label}${on ? '' : ' · not set up'}`; ways.append(li); }
-  const tests = $('#sec-tests'); tests.replaceChildren();
-  const gate = launchPlan.items.find(g => g.id === 'identity');
-  for (const step of (gate?.steps || []).filter(s => s.by === 'you')) {
-    const state = stepState(gate, step, launchRecords), li = document.createElement('li'); li.className = `is-${state}`;
-    const mark = document.createElement('span'); mark.className = 'launch-mark'; mark.textContent = state === 'done' ? (step.done ? 'Done' : resultLabels[launchRecords[stepKey(gate.id, step.id)]?.result] || 'Done') : state === 'failed' ? 'Failed' : 'To do';
-    const text = document.createElement('span'); text.textContent = step.text; li.append(mark, text); tests.append(li);
-  }
-  if (gate) { const li = document.createElement('li'); li.className = 'sec-test-go'; const b = document.createElement('button'); b.type = 'button'; b.className = 'text-button'; b.textContent = 'Record results in Launch readiness ↗'; b.addEventListener('click', () => { selectTab('launch'); openGate('identity'); }); li.append(b); tests.append(li); }
+  renderSecurityTests();
   renderSecurityTimes();
 }
+// Identity-gate tests recorded right here; the same records as Launch readiness (this browser only).
+function renderSecurityTests() {
+  const box = document.getElementById('sec-tests'); if (!box) return;
+  const { gate, steps, total, done, failed } = identityTests(launchPlan, launchRecords);
+  setText('#sec-tests-count', total ? `${done} of ${total} recorded${failed ? ` · ${failed} failed` : ''}` : '');
+  box.replaceChildren();
+  for (const { step, key, state, result, note, fixed } of steps) {
+    const li = guideEl('li', `sec-test is-${state}`); li.dataset.step = key;
+    const head = guideEl('div', 'sec-test-head');
+    head.append(guideEl('span', `launch-mark is-${state}`, fixed ? 'Done' : state === 'done' ? resultLabels[result] || 'Done' : state === 'failed' ? 'Failed' : 'To do'), guideEl('span', 'sec-test-text', step.text));
+    li.append(head);
+    if (!fixed) {
+      const group = guideEl('div', 'launch-results'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Result: ${step.text}`);
+      for (const r of RESULTS) {
+        const b = guideEl('button', `launch-result result-${r}`, resultLabels[r]); b.type = 'button'; b.dataset.result = r; b.setAttribute('aria-pressed', String(result === r));
+        b.addEventListener('click', () => recordSecurityStep(gate, step, { result: result === r ? '' : r }, `[data-result="${r}"]`));
+        group.append(b);
+      }
+      li.append(group);
+      if (note) li.append(guideEl('p', 'cg-note', `Note: ${note}`));
+    }
+    box.append(li);
+  }
+}
+function recordSecurityStep(gate, step, patch, focusKey) {
+  const key = stepKey(gate.id, step.id), prev = launchRecords[key] || { result: '', note: '', at: 0 };
+  const next = { ...prev, ...patch, at: Date.now() };
+  if (!next.result && !next.note) delete launchRecords[key]; else launchRecords[key] = next;
+  saveLaunchRecords(); renderLaunch(); renderSecurityTests();
+  document.querySelector(`#sec-tests [data-step="${CSS.escape(key)}"] ${focusKey}`)?.focus({ preventScroll: true });
+  setText('#sec-status', next.result ? `Recorded: ${resultLabels[next.result]}. It also appears in Launch readiness and your test report.` : 'Result cleared.');
+}
+$('#sec-open-launch').addEventListener('click', () => { selectTab('launch'); openGate('identity'); });
 $('#sec-refresh').addEventListener('click', event => run(event.currentTarget, async () => {
   await auth.currentUser?.reload(); await readSignInInfo(); await refreshSession(); setText('#sec-status', `Checked ${new Date().toLocaleTimeString()}.`);
 }, '#sec-status'));
 $('#sec-copy').addEventListener('click', async () => {
   const { result, methods } = securityState();
-  const text = securitySummary({ result, methods, passkeys: passkeyRows(session?.passkeys), signInWith: signInInfo?.provider ? methodLabel(signInInfo.provider) : '' });
+  const text = securitySummary({ result, methods, passkeys: passkeyRows(session?.passkeys), signInWith: signInInfo?.provider ? methodLabel(signInInfo.provider) : '', tests: identityTests(launchPlan, launchRecords) });
   try { await navigator.clipboard.writeText(text); setText('#sec-status', 'Summary copied. It contains counts and dates only, no email or wallet address.'); }
   catch { setText('#sec-status', 'Copying was blocked by the browser.'); }
 });
@@ -738,7 +769,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
     details.append(link); list.append(details);
   }
   if (!list.children.length) list.append(el('p', 'muted', 'No gates in this view.'));
-  if (focusStep) document.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
+  if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
 const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent) });
@@ -821,9 +852,41 @@ function saveDecision(decision, form, warn) {
   if (details) { details.open = true; details.querySelector('.ld-save')?.focus({ preventScroll: true }); }
   setText('#ld-status', issues.length ? `${decision.title}: saved as in progress. ${issues[0]}` : `${decision.title}: decided and marked done in the checklist.`);
 }
+// Unsaved typing survives a re-render (for example after recording a test elsewhere on the tab). Memory only.
+const discardDrafts = new Set();
+function decisionDrafts(list) {
+  const drafts = {};
+  for (const details of list.querySelectorAll('details[data-decision]')) {
+    const key = details.dataset.decision, decision = findDecision(key), form = details.querySelector('form');
+    if (!decision || !form || discardDrafts.has(key)) continue;
+    const raw = {};
+    for (const field of decision.fields) {
+      raw[field.id] = field.type === 'choice' ? form.querySelector(`input[data-field="${field.id}"]:checked`)?.value || '' : form.querySelector(`[data-field="${field.id}"]`)?.value ?? '';
+    }
+    const changed = unsavedFields(decision, raw, decisionAnswers[key] || {});
+    if (Object.keys(changed).length) drafts[key] = changed;
+  }
+  discardDrafts.clear();
+  return drafts;
+}
+function markDecisionDirty(details, dirty) {
+  details.classList.toggle('is-dirty', dirty);
+  const note = details.querySelector('.ld-unsaved'); if (note) note.hidden = !dirty;
+}
+function applyDecisionDraft(details, decision, draft) {
+  const form = details.querySelector('form');
+  for (const [id, value] of Object.entries(draft)) {
+    const field = decision.fields.find(f => f.id === id); if (!field) continue;
+    if (field.type === 'choice') {
+      for (const input of form.querySelectorAll(`input[data-field="${id}"]`)) { input.checked = input.value === value; input.closest('.ld-option')?.classList.toggle('is-checked', input.checked); }
+    } else { const input = form.querySelector(`[data-field="${id}"]`); if (input) input.value = value; }
+  }
+  markDecisionDirty(details, true);
+}
 function renderDecisions() {
   const list = document.getElementById('ld-list'); if (!list) return;
   const open = new Set([...list.querySelectorAll('details[open]')].map(d => d.dataset.decision));
+  const drafts = decisionDrafts(list), focused = list.contains(document.activeElement) && document.activeElement.id ? document.activeElement.id : '';
   const p = decisionsProgress(launchPlan, launchRecords, decisionAnswers), score = $('#ld-score');
   score.replaceChildren(el('strong', '', `${p.decided}/${p.total}`), el('span', '', p.decided === p.total ? 'all decided' : 'decided'));
   score.className = `sec-score ${p.decided === p.total ? 'is-done' : ''}`; score.setAttribute('aria-label', `${p.decided} of ${p.total} decisions recorded`);
@@ -852,7 +915,7 @@ function renderDecisions() {
     if (state !== 'open') {
       const clear = el('button', 'text-button', 'Clear this answer'); clear.type = 'button';
       clear.addEventListener('click', () => {
-        delete decisionAnswers[key]; saveDecisionAnswers();
+        delete decisionAnswers[key]; saveDecisionAnswers(); discardDrafts.add(key);
         const rec = launchRecords[key]; if (rec && rec.note === decisionNote(decision, answers)) delete launchRecords[key];
         saveLaunchRecords(); renderLaunch({ keepOpen: gate.id }); renderCryptoTests(); setText('#ld-status', `${decision.title}: answer cleared.`);
       });
@@ -860,10 +923,15 @@ function renderDecisions() {
     }
     const rec = launchRecords[key];
     if (state === 'decided' && rec?.at) actions.append(el('span', 'launch-when', `Recorded ${new Date(rec.at).toLocaleString()}`));
-    form.append(actions, warn);
-    form.addEventListener('submit', event => { event.preventDefault(); warn.textContent = ''; saveDecision(decision, form, warn); });
+    const unsaved = el('p', 'ld-unsaved', 'You have changes that are not saved yet. Press the button above to keep them.'); unsaved.hidden = true;
+    form.append(actions, unsaved, warn);
+    form.addEventListener('submit', event => { event.preventDefault(); warn.textContent = ''; discardDrafts.add(key); saveDecision(decision, form, warn); });
+    const syncDirty = () => { const raw = {}; for (const field of decision.fields) raw[field.id] = field.type === 'choice' ? form.querySelector(`input[data-field="${field.id}"]:checked`)?.value || '' : form.querySelector(`[data-field="${field.id}"]`)?.value ?? ''; markDecisionDirty(details, Object.keys(unsavedFields(decision, raw, decisionAnswers[key] || {})).length > 0); };
+    form.addEventListener('input', syncDirty); form.addEventListener('change', syncDirty);
     details.append(form); list.append(details);
+    if (drafts[key]) { applyDecisionDraft(details, decision, drafts[key]); details.open = true; }
   }
+  if (focused) { const target = document.getElementById(focused); if (target && list.contains(target)) target.focus({ preventScroll: true }); }
   setText('#ld-counsel-preview', counselSheet(launchPlan, decisionAnswers));
 }
 async function copyDecisionText(text, done) {
@@ -879,7 +947,7 @@ $('#ld-download-counsel').addEventListener('click', () => {
 });
 $('#ld-clear').addEventListener('click', () => {
   if (!Object.keys(decisionAnswers).length || !window.confirm('Clear all decision answers saved in this browser? Steps already marked done stay done until you clear them in the checklist.')) return;
-  decisionAnswers = {}; try { localStorage.removeItem(DECISIONS_KEY); } catch { /* ignore */ }
+  decisionAnswers = {}; for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); try { localStorage.removeItem(DECISIONS_KEY); } catch { /* ignore */ }
   renderDecisions(); setText('#ld-status', 'Decision answers cleared from this browser.');
 });
 renderLaunch();
@@ -974,6 +1042,10 @@ function renderCryptoTests() {
     section.append(list); box.append(section);
   }
 }
+$('#cg-copy-tests').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(walletTestSummary(launchPlan, launchRecords)); setText('#cg-status', 'Summary copied. It lists each test and its result only: no notes, addresses or transaction IDs.'); }
+  catch { setText('#cg-status', 'Copying was blocked by the browser.'); }
+});
 $('#cg-open-launch').addEventListener('click', () => { selectTab('launch'); openGate('signing'); });
 $('#run-connection-checks').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   $('#connection-results').replaceChildren(); setText('#connection-status', 'Checking your current connection…');

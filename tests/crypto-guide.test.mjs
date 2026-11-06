@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { setupSteps, faucetsFor, FAUCETS, amountOf, walletTests, TX_STEPS, txNote } from '../wallet-src/crypto-guide.js';
+import { setupSteps, faucetsFor, FAUCETS, amountOf, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from '../wallet-src/crypto-guide.js';
 import { looksSecret, stepKey } from '../wallet-src/launch-tracker.js';
 import { NETWORKS } from '../firebase-wallet/functions/networks.js';
 
@@ -114,4 +114,38 @@ test('owner page has the guide and the guide never touches signing or sending', 
   assert.ok(start > 0 && end > start);
   const guide = app.slice(start, end);
   assert.doesNotMatch(guide, /sendTransfer|sendAction|signChallenge|prepare(Transfer|TokenTransfer|Swap|Revoke)|api\(/);
+});
+
+test('wallet test summary lists each test and result, never notes or transaction IDs', () => {
+  const { groups, total } = walletTests(plan, {});
+  const all = groups.flatMap(g => g.steps), first = all[0].key, second = all[1].key;
+  const records = { [first]: { result: 'pass', note: `Base Sepolia tx ${hash} (confirmed)` }, [second]: { result: 'fail', note: 'wallet froze' } };
+  const text = walletTestSummary(plan, records, { now: Date.parse('2026-11-06T12:00:00Z') });
+  assert.match(text, /^FYNX crypto launch tests, 2026-11-06 12:00 UTC/);
+  assert.match(text, new RegExp(`1 of ${total} recorded, 1 failed\\.`), 'a failure is not counted as done');
+  assert.match(text, /\[x\] .+ \(Passed\)/);
+  assert.match(text, /\[!\] .+ \(Failed\)/);
+  const g0 = groups[0], inFirst = g0.steps.filter(x => x.key === first).length;
+  assert.ok(text.includes(`${g0.gate.title}: ${inFirst}/${g0.steps.length}`));
+  assert.doesNotMatch(text, /0x[0-9a-f]{64}/i);
+  assert.doesNotMatch(text, /wallet froze/);
+  assert.equal(text.split('\n').filter(l => l.startsWith('- ')).length, total);
+});
+
+test('swap card explains what to do on each network', () => {
+  assert.equal(swapHint(sepolia, { verified: true }).state, 'blocked');
+  assert.match(swapHint(sepolia).text, /Ethereum Sepolia has no swap route.+Base Sepolia/);
+  assert.equal(swapHint(base, { verified: false }).state, 'todo');
+  assert.equal(swapHint(base, { verified: true }).state, 'ready');
+  const main = swapHint(mainnet, { verified: true });
+  assert.equal(main.state, 'info'); assert.match(main.text, /read-only/);
+  assert.equal(swapHint({}).state, 'blocked');
+});
+
+test('crypto cards are numbered and the swap hint and summary copy are wired', () => {
+  for (const label of ['STEP 1 · CONNECT', 'STEP 2 · BALANCES &amp; RECEIVE', 'STEP 3 · SEND A TEST TRANSFER', 'STEP 4 · SWAP ON BASE', 'STEP 5 · TRACK']) assert.ok(owner.includes(label), label);
+  assert.match(owner, /id="swap-hint"/);
+  assert.match(owner, /id="cg-copy-tests"/);
+  assert.match(app, /swapHint\(network, \{ verified \}\)/);
+  assert.match(app, /walletTestSummary\(launchPlan, launchRecords\)/);
 });

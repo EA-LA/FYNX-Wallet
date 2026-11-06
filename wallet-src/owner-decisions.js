@@ -301,3 +301,16 @@ export function counselSheet(plan, answers = {}, { date = new Date() } = {}) {
     'References for counsel (not determinations): FinCEN guidance on convertible virtual currency business models (2019) and OFAC sanctions compliance guidance for the virtual currency industry.');
   return L.join('\n');
 }
+
+// Typed-but-unsaved fields: raw form values (field id → string) that differ from the saved answer.
+// Used to keep the owner's typing when the worksheet re-renders. Memory only; secret-looking values are dropped.
+export function unsavedFields(decision, raw = {}, saved = {}) {
+  const out = {}, norm = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  for (const f of decision.fields) {
+    if (!(f.id in raw)) continue;
+    const value = String(raw[f.id] ?? '');
+    if (looksSecret(value)) continue;
+    if (norm(value) !== norm(saved[f.id])) out[f.id] = value;
+  }
+  return out;
+}

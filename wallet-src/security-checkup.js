@@ -1,5 +1,6 @@
 // Account security checkup: pure helpers shared by the owner workspace and tests.
 // Everything here is computed in the browser from the signed-in account and the owner session; nothing is sent or saved.
+import { stepKey, stepState } from './launch-tracker.js';
 export const FRESH_SIGNIN_MS = 5 * 60000; // the backend refuses security changes when the sign-in is older than this
 export const IDLE_LIMIT_MS = 15 * 60000; // the workspace signs out after this much inactivity
 
@@ -101,11 +102,23 @@ export function shortAddress(address) {
 }
 
 // A plain summary the owner can paste into a message. Counts and dates only: no email address, no wallet address, no ids.
-export function summaryText({ result, methods, passkeys, signInWith, now = Date.now() }) {
+export function summaryText({ result, methods, passkeys, signInWith, tests = null, now = Date.now() }) {
   const lines = [`FYNX owner account security checkup, ${new Date(now).toISOString().slice(0, 16).replace('T', ' ')} UTC`, `${result.done} of ${result.total} checks done.`];
   for (const c of result.checks) lines.push(`- ${c.state === 'done' ? '[x]' : c.state === 'info' ? '[i]' : '[ ]'} ${c.title}`);
   lines.push(`Ways to sign in: ${methods.length ? methods.join(', ') : 'none recorded'}.`);
   if (signInWith) lines.push(`This sign-in used: ${signInWith}.`);
   if (passkeys.length) lines.push(`Passkeys: ${passkeys.map(p => `${p.label} added ${p.added}`).join('; ')}.`);
+  if (tests?.total) lines.push(`Account-security launch tests: ${tests.done} of ${tests.total} recorded${tests.failed ? `, ${tests.failed} failed` : ''}.`);
   return lines.join('\n');
+}
+
+// The owner's Account security launch tests (identity gate), with their saved results. Shared with Launch readiness.
+export function identityTests(plan, records = {}) {
+  const gate = (plan?.items || []).find(g => g.id === 'identity');
+  if (!gate) return { gate: null, steps: [], total: 0, done: 0, failed: 0 };
+  const steps = (gate.steps || []).filter(s => s.by === 'you').map(step => {
+    const key = stepKey(gate.id, step.id), rec = records[key] || {}, state = stepState(gate, step, records);
+    return { step, key, state, result: step.done ? '' : rec.result || '', note: step.done ? '' : rec.note || '', fixed: !!step.done };
+  });
+  return { gate, steps, total: steps.length, done: steps.filter(s => s.state === 'done').length, failed: steps.filter(s => s.state === 'failed').length };
 }
