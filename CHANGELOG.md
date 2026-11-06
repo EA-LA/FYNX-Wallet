@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026-11-06 04:30 UTC — [autopilot] Owner workspace: Crypto tools test guide
+## 2026-11-06 02:15 UTC — [autopilot] Owner workspace: Crypto tools test guide
 
 - The **Crypto tools** tab now opens with a **Test session guide**: seven numbered setup steps (wallet extension found, test network selected, wallet connected, ownership verified, test ETH, test USDC, a test transaction confirmed). They tick themselves off as you go, the next one is highlighted with a "Go there" button, and a score shows how close you are (for example "4/6 setup steps").
 - **Free test assets** box with the right faucet links for the network you picked: Base’s own faucet list and the Coinbase faucet for Base Sepolia, Google Cloud’s faucet for Ethereum Sepolia, and Circle’s test USDC faucet for both, with a reminder that faucets never need a recovery phrase. Base mainnet stays read-only and shows no faucets.
