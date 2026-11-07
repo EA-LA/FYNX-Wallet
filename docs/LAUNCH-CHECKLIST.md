@@ -1,6 +1,6 @@
 # FYNX Wallet launch checklist
 
-Updated 2026-11-05. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
+Updated 2026-11-07. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
 
 FYNX is its own product. Owner crypto tools support Ethereum Sepolia and Base Sepolia test transactions, plus read-only Base mainnet. Public access stays on the waitlist. No MoonPay integration is planned.
 
@@ -114,13 +114,13 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 ## Live assets, balances and transaction history
 
-**Current:** Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session transaction journal and hash lookup are implemented. The separate dashboard remains a simulation.
+**Current:** Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session transaction journal and hash lookup are implemented, and each check reports confirmations and detects replaced (sped-up or cancelled), dropped and reorganised transactions. The separate dashboard remains a simulation.
 
-**To finish:** Add complete indexed transaction history, reliable production RPC/failover, replacement/reorg handling and market prices. Bitcoin and Solana are not implemented.
+**To finish:** Add complete indexed transaction history, reliable production RPC/failover and market prices. Bitcoin and Solana are not implemented.
 
 **Responsible:** Engineering + infrastructure provider. [Evidence and context](../docs/CRYPTO-TOOLS-VERIFICATION.md).
 
-**Steps (2 of 8 recorded as done):**
+**Steps (3 of 8 recorded as done):**
 
 - [x] Engineering: Live ETH and USDC balances on Ethereum Sepolia, Base Sepolia and Base (read-only).
 - [x] Engineering: Session transaction list and transaction lookup.
@@ -128,7 +128,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 - [ ] You: Paste a transaction ID into “Track confirmation” and confirm the status matches the explorer.
 - [ ] Engineering: Complete transaction history from an indexing provider.
 - [ ] Engineering: Production network connection with a backup provider if the first fails.
-- [ ] Engineering: Handle replaced, dropped and reorganised transactions.
+- [x] Engineering: Handle replaced, dropped and reorganised transactions: Track shows confirmations and explains each case (read-only checks, tested in tests/tx-tracker.test.mjs).
 - [ ] Outside party: Market prices from a licensed data provider.
 
 ## Buy and sell through cards or bank accounts

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-07 02:16 UTC — [autopilot] Crypto tools: transaction tracking now spots replaced, dropped and reorganised transactions
+
+- **"Track confirmation" tells you what really happened to a transaction.** Before, anything without a receipt just said "pending". Now each check says one of: waiting to be included, confirmed (with a confirmations count and a small progress bar, for example "5 of 30 confirmations"), failed on-chain, replaced (you pressed "Speed up" or "Cancel" in your wallet and another version went through), dropped by the network, or moved by a block reorganisation. Each result comes with a plain explanation and what to do next, such as "do not send it again".
+- **Every transaction in the list has its own "Check status" button**, and shows when you submitted it and when it was last checked. The button disappears once there is nothing left to wait for.
+- Checking only reads the network: it never signs or resends anything. Sending, swapping and limits are unchanged.
+- **Launch readiness moved forward:** the engineering step "Handle replaced, dropped and reorganised transactions" is now done, backed by new automated tests.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html → Crypto tools → Step 5 · Track.
+
 ## 2026-11-06 22:18 UTC — [autopilot] Owner workspace: your decisions now move between devices, and a to-do list for practice-run follow-ups
 
 - **Decisions travel with your test report.** Answers you give in "Decisions only you can make" (on your phone, iPad or computer) are now included in Copy test report / Download report, in a short readable section. On your other device, paste the report into "Bring in results from another device": it lists the decisions it found (new, newer, already here, or kept because this browser saved later) and adds them together with your test results. Done steps and the overall percentage update straight away.

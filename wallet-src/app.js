@@ -15,6 +15,7 @@ import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesTe
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText } from './incident-drill.js';
+import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS } from './tx-tracker.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 
 const $ = selector => document.querySelector(selector);
@@ -155,6 +156,7 @@ function updateWalletControls() {
   $('#prepare-swap').disabled = busy || !canSend || !swapQuote;
   $('#revoke-allowance').disabled = busy || !canSend || !connection?.network.router;
   $('#lookup-transaction').disabled = busy || !verified;
+  for (const b of document.querySelectorAll('#transaction-journal .tx-check')) b.disabled = busy || !connection?.address;
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
   $('#network-choice').disabled = busy;
   show('#unlink-wallet', !!session?.wallet);
@@ -427,12 +429,24 @@ $('#send-transfer').addEventListener('click', event => run(event.currentTarget, 
   show('#transaction-link', true); show('#check-receipt', true);
 }));
 $('#check-receipt').addEventListener('click', event => run(event.currentTarget, async checkSession => {
-  const result = await connection.receipt(pendingHash);
-  checkSession();
-  setText('#transaction-status', result.status === 'confirmed' ? `Included successfully on ${connection.network.name} in block ${result.block}. Check the explorer for finality.` : result.status === 'failed' ? 'The transaction failed on-chain. A network fee may still have been charged.' : 'Still pending. Check your wallet or explorer before attempting another transfer.');
-  if (result.status !== 'pending') show('#check-receipt', false);
-  const item = journal.get(pendingHash); if (item) item.status = result.status; renderJournal();
+  const result = await checkStatus(pendingHash, checkSession);
+  setText('#transaction-status', `${result.label} on ${connection.network.name}. ${result.detail}`);
+  if (isSettled(result)) show('#check-receipt', false);
 }));
+// Read-only status check: never signs or resends. Remembers the nonce so a
+// later check can tell a replaced (sped-up/cancelled) transaction from a dropped one.
+async function checkStatus(hash, checkSession) {
+  const current = connection;
+  if (!current?.address) throw new Error('Connect your wallet first.');
+  const item = journal.get(hash);
+  if (item && item.network.id !== current.network.id) throw new Error(`Switch to ${item.network.name} to check this transaction.`);
+  const epoch = await current.assertCurrent();
+  const result = await checkTransaction(request => current.provider.request(request), hash, item ? { from: item.address, nonce: item.nonce, submittedAt: item.submittedAt } : {}, current.network);
+  checkSession(); await current.assertCurrent(epoch);
+  if (current !== connection) throw new Error('Wallet changed.');
+  if (item) { item.status = result.status; item.result = result; item.checkedAt = Date.now(); if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce; renderJournal(); }
+  return result;
+}
 
 function detailList(id, entries) {
   const list = $(id); list.replaceChildren();
@@ -492,24 +506,55 @@ $('#send-action').addEventListener('click', event => run(event.currentTarget, as
   show('#transaction-link', true); show('#check-receipt', true);
 }));
 function trackTransaction(hash, label) {
-  journal.set(hash, { hash, label, network: connection.network, address: connection.address, status: 'pending' }); renderJournal();
+  journal.set(hash, { hash, label, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null }); renderJournal();
 }
 function renderJournal() {
   const list = $('#transaction-journal'); list.replaceChildren();
   for (const item of [...journal.values()].reverse()) {
     if (item.network.id !== selectedNetwork().id) continue;
     const row = document.createElement('li'), label = document.createElement('p'), link = document.createElement('a');
-    label.textContent = item.label + ' · ' + item.status; link.textContent = item.hash;
+    row.className = `tx-row is-${item.status}`;
+    const badge = guideEl('span', `tx-badge is-${item.status}`, item.result?.label || TX_LABELS[item.status] || item.status);
+    label.append(guideEl('strong', '', item.label), document.createTextNode(' '), badge);
+    link.textContent = item.hash;
     link.href = item.network.explorer + '/tx/' + item.hash; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.className = 'mono';
-    row.append(label, link); list.append(row);
+    row.append(label);
+    if (item.result) {
+      row.append(guideEl('p', 'tx-detail', item.result.detail));
+      if (['confirmed', 'failed'].includes(item.status)) {
+        const meter = guideEl('div', 'tx-meter'), bar = guideEl('span', ''), share = Math.min(100, Math.round(item.result.confirmations / item.result.target * 100));
+        meter.setAttribute('role', 'img'); meter.setAttribute('aria-label', `${item.result.confirmations} of ${item.result.target} confirmations`);
+        bar.style.width = share + '%'; meter.append(bar); row.append(meter, guideEl('p', 'tx-when', `${Math.min(item.result.confirmations, 9999)} of ${item.result.target} confirmations`));
+      }
+    }
+    const meta = [`Submitted ${new Date(item.submittedAt || Date.now()).toLocaleTimeString()}`];
+    if (Number.isSafeInteger(item.nonce)) meta.push(`nonce ${item.nonce}`);
+    if (item.checkedAt) meta.push(`checked ${new Date(item.checkedAt).toLocaleTimeString()}`);
+    row.append(link, guideEl('p', 'tx-when', meta.join(' · ')));
+    if (!isSettled(item.result)) {
+      const button = guideEl('button', 'text-button tx-check', item.result ? 'Check again' : 'Check status');
+      button.type = 'button'; button.setAttribute('aria-label', `${item.result ? 'Check again' : 'Check status'}: ${item.label}`);
+      button.disabled = busy || !connection?.address;
+      button.dataset.hash = item.hash;
+      button.addEventListener('click', async () => {
+        await run(button, async checkSession => {
+          const result = await checkStatus(item.hash, checkSession);
+          setText('#lookup-status', `${item.label}: ${result.label}. ${result.detail}`);
+        }, '#lookup-status');
+        // The list re-renders; keep keyboard focus on the same transaction.
+        const rows = [...document.querySelectorAll('#transaction-journal .tx-check')];
+        (rows.find(b => b.dataset.hash === item.hash) || document.querySelector(`#transaction-journal a[href$="${item.hash}"]`))?.focus();
+      });
+      row.append(button);
+    }
+    list.append(row);
   }
   if (!list.children.length) { const empty = document.createElement('li'); empty.className = 'journal-empty'; empty.textContent = `No transactions submitted on ${selectedNetwork().name} in this page session yet.`; list.append(empty); }
   renderCryptoSetup();
 }
 $('#lookup-form').addEventListener('submit', event => { event.preventDefault(); run($('#lookup-transaction'), async checkSession => {
-  const hash = $('#lookup-hash').value.trim(), result = await connection.inspectTransaction(hash); checkSession();
-  setText('#lookup-status', result.status === 'pending' ? 'Pending — no receipt yet.' : (result.status === 'confirmed' ? 'Included successfully' : 'Failed on-chain') + ' in block ' + result.block + '. From ' + result.from + ' to ' + (result.to || 'contract creation') + '. Check the explorer for finality.');
-  const item = journal.get(hash); if (item) { item.status = result.status; renderJournal(); }
+  const hash = $('#lookup-hash').value.trim(), result = await checkStatus(hash, checkSession);
+  setText('#lookup-status', `${result.label}. ${result.detail}${result.from ? ` From ${result.from} to ${result.to || 'a new contract'}.` : ''}`);
 }, '#lookup-status'); });
 $('#provider-status').addEventListener('click', event => run(event.currentTarget, async () => {
   const result = await api({ action: 'provider-status' }); checkoutReady = result.sandboxReady === true;

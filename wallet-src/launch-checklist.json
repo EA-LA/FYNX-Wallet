@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-05",
+  "updated": "2026-11-07",
   "product": "FYNX Wallet",
   "operator": "FYNX finance world inc.",
   "marketPlan": "United States first; expand internationally only where the final product is permitted and supported.",
@@ -271,8 +271,8 @@
       "title": "Live assets, balances and transaction history",
       "status": "device-testing",
       "responsibility": "Engineering + infrastructure provider",
-      "current": "Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session transaction journal and hash lookup are implemented. The separate dashboard remains a simulation.",
-      "next": "Add complete indexed transaction history, reliable production RPC/failover, replacement/reorg handling and market prices. Bitcoin and Solana are not implemented.",
+      "current": "Live ETH/USDC balances on Ethereum Sepolia, Base Sepolia and read-only Base. Session transaction journal and hash lookup are implemented, and each check reports confirmations and detects replaced (sped-up or cancelled), dropped and reorganised transactions. The separate dashboard remains a simulation.",
+      "next": "Add complete indexed transaction history, reliable production RPC/failover and market prices. Bitcoin and Solana are not implemented.",
       "evidence": "docs/CRYPTO-TOOLS-VERIFICATION.md",
       "steps": [
         {
@@ -316,8 +316,8 @@
         {
           "id": "replace",
           "by": "engineering",
-          "text": "Handle replaced, dropped and reorganised transactions.",
-          "done": false
+          "text": "Handle replaced, dropped and reorganised transactions: Track shows confirmations and explains each case (read-only checks, tested in tests/tx-tracker.test.mjs).",
+          "done": true
         },
         {
           "id": "prices",

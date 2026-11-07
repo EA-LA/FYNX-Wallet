@@ -44,7 +44,18 @@ The browser used a private ephemeral software wallet and a read-only RPC bridge 
 - Native ETH recipients and ERC20 recipients are limited to standard wallet addresses. Smart-contract wallets, Bitcoin, Solana, embedded wallet creation/recovery, bridges and arbitrary tokens are unsupported.
 - SwapRouter02 is an existing Uniswap v3 router; this is a deliberately narrow direct-contract integration, not Universal Router/Permit2 or a best-execution aggregator. It needs independent review before real funds. Spot-price impact is not an independent fair-price oracle or MEV protection.
 - Base's final fee can include an L1 data fee beyond the execution estimate. The wallet must display the final fee. Production fee estimation/reconciliation remains a gate.
-- Full indexed history, production RPC resilience, transaction replacement/reorg handling, customer isolation, legal/provider approval and operational response remain open. See [provider setup](PROVIDER-SETUP.md) and [launch checklist](LAUNCH-CHECKLIST.md).
+- Full indexed history, production RPC resilience, customer isolation, legal/provider approval and operational response remain open. See [provider setup](PROVIDER-SETUP.md) and [launch checklist](LAUNCH-CHECKLIST.md).
+
+## Replaced, dropped and reorganised transactions (2026-11-07)
+
+Crypto tools → Track uses `wallet-src/tx-tracker.js` for every status check (the "Check confirmation" button after sending, "Check status" on each session transaction, and the hash lookup). It only reads the network (`eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getTransactionCount`); it never signs, sends or resends. It reports:
+
+- **Confirmed / failed** with a confirmations count and a practical "settled" threshold (12 blocks on Ethereum Sepolia, 30 on Base networks; a testing threshold, not a finality guarantee).
+- **Reorganised** when the block that held the receipt is no longer the canonical block at that height; **lagging** when the connection has not reached that block yet.
+- **Replaced** when the sender's confirmed nonce has moved past this transaction's nonce (wallet "Speed up" / "Cancel"). The nonce is remembered from earlier checks so a transaction that vanished from the node is still recognised, and the receipt is read once more before saying "replaced" to avoid a race with inclusion.
+- **Dropped** when the network has no record 10 minutes after submitting and the nonce is unused; **not yet seen** before that; **not found** for a pasted ID the network does not know.
+
+Evidence: `tests/tx-tracker.test.mjs` (fake read-only network covering each case, malformed answers, the inclusion race, read-only method list, and the app wiring). Checklist step `assets/replace` is recorded done on this basis. The owner step `assets/lookup` (compare with the explorer on a real test network) stays open.
 
 ## Reproduce the optional contract test
 
