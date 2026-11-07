@@ -4,6 +4,7 @@ const transakSandbox = defineSecret('FYNX_TRANSAK_SANDBOX');
 // Data-provider keys (Alchemy, CoinGecko) as one JSON secret; create it as {} before deploying. See docs/SERVICES-SETUP.md.
 const dataProviders = defineSecret('FYNX_PROVIDERS');
 import { providerConfig, servicesStatus, portfolio, history, prices } from './providers.js';
+import { cleanMainnetRequest, readMainnet } from './mainnet.js';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
@@ -32,7 +33,7 @@ export const fynxWalletWorkspace = onCall({
       await rateLimit(db, `login:${request.rawRequest.ip || 'unknown'}`, 30);
       return input.action === 'passkey-login-options' ? await authenticationOptions(db) : await authenticatePasskey(db, auth, input);
     }
-    const fresh = ['passkey-register-options', 'passkey-register', 'passkey-remove', 'waitlist-remove'].includes(input.action);
+    const fresh = ['passkey-register-options', 'passkey-register', 'passkey-remove', 'waitlist-remove', 'mainnet-settings'].includes(input.action);
     const user = await ownerGuard(request, auth, { fresh });
     await rateLimit(db, user.uid);
     const profile = db.collection('fynxWalletProfiles').doc(user.uid);
@@ -44,15 +45,24 @@ export const fynxWalletWorkspace = onCall({
         return createCheckout({ raw: transakSandbox.value(), db, uid: user.uid, wallet: snap.data()?.wallet, input, ip: request.rawRequest.ip });
       }
       case 'fiat-status': return checkoutStatus({ raw: transakSandbox.value(), db, uid: user.uid, input });
-      case 'services-status': return await servicesStatus(providerConfig(dataProviders.value()), { transak: providerStatus(transakSandbox.value()), mainnet: { enabled: false } });
+      case 'services-status': return await servicesStatus(providerConfig(dataProviders.value()), { transak: providerStatus(transakSandbox.value()), mainnet: readMainnet((await profile.get()).data()?.mainnet) });
       case 'portfolio': return await portfolio((await profile.get()).data()?.wallet, providerConfig(dataProviders.value()));
       case 'history': return await history((await profile.get()).data()?.wallet, input, providerConfig(dataProviders.value()));
       case 'prices': return await prices(providerConfig(dataProviders.value()));
+      case 'mainnet-settings': {
+        // Real-money sending on Base: only the owner, after a fresh sign-in, with limits under the code caps.
+        let setting;
+        try { setting = cleanMainnetRequest(input); } catch (error) { fail('invalid-argument', error.message); }
+        const stored = { ...setting, updatedAt: new Date().toISOString() };
+        await profile.set({ mainnet: stored }, { merge: true });
+        await audit(db, user.uid, setting.enabled ? 'mainnet.on' : 'mainnet.off');
+        return { ok: true, mainnet: readMainnet(stored) };
+      }
       case 'dashboard': return { html: dashboardHTML };
       case 'session': {
         const wallet = await profile.get();
         const keys = await db.collection('fynxWalletPasskeys').where('uid', '==', user.uid).get();
-        return { ok: true, role: 'owner', wallet: wallet.exists ? wallet.data().wallet || null : null, passkeys: keys.docs.map(d => ({ id: d.id, createdAt: d.data().createdAt?.toDate().toISOString() || null })) };
+        return { ok: true, role: 'owner', wallet: wallet.exists ? wallet.data().wallet || null : null, mainnet: readMainnet(wallet.data()?.mainnet), passkeys: keys.docs.map(d => ({ id: d.id, createdAt: d.data().createdAt?.toDate().toISOString() || null })) };
       }
       case 'wallet-challenge': {
         const challenge = createWalletChallenge(user.uid, input);

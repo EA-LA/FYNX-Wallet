@@ -1,5 +1,7 @@
 import { Interface, getAddress, parseUnits, formatUnits, formatEther } from 'ethers';
 import { WalletConnection } from './wallet-client.js';
+import { limitFor } from './mainnet-policy.js';
+import { TEST_LIMITS } from '../firebase-wallet/functions/mainnet.js';
 export const ERC20 = new Interface([
   'function balanceOf(address) view returns(uint256)', 'function decimals() view returns(uint8)',
   'function allowance(address,address) view returns(uint256)', 'function approve(address,uint256) returns(bool)',
@@ -16,14 +18,16 @@ const POOL = new Interface(['function slot0() view returns(uint160,int24,uint16,
 const hex = value => `0x${BigInt(value).toString(16)}`;
 const isContract = code => typeof code === 'string' && /^0x[0-9a-f]+$/i.test(code) && !['0x', '0x0'].includes(code);
 export function assetInfo(network, symbol) {
-  if (symbol === 'ETH') return Object.freeze({ symbol, decimals: 18, address: null, max: '0.01' });
-  if (symbol === 'USDC') return Object.freeze({ symbol, decimals: 6, address: network.usdc, max: '25' });
+  // max: the per-transfer limit on this network (test limits, or the owner's real-money limits), '0' when sending is off.
+  if (symbol === 'ETH') return Object.freeze({ symbol, decimals: 18, address: null, max: limitFor(network, 'ETH') || '0', testnet: !!network.testnet });
+  if (symbol === 'USDC') return Object.freeze({ symbol, decimals: 6, address: network.usdc, max: limitFor(network, 'USDC') || '0', testnet: !!network.testnet });
   throw new Error('Only ETH and canonical USDC are supported.');
 }
 export function parseAmount(value, asset) {
   if (typeof value !== 'string' || value.length > 40 || !new RegExp(`^(0|[1-9]\\d*)(\\.\\d{1,${asset.decimals}})?$`).test(value)) throw new Error(`Enter a valid ${asset.symbol} amount with up to ${asset.decimals} decimal places.`);
   const amount = parseUnits(value, asset.decimals);
-  if (amount <= 0n || amount > parseUnits(asset.max, asset.decimals)) throw new Error(`The testing limit is ${asset.max} ${asset.symbol} per transaction.`);
+  if (asset.max === '0') throw new Error('Sending is off on this network.');
+  if (amount <= 0n || amount > parseUnits(asset.max, asset.decimals)) throw new Error(`The ${asset.testnet === false ? 'real-money' : 'testing'} limit is ${asset.max} ${asset.symbol} per transaction.`);
   return amount;
 }
 export function receiveURI(network, address, symbol = 'ETH') {
@@ -99,7 +103,8 @@ export class AssetConnection extends WalletConnection {
     if (!n.router) throw new Error('Choose Base Sepolia to test swaps.');
     if (![10, 50, 100].includes(slippageBps)) throw new Error('Slippage must be 0.1%, 0.5% or 1%.');
     const assetIn = assetInfo(n, symbol), assetOut = assetInfo(n, symbol === 'ETH' ? 'USDC' : 'ETH');
-    const amountIn = parseAmount(amount, assetIn), tokenIn = assetIn.address || n.weth, tokenOut = assetOut.address || n.weth;
+    // Quotes are read-only, so Base keeps the small test-sized amounts for comparison even when sending is off.
+    const amountIn = parseAmount(amount, n.testnet ? assetIn : { ...assetIn, max: TEST_LIMITS[symbol], testnet: true }), tokenIn = assetIn.address || n.weth, tokenOut = assetOut.address || n.weth;
     const [decimals] = await this.call(n.usdc, ERC20, 'decimals');
     if (Number(decimals) !== 6) throw new Error('Token decimals do not match the approved asset.');
     const block = await this.provider.request({ method: 'eth_blockNumber' });
@@ -129,6 +134,7 @@ export class AssetConnection extends WalletConnection {
   }
   async prepareSwap(quote) {
     this.assertTransactionsEnabled(); this.#action = null;
+    if (!this.network.testnet) throw new Error('Swaps with real money stay off for now. Swap on Base Sepolia to test.');
     if (!quote || quote !== this.#quote || quote.epoch !== this.epoch || quote.address !== this.address || quote.expiresAt <= Date.now()) throw new Error('Quote expired or wallet changed. Request a new quote.');
     const epoch = await this.assertCurrent(quote.epoch), n = this.network;
     if (quote.assetIn.address) {

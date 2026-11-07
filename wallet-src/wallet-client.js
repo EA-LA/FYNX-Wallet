@@ -1,5 +1,6 @@
 import { getAddress, parseEther, formatEther, hexlify, toUtf8Bytes } from 'ethers';
 import { networkFor } from '../firebase-wallet/functions/networks.js';
+import { canTransact, limitFor } from './mainnet-policy.js';
 export const CHAIN_ID = '0xaa36a7';
 export const MAX_SEND = parseEther('0.01');
 export class WalletConnection {
@@ -36,7 +37,7 @@ export class WalletConnection {
       this.provider.request({ method: 'eth_chainId' }),
       this.provider.request({ method: 'eth_accounts' }),
     ]);
-    if (BigInt(chain) !== BigInt(this.network.id)) throw new Error(`Switch your wallet to ${this.network.name}. Mainnet transactions are disabled.`);
+    if (BigInt(chain) !== BigInt(this.network.id)) throw new Error(`Switch your wallet to ${this.network.name}, the network selected here.`);
     if (epoch !== this.epoch || !this.address || !accounts?.[0] || getAddress(accounts[0]) !== this.address) throw new Error('Wallet account changed. Connect and verify again.');
     return epoch;
   }
@@ -49,7 +50,7 @@ export class WalletConnection {
     return signature;
   }
   assertTransactionsEnabled() {
-    if (!this.network.transactionsEnabled) throw new Error('Mainnet signing is disabled until the release review is complete.');
+    if (!canTransact(this.network)) throw new Error(this.network.testnet ? 'Sending is not available on this network.' : 'Mainnet (real-money) sending is off. Only you can turn it on, with limits, in Crypto tools → Real-money sending.');
   }
   cancelTransfer() { this.#review = null; }
   async balance() {
@@ -64,13 +65,15 @@ export class WalletConnection {
     this.#review = null;
     const epoch = await this.assertCurrent();
     let to, value;
+    const max = parseEther(limitFor(this.network, 'ETH'));
+    const unit = this.network.testnet ? 'test ETH' : 'ETH';
     try {
       if (!/^0x[0-9a-fA-F]{40}$/.test(recipient)) throw new Error();
       to = getAddress(recipient);
       if (/^0x0{40}$/i.test(to) || !/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(amount)) throw new Error();
       value = parseEther(amount);
-      if (value <= 0n || value > MAX_SEND) throw new Error();
-    } catch { throw new Error('Enter a valid recipient and an amount above 0, up to 0.01 test ETH.'); }
+      if (value <= 0n || value > max || (this.network.testnet && value > MAX_SEND)) throw new Error();
+    } catch { throw new Error(`Enter a valid recipient and an amount above 0, up to ${formatEther(max)} ${unit}.`); }
     const tx = { from: this.address, to, value: `0x${value.toString(16)}`, chainId: this.network.hex };
     const code = await this.provider.request({ method: 'eth_getCode', params: [to, 'latest'] });
     if (code !== '0x' && code !== '0x0') throw new Error('This first version sends only to standard wallet addresses, not contracts.');
@@ -82,7 +85,7 @@ export class WalletConnection {
     const gas = BigInt(gasResult), price = BigInt(priceResult), balance = BigInt(balanceResult);
     if (gas < 21000n || gas > 30000n || price <= 0n) throw new Error('The transfer could not be estimated safely.');
     const fee = gas * price;
-    if (balance < value + fee) throw new Error('Not enough test ETH for the amount and network fee.');
+    if (balance < value + fee) throw new Error(`Not enough ${unit} for the amount and network fee.`);
     await this.assertCurrent();
     if (epoch !== this.epoch) throw new Error('Wallet changed. Review again.');
     this.#review = Object.freeze({ tx: Object.freeze({ ...tx, gas: `0x${gas.toString(16)}`, gasPrice: `0x${price.toString(16)}` }), amount: formatEther(value), fee: formatEther(fee), createdAt: Date.now(), epoch });
@@ -96,7 +99,7 @@ export class WalletConnection {
     try {
       const epoch = await this.assertCurrent(review.epoch);
       const balance = BigInt(await this.provider.request({ method: 'eth_getBalance', params: [this.address, 'pending'] }));
-      if (balance < BigInt(review.tx.value) + BigInt(review.tx.gas) * BigInt(review.tx.gasPrice)) throw new Error('Not enough test ETH for the amount and network fee.');
+      if (balance < BigInt(review.tx.value) + BigInt(review.tx.gas) * BigInt(review.tx.gasPrice)) throw new Error('Not enough ETH for the amount and network fee.');
       const code = await this.provider.request({ method: 'eth_getCode', params: [review.tx.to, 'latest'] });
       if (code !== '0x' && code !== '0x0') throw new Error('The recipient changed. Only standard wallet addresses are supported.');
       await this.assertCurrent(epoch);

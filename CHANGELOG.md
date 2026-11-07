@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-07 07:20 UTC — Real-money sending: your own switch and limits
+
+- **Crypto tools → Real-money sending (Base)** (new): you can turn real-money sending on yourself. Enter your limits per transfer (up to 0.1 ETH and 250 USDC during the pilot) and type TURN ON REAL MONEY. It needs a sign-in from the last 5 minutes, and every change is written to the security log.
+- When it's on, ETH and USDC transfers on Base get the same review, simulation and checks as on the test networks, and your wallet still asks you to approve each one. Anything above your limit is refused. Swaps with real money stay off.
+- **Turn off** works at once, even for a transfer you were in the middle of reviewing. The switch is off by default and also shows in "Your services".
+- The FYNX owner function needs one deploy to use this (docs/SERVICES-SETUP.md, step 4).
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Crypto tools.
+
 ## 2026-11-07 07:16 UTC — Ready for your keys: live prices, full history, dependable network reads and a services check
 
 - **Launch readiness → Your services** (new): one press checks every outside service FYNX uses and says **Working**, **Not added yet**, **Key looks wrong** or **Not answering**. It covers Alchemy (network + history), CoinGecko (prices), the public backup, Transak, and real-money sending, which stays off until you turn it on. Keys are never shown.

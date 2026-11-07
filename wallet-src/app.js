@@ -16,6 +16,8 @@ import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummar
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText } from './incident-drill.js';
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS } from './tx-tracker.js';
+import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
+import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
@@ -140,7 +142,7 @@ function clearPrivateWorkspace() {
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
   for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); renderDecisions(); clearReportImport();
-  clearServices(); clearPortfolio();
+  clearServices(); clearPortfolio(); clearMainnet();
   $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
@@ -153,10 +155,10 @@ function updateWalletControls() {
   $('#verify-wallet').disabled = busy || !connected;
   for (const id of ['#refresh-balance', '#copy-address', '#review-transfer']) $(id).disabled = busy || !verifiedAddress || connection?.address !== verifiedAddress;
   const verified = !!verifiedAddress && connection?.address === verifiedAddress && !!session;
-  const canSend = verified && connection.network.transactionsEnabled;
+  const canSend = verified && canTransact(connection.network);
   $('#review-transfer').disabled = busy || !canSend;
   $('#quote-swap').disabled = busy || !verified || !connection?.network.router;
-  $('#prepare-swap').disabled = busy || !canSend || !swapQuote;
+  $('#prepare-swap').disabled = busy || !canSend || !swapQuote || !connection?.network.testnet;
   $('#revoke-allowance').disabled = busy || !canSend || !connection?.network.router;
   $('#lookup-transaction').disabled = busy || !verified;
   for (const b of document.querySelectorAll('#transaction-journal .tx-check')) b.disabled = busy || !connection?.address;
@@ -173,7 +175,7 @@ async function refreshSession() {
   const expected = generation;
   const result = await api({ action: 'session' });
   if (expected !== generation || !auth.currentUser) throw new Error('Your session changed. Sign in again.');
-  session = result; renderPasskeys(); updateWalletControls();
+  session = result; setMainnetPolicy(result.mainnet); renderMainnet(); renderPasskeys(); updateWalletControls();
 }
 function renderPasskeys() {
   const list = $('#passkey-list'); list.replaceChildren();
@@ -296,6 +298,34 @@ $('#sec-copy').addEventListener('click', async () => {
   catch { setText('#sec-status', 'Copying was blocked by the browser.'); }
 });
 setInterval(renderSecurityTimes, 15000);
+// Real-money sending on Base: the owner's own switch and limits, stored by the server after a fresh sign-in.
+function renderNetworkNote() {
+  const network = selectedNetwork(), m = mainnetPolicy();
+  setText('#network-note', network.testnet ? 'Test assets have no monetary value. Never send real money to a test network.' : m.enabled ? `Real money. Sending is on, up to ${m.ETH} ETH or ${m.USDC} USDC per transfer. Swaps stay off.` : 'Base is read-only: real-money sending is off. Only you can turn it on, below in Real-money sending.');
+  const option = document.querySelector('#network-choice option[value="8453"]'); if (option) option.textContent = m.enabled ? 'Base · real money, sending on' : 'Base · real balances, read-only';
+}
+function renderMainnet() {
+  const m = mainnetPolicy();
+  setText('#mn-state', m.enabled ? `On · up to ${m.ETH} ETH or ${m.USDC} USDC per transfer${m.updatedAt ? ` · since ${new Date(m.updatedAt).toLocaleString()}` : ''}` : 'Off · Base is read-only');
+  $('#mainnet-card').classList.toggle('is-on', m.enabled);
+  if (m.enabled) { if (!$('#mn-eth').value) $('#mn-eth').value = m.ETH; if (!$('#mn-usdc').value) $('#mn-usdc').value = m.USDC; }
+  setText('#mn-on', m.enabled ? 'Save new limits' : 'Turn on with these limits');
+  show('#mn-off', m.enabled); renderNetworkNote(); updateWalletControls();
+}
+function clearMainnet() { setMainnetPolicy(null); $('#mn-form').reset(); setText('#mn-status', ''); renderMainnet(); }
+async function saveMainnet(request, message) {
+  const result = await api({ action: 'mainnet-settings', ...request });
+  setMainnetPolicy(result.mainnet); connection?.cancelAction(); review = null; show('#transfer-review', false);
+  $('#mn-confirm').value = ''; renderMainnet(); setText('#mn-status', message(result.mainnet));
+}
+$('#mn-form').addEventListener('submit', event => { event.preventDefault(); run($('#mn-on'), async () => {
+  const request = { enabled: true, ETH: $('#mn-eth').value.trim(), USDC: $('#mn-usdc').value.trim(), confirm: $('#mn-confirm').value };
+  if (request.confirm.trim() !== CONFIRM_PHRASE) { setText('#mn-status', `Type ${CONFIRM_PHRASE} to confirm.`); $('#mn-confirm').focus(); return; }
+  try { await saveMainnet(request, m => `Real-money sending is on: up to ${m.ETH} ETH or ${m.USDC} USDC per transfer. Your wallet still asks you to approve each one.`); }
+  catch (error) { if (/Unknown operation/.test(error?.message || '')) { setText('#mn-status', SERVER_UPDATE); return; } throw error; }
+}, '#mn-status'); });
+$('#mn-off').addEventListener('click', event => run(event.currentTarget, () => saveMainnet({ enabled: false }, () => 'Real-money sending is off. Base is read-only again.'), '#mn-status'));
+setText('#mn-caps', `Pilot ceiling: ${MAINNET_CAPS.ETH} ETH and ${MAINNET_CAPS.USDC} USDC per transfer.`);
 // Your services and Portfolio & history: answers from the FYNX server's data providers (keys stay on the server).
 const notDeployed = error => /Unknown operation/.test(error?.message || '');
 const SERVER_UPDATE = 'Your FYNX server has not been updated with this feature yet. Run the deploy step in the setup guide, then try again.';
@@ -554,12 +584,12 @@ async function renderReceive() {
   if (current !== connection || address !== verifiedAddress) return;
   const target = $('#receive-qr'); target.width = canvas.width; target.height = canvas.height;
   target.getContext('2d').drawImage(canvas, 0, 0); show('#receive-qr', true);
-  setText('#receive-network', current.network.name + (current.network.testnet ? ' · test assets only, no monetary value' : ' · real assets, transaction signing disabled'));
+  setText('#receive-network', current.network.name + (current.network.testnet ? ' · test assets only, no monetary value' : canTransact(current.network) ? ' · real assets: double-check the network before sending' : ' · real assets, sending is off'));
 }
 $('#receive-asset').addEventListener('change', () => run(null, renderReceive));
 $('#network-choice').addEventListener('change', () => {
   connection?.close(); connection = null; clearWallet();
-  setText('#network-note', selectedNetwork().testnet ? 'Test assets have no monetary value. Never send real money to a test network.' : 'Base mainnet is read-only. Do not fund this wallet to test transfers; mainnet signing is disabled.');
+  renderNetworkNote();
   setText('#lookup-status', ''); renderJournal();
 });
 function renderAction(prepared) {

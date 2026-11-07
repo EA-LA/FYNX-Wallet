@@ -61,6 +61,17 @@ This deploys only the FYNX owner function. Never run a plain `firebase deploy` i
 - **"Your FYNX server has not been updated with this feature yet":** do Step 4.
 - To turn a service off, add a new secret version without its key and deploy.
 
+## Turning on real-money sending (Base)
+
+This is a switch, not a key. It is off until you turn it on:
+
+1. Sign in again (the server needs a sign-in from the last 5 minutes).
+2. Open **Crypto tools → Real-money sending**. Enter your maximum ETH and USDC per transfer (pilot ceiling: 0.1 ETH and 250 USDC), type `TURN ON REAL MONEY` and press **Turn on with these limits**.
+3. Choose **Base** as the network. Transfers then go through the same review, simulation and checks as on the test networks, and your wallet still asks you to approve each one. Swaps with real money stay off.
+4. **Turn off** takes effect at once, also for a transfer you were reviewing. Each change is written to the security audit log.
+
+Do this only after the security review, legal and pilot gates in Launch readiness are done. The switch needs the same owner-function deploy as Step 4.
+
 ## What a key cannot switch on
 
-Real-money sending on Base stays off until you turn it on yourself in the owner workspace, with your own limits, after the legal and security review. Public customer accounts, live card payments and other countries need the release gates in [LAUNCH-CHECKLIST.md](LAUNCH-CHECKLIST.md).
+Real-money sending on Base stays off until you turn it on yourself (above). Public customer accounts, live card payments and other countries need the release gates in [LAUNCH-CHECKLIST.md](LAUNCH-CHECKLIST.md).
