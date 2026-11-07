@@ -15,11 +15,11 @@ import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesTe
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText } from './incident-drill.js';
-import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS } from './tx-tracker.js';
+import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
-import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, TARGET_DAYS, DUE_SOON_DAYS } from './privacy-requests.js';
+import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS } from './privacy-requests.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -37,6 +37,7 @@ let waitlistPeriod = 'day', waitlistLoadingAll = false, waitlistFlags = new Map(
 const providers = new Map();
 let signInInfo = null;
 let lastBalances = { eth: null, usdc: null };
+let autoLastRun = null, autoRunning = false;
 function selectTab(name) {
   for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
@@ -138,7 +139,7 @@ function clearWallet() {
   updateWalletControls();
 }
 function clearPrivateWorkspace() {
-  journal.clear(); $('#transaction-journal').replaceChildren(); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
+  journal.clear(); $('#transaction-journal').replaceChildren(); $('#tx-auto').checked = false; autoLastRun = null; setText('#tx-auto-status', ''); show('#tx-batch', false); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
@@ -163,6 +164,7 @@ function updateWalletControls() {
   $('#revoke-allowance').disabled = busy || !canSend || !connection?.network.router;
   $('#lookup-transaction').disabled = busy || !verified;
   for (const b of document.querySelectorAll('#transaction-journal .tx-check')) b.disabled = busy || !connection?.address;
+  $('#tx-check-all').disabled = busy || autoRunning || !connection?.address || !waitingItems(journal.values(), selectedNetwork().id).length;
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
   $('#network-choice').disabled = busy;
   show('#unlink-wallet', !!session?.wallet);
@@ -618,11 +620,43 @@ $('#send-action').addEventListener('click', event => run(event.currentTarget, as
   $('#transaction-link').href = connection.network.explorer + '/tx/' + hash;
   show('#transaction-link', true); show('#check-receipt', true);
 }));
+// Check every waiting transaction on this network, one after another (read-only, never resends).
+async function checkWaiting(checkSession, { auto = false } = {}) {
+  const items = waitingItems(journal.values(), selectedNetwork().id), results = [];
+  for (const item of items) {
+    try { results.push({ hash: item.hash, result: await checkStatus(item.hash, checkSession) }); }
+    catch (error) { checkSession(); if (/Wallet changed|Switch to/.test(error.message || '')) throw error; results.push({ hash: item.hash, error }); }
+  }
+  autoLastRun = Date.now();
+  const left = waitingItems(journal.values(), selectedNetwork().id).length;
+  setText('#tx-auto-status', `${auto ? 'Automatic check' : 'Checked'} at ${new Date(autoLastRun).toLocaleTimeString()}. ${batchSummary(results)}${left ? ` ${left} still waiting.` : ' Nothing left waiting.'}`);
+  if (!left && $('#tx-auto').checked) { $('#tx-auto').checked = false; setText('#tx-auto-status', `${$('#tx-auto-status').textContent} Automatic re-check turned off.`); }
+  return results;
+}
+$('#tx-check-all').addEventListener('click', event => run(event.currentTarget, checkSession => checkWaiting(checkSession), '#tx-auto-status'));
+$('#tx-auto').addEventListener('change', () => {
+  autoLastRun = null;
+  setText('#tx-auto-status', $('#tx-auto').checked ? `On: waiting transactions are re-checked every ${AUTO_CHECK_MS / 1000} seconds while this page is open and visible. Checking never signs or resends anything.` : 'Automatic re-check is off.');
+  autoCheckTick();
+});
+async function autoCheckTick() {
+  if (autoRunning || !autoCheckDue({ enabled: $('#tx-auto').checked, hidden: document.hidden, busy, connected: Boolean(connection?.address), waiting: waitingItems(journal.values(), selectedNetwork().id).length, lastRun: autoLastRun, now: Date.now() })) return;
+  // Not run(): that would disable every button for a moment and drop keyboard focus while you work.
+  // Reads only; a session change or another action starting stops it.
+  autoRunning = true;
+  const expected = generation, checkSession = () => { if (expected !== generation) throw new Error('Your session changed. Sign in again.'); };
+  try { await checkWaiting(checkSession, { auto: true }); }
+  catch (error) { if (expected === generation) setText('#tx-auto-status', `Automatic check paused: ${errorMessage(error)}`); }
+  finally { autoRunning = false; autoLastRun = Date.now(); updateWalletControls(); }
+}
+setInterval(autoCheckTick, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) autoCheckTick(); });
 function trackTransaction(hash, label) {
   journal.set(hash, { hash, label, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null }); renderJournal();
 }
 function renderJournal() {
-  const list = $('#transaction-journal'); list.replaceChildren();
+  const list = $('#transaction-journal'), focused = list.contains(document.activeElement) ? document.activeElement.dataset.hash : null;
+  list.replaceChildren();
   for (const item of [...journal.values()].reverse()) {
     if (item.network.id !== selectedNetwork().id) continue;
     const row = document.createElement('li'), label = document.createElement('p'), link = document.createElement('a');
@@ -662,6 +696,11 @@ function renderJournal() {
     }
     list.append(row);
   }
+  const waiting = waitingItems(journal.values(), selectedNetwork().id).length;
+  show('#tx-batch', journal.size > 0 && [...journal.values()].some(i => i.network.id === selectedNetwork().id));
+  $('#tx-check-all').disabled = busy || autoRunning || !connection?.address || !waiting;
+  $('#tx-check-all').textContent = waiting ? `Check all waiting (${waiting})` : 'Check all waiting';
+  if (focused) list.querySelector(`.tx-check[data-hash="${focused}"]`)?.focus();
   if (!list.children.length) { const empty = document.createElement('li'); empty.className = 'journal-empty'; empty.textContent = `No transactions submitted on ${selectedNetwork().name} in this page session yet.`; list.append(empty); }
   renderCryptoSetup();
 }
@@ -849,7 +888,22 @@ $('#wl-reply-copy').addEventListener('click', async () => {
 // Privacy request log: arrival date, what was asked, the 30-day due date and the answer. No email addresses; this browser only.
 let privacyLog = { entries: [] }, prAnswering = '';
 try { privacyLog = cleanLog(JSON.parse(localStorage.getItem(PRIVACY_KEY) || '{}')); } catch { privacyLog = { entries: [] }; }
-function savePrivacyLog() { try { localStorage.setItem(PRIVACY_KEY, JSON.stringify(privacyLog)); } catch { setText('#pr-status', 'This browser blocked saving. The log lasts until you close the page.'); } }
+function savePrivacyLog() { try { localStorage.setItem(PRIVACY_KEY, JSON.stringify(privacyLog)); } catch { setText('#pr-status', 'This browser blocked saving. The log lasts until you close the page.'); } renderPrivacyBadge(); }
+// Open/overdue privacy requests on the Waitlist tab button, so a due answer is visible from every tab.
+function renderPrivacyBadge() {
+  const a = privacyAttention(privacyLog, localToday()), badge = $('#wl-tab-badge'), tab = document.querySelector('[data-tab="registrations"]');
+  badge.textContent = a.badge; badge.className = `tab-badge is-${a.tone}`; badge.hidden = !a.open;
+  badge.title = a.label;
+  if (a.open) tab.setAttribute('aria-label', `Waitlist, ${a.label}`); else tab.removeAttribute('aria-label');
+}
+function openPrivacyRequest(id) {
+  selectTab('registrations');
+  const item = id ? document.querySelector(`#pr-list li[data-id="${CSS.escape(id)}"]`) : null, target = item || $('#pr-title');
+  target.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  const focus = item?.querySelector('button') || $('#pr-received'); focus.focus({ preventScroll: true });
+}
+renderPrivacyBadge();
+setInterval(renderPrivacyBadge, 60 * 60000);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function renderPrivacyLog(focus) {
   const today = localToday(), s = logSummary(privacyLog, today);
@@ -1048,10 +1102,16 @@ function renderLaunchOverview() {
   const mine = el('li'); mine.append(el('div', 'launch-stat stat-mine', ''));
   mine.firstChild.append(el('strong', '', `${o.yoursDone}/${o.yours}`), el('span', '', `your tests and decisions done${o.failed ? ` · ${o.failed} failed` : ''}`));
   stats.append(mine); box.append(stats);
-  const next = nextActions(launchPlan, launchRecords, 3);
-  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length ? 'Your next steps' : 'All your steps are recorded'));
-  if (next.length) {
+  const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday());
+  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length || privacy.next.length ? 'Your next steps' : 'All your steps are recorded'));
+  if (next.length || privacy.next.length) {
     const list = el('ol');
+    // A privacy answer that is due comes first: it has a date, launch steps do not.
+    for (const item of privacy.next) {
+      const li = el('li'); const b = el('button', `text-button launch-next-link is-${item.state}`); b.type = 'button';
+      b.append(el('span', 'launch-next-gate', `Privacy request · ${item.label}`), el('span', '', `${item.title}${item.ref ? ` (${item.ref})` : ''}: answer by ${item.due}`));
+      b.addEventListener('click', () => openPrivacyRequest(item.id)); li.append(b); list.append(li);
+    }
     for (const { gate, step, failed } of next) {
       const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
       b.append(el('span', 'launch-next-gate', `${failed ? 'Retest · ' : ''}${gate.title}`), el('span', '', step.text));

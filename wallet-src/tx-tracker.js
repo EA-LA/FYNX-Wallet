@@ -96,3 +96,28 @@ export async function checkTransaction(request, hash, known = {}, network = null
 }
 // Settled: nothing more to wait for on this page (deeply confirmed or failed, replaced, dropped).
 export const isSettled = result => ['replaced', 'dropped', 'not-found'].includes(result?.status) || (['confirmed', 'failed'].includes(result?.status) && result.deep === true);
+
+// Transactions still worth checking on this network: not settled, newest first.
+// items: journal entries { hash, network: { id }, result, submittedAt }.
+export const AUTO_CHECK_MS = 30 * 1000;
+export const MAX_BATCH = 10;
+export function waitingItems(items, networkId) {
+  return [...items].filter(i => i && i.network?.id === networkId && !isSettled(i.result))
+    .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0)).slice(0, MAX_BATCH);
+}
+// Whether the automatic re-check should run now. It is read-only, but it still pauses while the page is
+// hidden, while another action is in progress, without a connected wallet, or when nothing is waiting.
+export function autoCheckDue({ enabled, hidden, busy, connected, waiting, lastRun, now }) {
+  if (!enabled || hidden || busy || !connected || !waiting) return false;
+  return !Number.isFinite(lastRun) || now - lastRun >= AUTO_CHECK_MS;
+}
+// One plain sentence about a batch check.
+export function batchSummary(results) {
+  const ok = results.filter(r => r.result), failed = results.length - ok.length;
+  if (!results.length) return 'Nothing is waiting on this network.';
+  const counts = new Map();
+  for (const r of ok) counts.set(r.result.label, (counts.get(r.result.label) || 0) + 1);
+  const parts = [...counts].map(([label, n]) => `${n} ${label.toLowerCase()}`);
+  if (failed) parts.push(`${failed} could not be checked`);
+  return `Checked ${results.length} transaction${results.length === 1 ? '' : 's'}: ${parts.join(', ')}.`;
+}

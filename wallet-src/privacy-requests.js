@@ -142,3 +142,23 @@ export function logMarkdown(log, today) {
   }
   return lines.join('\n');
 }
+
+// What needs the owner's attention, for the Waitlist tab button and the Launch readiness next steps.
+// Counts and dates only: the log holds no email addresses and nothing here adds one.
+export function privacyAttention(log, today, limit = 2) {
+  const s = logSummary(log, today);
+  const open = log.entries.filter(e => !e.answered).map(e => ({ entry: e, ...requestState(e, today) }));
+  open.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.entry.received < b.entry.received ? -1 : 1));
+  const urgent = open.filter(o => o.state === 'overdue' || o.state === 'due-soon');
+  const tone = s.overdue ? 'overdue' : s.dueSoon ? 'due-soon' : s.open ? 'open' : 'none';
+  const parts = [];
+  if (s.open) parts.push(`${s.open} open privacy request${s.open === 1 ? '' : 's'}`);
+  if (s.overdue) parts.push(`${s.overdue} overdue`);
+  if (s.dueSoon) parts.push(`${s.dueSoon} due within ${DUE_SOON_DAYS} days`);
+  return {
+    open: s.open, overdue: s.overdue, dueSoon: s.dueSoon, tone,
+    badge: s.open ? String(Math.min(s.open, 99)) + (s.open > 99 ? '+' : '') : '',
+    label: parts.length ? parts.join(', ') : 'No open privacy requests',
+    next: urgent.slice(0, Math.max(0, limit)).map(o => ({ id: o.entry.id, type: o.entry.type, title: typeLabel(o.entry.type), due: o.due, state: o.state, label: o.label, ref: o.entry.ref })),
+  };
+}

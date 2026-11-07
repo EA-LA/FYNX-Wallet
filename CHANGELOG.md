@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-07 14:40 UTC — [autopilot] Owner workspace: privacy deadlines visible everywhere; track all transactions at once
+- The **Waitlist** tab button now shows how many privacy requests are still open. It turns amber when one is due within 7 days and red when one is overdue, so you see it from any tab.
+- **Launch readiness → Your next steps** now starts with any overdue or nearly-due privacy request ("Asked to be removed: answer by …"). Pressing it opens the Waitlist tab right on that request.
+- **Crypto tools → Step 5 Track** has a new **Check all waiting** button that checks every unfinished test transaction in one go and sums up the result in one line.
+- New option **Re-check every 30 seconds while something is waiting**: it keeps checking on its own while the page is open, pauses when the page is in the background, and switches itself off when everything is settled or you sign out. It only reads the network; it never signs or resends anything.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (sign in as the owner).
+
 ## 2026-11-07 10:20 UTC — [autopilot] Waitlist: a privacy request log so no access or removal request is missed
 
 - New **Privacy requests** section on the Waitlist tab of your owner workspace (https://ea-la.github.io/FYNX-Wallet/owner.html → Waitlist).
