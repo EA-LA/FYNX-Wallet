@@ -19,6 +19,7 @@ import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS } from './tx-tr
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
+import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, TARGET_DAYS, DUE_SOON_DAYS } from './privacy-requests.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -41,7 +42,7 @@ function selectTab(name) {
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
   setText('#workspace-status', '');
   if (name === 'security') renderSecurity();
-  if (name === 'registrations') renderWaitlistTests();
+  if (name === 'registrations') { renderWaitlistTests(); renderPrivacyLog(); }
   if (name === 'wallet') { renderCryptoSetup(); renderCryptoTests(); }
 }
 function clearDashboard() {
@@ -828,15 +829,16 @@ function renderAddressCheck() {
 }
 // Privacy request replies: a draft built from the loaded record, shown for copying. Never sent from here.
 let replyFocus = null;
+let replyKind = '';
 function openPrivacyReply(kind, record, removedAt) {
-  replyFocus = kind === 'access' ? document.activeElement : null;
+  replyKind = kind; replyFocus = kind === 'access' ? document.activeElement : null;
   setText('#wl-reply-title', kind === 'access' ? `Reply to a request for their data · ${record.email}` : `Deletion confirmation · ${record.email}`);
   $('#wl-reply-text').value = kind === 'access' ? accessReply(record) : deletionReply(record, { removedAt });
   setText('#wl-reply-status', kind === 'access' ? 'If they asked to be removed instead, verify the request came from this mailbox, then press Remove.' : 'Removed. Send this only after you verified the request came from this mailbox.');
   show('#wl-reply', true); $('#wl-reply-title').focus();
 }
 function closePrivacyReply(restore = true) {
-  $('#wl-reply-text').value = ''; setText('#wl-reply-status', ''); setText('#wl-reply-title', 'Privacy request reply'); show('#wl-reply', false);
+  replyKind = ''; $('#wl-reply-text').value = ''; setText('#wl-reply-status', ''); setText('#wl-reply-title', 'Privacy request reply'); show('#wl-reply', false);
   if (restore && replyFocus?.isConnected) replyFocus.focus(); replyFocus = null;
 }
 $('#wl-reply-close').addEventListener('click', () => closePrivacyReply());
@@ -844,6 +846,94 @@ $('#wl-reply-copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#wl-reply-text').value); setText('#wl-reply-status', 'Reply copied. Paste it into your email and check it before sending.'); }
   catch { $('#wl-reply-text').select(); setText('#wl-reply-status', 'Copying was blocked by the browser. The text is selected: copy it with your keyboard.'); }
 });
+// Privacy request log: arrival date, what was asked, the 30-day due date and the answer. No email addresses; this browser only.
+let privacyLog = { entries: [] }, prAnswering = '';
+try { privacyLog = cleanLog(JSON.parse(localStorage.getItem(PRIVACY_KEY) || '{}')); } catch { privacyLog = { entries: [] }; }
+function savePrivacyLog() { try { localStorage.setItem(PRIVACY_KEY, JSON.stringify(privacyLog)); } catch { setText('#pr-status', 'This browser blocked saving. The log lasts until you close the page.'); } }
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+function renderPrivacyLog(focus) {
+  const today = localToday(), s = logSummary(privacyLog, today);
+  if (!$('#pr-received').value) $('#pr-received').value = today;
+  $('#pr-received').max = today;
+  setText('#pr-count', privacyLog.entries.length ? `${plural(s.open, 'open request')}${s.overdue ? ` · ${s.overdue} overdue` : ''}${s.nextDue ? ` · next due ${s.nextDue}` : ''}` : 'No requests logged yet.');
+  const stats = $('#pr-stats'); stats.replaceChildren();
+  for (const [value, label, cls] of [[s.open, 'Open', ''], [s.overdue, 'Overdue', s.overdue ? 'stat-bad' : ''], [s.dueSoon, `Due within ${DUE_SOON_DAYS} days`, s.dueSoon ? 'stat-you' : ''], [s.answered ? `${s.onTime} of ${s.answered}` : '—', s.answered ? `Answered on time · avg ${s.avgDays} days` : 'Answered on time', s.answered && !s.late ? 'stat-done' : '']]) {
+    const li = el('li', `launch-stat ${cls}`.trim()); li.append(el('strong', '', String(value)), el('span', '', label)); stats.append(li);
+  }
+  const list = $('#pr-list'); list.replaceChildren();
+  if (!privacyLog.entries.length) list.append(el('li', 'pr-empty hint', `When someone emails fynxteam5@gmail.com about their data, add it here with the day it arrived. You will see it counting down to its ${TARGET_DAYS}-day due date.`));
+  for (const entry of privacyLog.entries) {
+    const st = requestState(entry, today), li = el('li', `pr-item is-${st.state}`); li.dataset.id = entry.id;
+    const head = el('div', 'pr-head'), what = el('div', 'pr-what');
+    what.append(el('strong', '', typeLabel(entry.type)), el('span', 'hint', `Arrived ${entry.received} · due ${st.due}${entry.ref ? ` · ${entry.ref}` : ''}`));
+    if (entry.note) what.append(el('span', 'hint', entry.note));
+    if (entry.answered) what.append(el('span', 'hint', outcomeLabel(entry.outcome)));
+    head.append(what, el('span', `pr-badge is-${st.state}`, st.label)); li.append(head);
+    const actions = el('div', 'pr-actions');
+    if (!entry.answered && prAnswering === entry.id) {
+      const form = el('div', 'pr-answer'), dl = el('label', '', 'Answered on'), date = el('input'), ol = el('label', '', 'Answer'), sel = el('select');
+      date.type = 'date'; date.value = today; date.min = entry.received; date.max = today; date.id = `pr-ans-date-${entry.id}`; dl.htmlFor = date.id;
+      sel.id = `pr-ans-out-${entry.id}`; ol.htmlFor = sel.id;
+      for (const [id, label] of PR_OUTCOMES) { const o = el('option', '', label); o.value = id; o.selected = id === defaultOutcome(entry.type); sel.append(o); }
+      const save = el('button', 'button', 'Save answer'), cancel = el('button', 'text-button', 'Cancel'); save.type = cancel.type = 'button';
+      save.dataset.prAction = 'save'; cancel.dataset.prAction = 'cancel';
+      save.addEventListener('click', () => {
+        const r = answerRequest(privacyLog, entry.id, { answered: date.value, outcome: sel.value });
+        if (r.error) { setText('#pr-status', r.error); date.focus(); return; }
+        privacyLog = r.log; prAnswering = ''; savePrivacyLog(); renderPrivacyLog({ id: entry.id, action: 'reopen' });
+        setText('#pr-status', `Answer saved: ${requestState(r.entry, localToday()).label}.`);
+      });
+      cancel.addEventListener('click', () => { prAnswering = ''; renderPrivacyLog({ id: entry.id, action: 'answer' }); });
+      date.addEventListener('keydown', e => { if (e.key === 'Escape') cancel.click(); }); sel.addEventListener('keydown', e => { if (e.key === 'Escape') cancel.click(); });
+      const f1 = el('div'), f2 = el('div'); f1.append(dl, date); f2.append(ol, sel);
+      form.append(f1, f2, save, cancel); li.append(form);
+    } else if (!entry.answered) {
+      const b = el('button', 'text-button', 'Mark answered'); b.type = 'button'; b.dataset.prAction = 'answer';
+      b.setAttribute('aria-label', `Mark answered: ${typeLabel(entry.type)}, arrived ${entry.received}`);
+      b.addEventListener('click', () => { prAnswering = entry.id; renderPrivacyLog(); document.getElementById(`pr-ans-date-${entry.id}`)?.focus(); });
+      actions.append(b);
+    } else {
+      const b = el('button', 'text-button', 'Reopen'); b.type = 'button'; b.dataset.prAction = 'reopen';
+      b.addEventListener('click', () => { privacyLog = reopenRequest(privacyLog, entry.id); savePrivacyLog(); renderPrivacyLog({ id: entry.id, action: 'answer' }); setText('#pr-status', 'Request reopened.'); });
+      actions.append(b);
+    }
+    const del = el('button', 'text-button pr-delete', 'Delete'); del.type = 'button';
+    del.setAttribute('aria-label', `Delete from the log: ${typeLabel(entry.type)}, arrived ${entry.received}`);
+    del.addEventListener('click', () => {
+      if (!window.confirm(`Delete this ${entry.answered ? 'answered' : 'open'} request from the log? This does not change the waitlist.`)) return;
+      privacyLog = removeRequest(privacyLog, entry.id); if (prAnswering === entry.id) prAnswering = ''; savePrivacyLog(); renderPrivacyLog(); $('#pr-received').focus(); setText('#pr-status', 'Deleted from the log.');
+    });
+    if (!(prAnswering === entry.id && !entry.answered)) { actions.append(del); li.append(actions); }
+    list.append(li);
+  }
+  if (focus) document.querySelector(`#pr-list [data-id="${CSS.escape(focus.id)}"] [data-pr-action="${focus.action}"]`)?.focus();
+}
+$('#pr-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const r = addRequest(privacyLog, { received: $('#pr-received').value, type: $('#pr-type').value, ref: $('#pr-ref').value, note: $('#pr-note').value }, { today: localToday() });
+  if (r.error) {
+    const field = /^The reference/.test(r.error) ? '#pr-ref' : /^The note/.test(r.error) ? '#pr-note' : /asked/.test(r.error) ? '#pr-type' : '#pr-received';
+    if (/recovery phrase/.test(r.error)) $(field).value = '';
+    setText('#pr-status', r.error); $(field).focus(); return;
+  }
+  privacyLog = r.log; savePrivacyLog(); $('#pr-ref').value = ''; $('#pr-note').value = ''; $('#pr-received').value = localToday();
+  renderPrivacyLog(); setText('#pr-status', `Added. ${requestState(r.entry, localToday()).label} (${requestState(r.entry, localToday()).due}).`);
+});
+$('#pr-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(logMarkdown(privacyLog, localToday())); setText('#pr-status', 'Request log copied (dates and request types only, no email addresses).'); }
+  catch { setText('#pr-status', 'Copying was blocked by the browser. Use Download log instead.'); }
+});
+$('#pr-download').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([logMarkdown(privacyLog, localToday())], { type: 'text/markdown;charset=utf-8' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-privacy-requests-${localToday()}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setText('#pr-status', 'Request log downloaded (no email addresses).');
+});
+$('#wl-reply-log').addEventListener('click', () => {
+  $('#pr-type').value = replyKind === 'deleted' ? 'delete' : 'access'; $('#pr-received').value = localToday();
+  $('#wl-requests').scrollIntoView({ block: 'start' }); $('#pr-received').focus();
+  setText('#pr-status', 'Set the day the request arrived, add a reference if you like, then press Add request. Mark it answered once you have replied.');
+});
+// First drawn when the Waitlist tab opens (selectTab), after every helper above is defined.
 // Website-gate tests recorded right here (same records as Launch readiness, this browser only),
 // with a check of the loaded test sign-ups and a one-press record after removing one.
 function renderWaitlistTests() {

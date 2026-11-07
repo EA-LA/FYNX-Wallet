@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-07 10:20 UTC — [autopilot] Waitlist: a privacy request log so no access or removal request is missed
+
+- New **Privacy requests** section on the Waitlist tab of your owner workspace (https://ea-la.github.io/FYNX-Wallet/owner.html → Waitlist).
+- Add each request with the day it arrived and what the person asked for (what we hold, removal, address fix, no more contact, other), plus an optional reference such as the email subject. Email addresses are refused, so the log never holds personal details.
+- Every request counts down to its 30-day due date: amber in the last 7 days, red when overdue. Press **Mark answered** with the date and the answer you gave; it shows whether you were on time and how many days it took.
+- Totals at the top: open, overdue, due soon, and answered on time with the average days.
+- **Copy request log** / **Download log** gives a dated record without email addresses. After a draft privacy reply opens, **Add to privacy request log** fills in the type for you.
+- Saved only in this browser. The operating procedure (docs/OPERATIONS.md) now includes the step.
+
 ## 2026-11-07 07:20 UTC — Real-money sending: your own switch and limits
 
 - **Crypto tools → Real-money sending (Base)** (new): you can turn real-money sending on yourself. Enter your limits per transfer (up to 0.1 ETH and 250 USDC during the pilot) and type TURN ON REAL MONEY. It needs a sign-in from the last 5 minutes, and every change is written to the security log.
