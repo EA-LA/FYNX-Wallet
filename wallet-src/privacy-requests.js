@@ -56,7 +56,8 @@ const cleanText = (value, max) => { const v = String(value || '').replace(/\s+/g
 export function cleanEntry(raw) {
   if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(raw.id)) return null;
   if (dayNumber(raw.received) === null || !typeIds.has(raw.type)) return null;
-  const entry = { id: raw.id, received: raw.received, type: raw.type, ref: cleanText(raw.ref, MAX_REF), note: cleanText(raw.note, MAX_NOTE), added: Number.isFinite(raw.added) ? raw.added : 0 };
+  const added = Number.isFinite(raw.added) && raw.added > 0 ? raw.added : 0;
+  const entry = { id: raw.id, received: raw.received, type: raw.type, ref: cleanText(raw.ref, MAX_REF), note: cleanText(raw.note, MAX_NOTE), added, changed: Number.isFinite(raw.changed) && raw.changed > 0 ? raw.changed : added };
   if (dayNumber(raw.answered) !== null && dayNumber(raw.answered) >= dayNumber(raw.received)) {
     entry.answered = raw.answered; entry.outcome = outcomeIds.has(raw.outcome) ? raw.outcome : defaultOutcome(raw.type);
   }
@@ -79,19 +80,19 @@ export function addRequest(log, input, { today, now = Date.now(), id } = {}) {
   const problem = textProblem(input.ref, 'The reference') || textProblem(input.note, 'The note');
   if (problem) return { error: problem };
   if (log.entries.length >= MAX_ENTRIES) return { error: `The log holds up to ${MAX_ENTRIES} requests. Copy it, then delete old answered requests.` };
-  const entry = cleanEntry({ id: id || `pr-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`, received, type: input.type, ref: input.ref, note: input.note, added: now });
+  const entry = cleanEntry({ id: id || `pr-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`, received, type: input.type, ref: input.ref, note: input.note, added: now, changed: now });
   return { log: { entries: [...log.entries, entry].sort(order) }, entry };
 }
-export function answerRequest(log, id, { answered, outcome } = {}) {
+export function answerRequest(log, id, { answered, outcome, now = Date.now() } = {}) {
   const target = log.entries.find(e => e.id === id);
   if (!target) return { error: 'That request is no longer in the log.' };
   if (dayNumber(answered) === null) return { error: 'Choose the date you answered.' };
   if (dayNumber(answered) < dayNumber(target.received)) return { error: 'The answer date cannot be before the request arrived.' };
-  const next = { ...target, answered, outcome: outcomeIds.has(outcome) ? outcome : defaultOutcome(target.type) };
+  const next = { ...target, answered, outcome: outcomeIds.has(outcome) ? outcome : defaultOutcome(target.type), changed: now };
   return { log: { entries: log.entries.map(e => e.id === id ? next : e).sort(order) }, entry: next };
 }
-export function reopenRequest(log, id) {
-  return { entries: log.entries.map(e => { if (e.id !== id) return e; const { answered, outcome, ...rest } = e; return rest; }).sort(order) };
+export function reopenRequest(log, id, now = Date.now()) {
+  return { entries: log.entries.map(e => { if (e.id !== id) return e; const { answered, outcome, ...rest } = e; return { ...rest, changed: now }; }).sort(order) };
 }
 export const removeRequest = (log, id) => ({ entries: log.entries.filter(e => e.id !== id) });
 
@@ -161,4 +162,59 @@ export function privacyAttention(log, today, limit = 2) {
     label: parts.length ? parts.join(', ') : 'No open privacy requests',
     next: urgent.slice(0, Math.max(0, limit)).map(o => ({ id: o.entry.id, type: o.entry.type, title: typeLabel(o.entry.type), due: o.due, state: o.state, label: o.label, ref: o.entry.ref })),
   };
+}
+
+// The log travels between devices inside the launch test report: one line per request with its dates,
+// request type and answer only. References and notes stay in the browser where they were typed.
+export const PRIVACY_SECTION = 'Waitlist privacy requests';
+const stampUtc = ms => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+const minute = ms => Math.floor((ms || 0) / 60000) * 60000;
+export function privacyReportLines(log) {
+  const entries = log?.entries || [];
+  if (!entries.length) return [];
+  const lines = [`## ${PRIVACY_SECTION}`, '', 'Dates, request types and answers only (no references, notes or email addresses), so the log can be brought into another browser.', ''];
+  for (const e of entries) {
+    lines.push(`- ${e.id} · arrived ${e.received} · ${typeLabel(e.type)} · ${e.answered ? `answered ${e.answered} (${outcomeLabel(e.outcome)})` : 'open'}${e.changed ? ` · changed ${stampUtc(e.changed)} UTC` : ''}`);
+  }
+  lines.push('');
+  return lines;
+}
+
+const PR_LINE = /^\s*[-*]\s+([a-z0-9-]{1,40}) · arrived (\d{4}-\d{2}-\d{2}) · (.+?) · (open|answered (\d{4}-\d{2}-\d{2}) \((.+)\))(?: · changed (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC)?\s*$/;
+export function parsePrivacyReport(text) {
+  const entries = [];
+  let inSection = false, unknown = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 2000)) {
+    if (/^##\s/.test(line)) { inSection = line.replace(/^##\s+/, '').trim() === PRIVACY_SECTION; continue; }
+    if (!inSection || !line.trim() || !/^\s*[-*]\s/.test(line)) continue;
+    const m = line.match(PR_LINE);
+    const type = m && TYPES.find(t => t[1] === m[3])?.[0];
+    const outcome = m?.[6] ? OUTCOMES.find(o => o[1] === m[6])?.[0] : undefined;
+    if (!m || !type || (m[5] && !outcome)) { unknown += 1; continue; }
+    const changed = m[7] ? Date.parse(`${m[7]}T${m[8]}:00Z`) : 0;
+    const e = cleanEntry({ id: m[1], received: m[2], type, answered: m[5], outcome, added: changed, changed });
+    if (!e || entries.some(x => x.id === e.id) || (m[5] && !e.answered)) { unknown += 1; continue; }
+    entries.push(e);
+  }
+  return { log: cleanLog({ entries }), unknown };
+}
+
+const sameRequest = (a, b) => a.received === b.received && a.type === b.type && (a.answered || '') === (b.answered || '') && (a.outcome || '') === (b.outcome || '');
+// Combine an imported log with this browser's. New requests are added; when both have a request and it
+// differs, the one changed later wins (this browser's reference and note are kept). Deleting a request
+// does not travel: delete it on each device.
+export function mergePrivacyLogs(local, incoming) {
+  const byId = new Map((local?.entries || []).map(e => [e.id, e])), changes = { added: [], updated: [], same: [], kept: [] };
+  for (const inc of incoming?.entries || []) {
+    const mine = byId.get(inc.id);
+    if (!mine) { byId.set(inc.id, { ...inc }); changes.added.push(inc.id); continue; }
+    if (sameRequest(mine, inc)) { changes.same.push(inc.id); continue; }
+    if (minute(inc.changed) > minute(mine.changed)) {
+      const { answered, outcome, ...rest } = mine;
+      const next = { ...rest, received: inc.received, type: inc.type, changed: inc.changed };
+      if (inc.answered) { next.answered = inc.answered; next.outcome = inc.outcome; }
+      byId.set(inc.id, next); changes.updated.push(inc.id);
+    } else changes.kept.push(inc.id);
+  }
+  return { log: cleanLog({ entries: [...byId.values()] }), ...changes };
 }

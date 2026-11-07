@@ -20,7 +20,7 @@ test('a request is added with a due date 30 days after it arrived', () => {
   const { log, entry, error } = add(empty, { received: '2026-11-01', ref: 'Ticket 12' });
   assert.equal(error, undefined);
   assert.equal(log.entries.length, 1);
-  assert.deepEqual({ ...entry }, { id: 'pr-1', received: '2026-11-01', type: 'access', ref: 'Ticket 12', note: '', added: 1001 });
+  assert.deepEqual({ ...entry }, { id: 'pr-1', received: '2026-11-01', type: 'access', ref: 'Ticket 12', note: '', added: 1001, changed: 1001 });
   const st = requestState(entry, today);
   assert.equal(TARGET_DAYS, 30);
   assert.equal(st.due, '2026-12-01');

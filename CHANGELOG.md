@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-07 18:30 UTC — [autopilot] Owner workspace: privacy requests and practice runs now move between your devices
+
+- The test report you copy on one device (Launch readiness → Copy test report) now also carries your waitlist privacy request log and your finished incident practice runs.
+- On another device, "Bring in results from another device" shows which privacy requests and practice runs are new, changed or already there before you add them. Answering a request on your phone and importing on your computer updates it; a follow-up ticked off on one device shows as done on the other.
+- Privacy entries travel with dates, request type and answer only. Your references and notes stay on the device where you typed them, and no email address is ever in the report.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness → "Bring in results from another device".
+
 ## 2026-11-07 14:40 UTC — [autopilot] Owner workspace: privacy deadlines visible everywhere; track all transactions at once
 - The **Waitlist** tab button now shows how many privacy requests are still open. It turns amber when one is due within 7 days and red when one is overdue, so you see it from any tab.
 - **Launch readiness → Your next steps** now starts with any overdue or nearly-due privacy request ("Asked to be removed: answer by …"). Pressing it opens the Waitlist tab right on that request.

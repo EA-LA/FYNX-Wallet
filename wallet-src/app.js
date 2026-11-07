@@ -14,12 +14,12 @@ import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
-import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText } from './incident-drill.js';
+import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
-import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS } from './privacy-requests.js';
+import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -1201,7 +1201,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: decisionReportLines(decisionAnswers, decisionSavedTimes()) });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill)] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -1259,10 +1259,12 @@ function previewReport(text) {
   const parsed = parseReport(text, launchPlan), count = Object.keys(parsed.records).length;
   if (parsed.secret) { clearReportImport(); setText('#import-status', 'This text looks like it contains a recovery phrase or key, so it was cleared and not read. Never paste those into any website.'); return; }
   const dec = parseDecisions(text), decCount = Object.keys(dec.answers).length;
-  if (!count && !decCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const prIn = parsePrivacyReport(text), prCount = prIn.log.entries.length, drIn = parseDrillReport(text), drCount = drIn.runs.length;
+  if (!count && !decCount && !prCount && !drCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
-  pendingImport = { records: m.merged, decisions: dm };
+  const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs);
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -1290,19 +1292,53 @@ function previewReport(text) {
     }
     box.append(dl);
   }
-  const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length, changes = results + decisions;
-  const parts = [results ? `${results} result${results === 1 ? '' : 's'}` : '', decisions ? `${decisions} decision${decisions === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
+  if (prCount) {
+    const psum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', pm.added.length, 'new here'], ['is-update', pm.updated.length, 'changed later than this browser'], ['is-same', pm.same.length, 'already here'], ['is-kept', pm.kept.length, 'kept: this browser changed it later']]) if (n) psum.append(guideEl('li', cls, `${n} ${label}`));
+    if (prIn.unknown) psum.append(guideEl('li', 'is-kept', `${prIn.unknown} line${prIn.unknown === 1 ? '' : 's'} not understood`));
+    box.append(guideEl('h4', '', `${prCount} privacy request${prCount === 1 ? '' : 's'} found in the report`), psum);
+    const pl = guideEl('ul', 'launch-import-list'), byId = new Map(prIn.log.entries.map(e => [e.id, e]));
+    for (const kind of ['added', 'updated', 'kept']) for (const id of pm[kind]) {
+      const e = byId.get(id); if (!e) continue;
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', typeLabel(e.type)), guideEl('small', '', `Arrived ${e.received} · ${e.answered ? `answered ${e.answered} (${outcomeLabel(e.outcome)})` : `open, due ${requestState(e, localToday()).due}`}${kind === 'kept' ? ' · this browser’s version is newer and stays' : ''}`));
+      li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); pl.append(li);
+    }
+    if (pl.children.length) box.append(pl);
+    box.append(guideEl('p', 'hint', 'References and notes are not in the report; they stay on the device where you typed them. A request deleted on one device must be deleted on each device.'));
+  }
+  if (drCount) {
+    const newRuns = drm.added.length - drm.dropped, dsum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', newRuns, `practice run${newRuns === 1 ? '' : 's'} new here`], ['is-update', drm.ticked, `follow-up${drm.ticked === 1 ? '' : 's'} ticked off on the other device`], ['is-same', drm.same.length, 'already here'], ['is-kept', drm.dropped, 'older than the five runs kept, left out']]) if (n) dsum.append(guideEl('li', cls, `${n} ${label}`));
+    if (drIn.refused) dsum.append(guideEl('li', 'is-kept', `${drIn.refused} item${drIn.refused === 1 ? '' : 's'} left out: looked like a key`));
+    box.append(guideEl('h4', '', `${drCount} practice run${drCount === 1 ? '' : 's'} found in the report`), dsum);
+    const rl = guideEl('ul', 'launch-import-list');
+    for (const run of drm.added) {
+      if (!drm.drill.history.includes(run)) continue;
+      const li = guideEl('li'), body = guideEl('div'), f = r => Object.values(r.answers).filter(a => a.followUp).length;
+      body.append(guideEl('span', '', findScenario(run.scenario)?.title || 'Practice run'), guideEl('small', '', `Finished ${new Date(run.finishedAt).toLocaleString()} · ${run.people.length} people · ${f(run)} follow-up${f(run) === 1 ? '' : 's'}`));
+      li.append(guideEl('span', 'import-mark import-added', 'New'), body); rl.append(li);
+    }
+    if (rl.children.length) box.append(rl);
+  }
+  const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
+  const requests = pm.added.length + pm.updated.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, changes = results + decisions + requests + runs + ticks;
+  const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(requests, 'privacy request'), n(runs, 'practice run'), n(ticks, 'follow-up tick')].filter(Boolean);
+  const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
       decisionAnswers = cleanAnswers(d.answers); decisionTimes = cleanTimes(d.times, decisionAnswers); saveDecisionAnswers();
     }
+    if (requests) { privacyLog = pmi.log; savePrivacyLog(); renderPrivacyLog(); }
+    if (runs || ticks) { drill = dri.drill; saveDrill(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });

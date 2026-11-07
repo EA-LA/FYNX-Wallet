@@ -85,7 +85,7 @@ test('a decided answer imported with its report also brings the done step', () =
 });
 
 test('the workspace puts decisions in the report, previews them on import and stores save times', () => {
-  assert.match(app, /appendix: decisionReportLines\(decisionAnswers, decisionSavedTimes\(\)\)/);
+  assert.match(app, /appendix: \[\.\.\.decisionReportLines\(decisionAnswers, decisionSavedTimes\(\)\)/);
   assert.match(app, /parseDecisions\(text\)/);
   assert.match(app, /mergeDecisions\(decisionAnswers, decisionSavedTimes\(\), dec\.answers, dec\.times\)/);
   assert.match(app, /localStorage\.removeItem\(DECISION_TIMES_KEY\)/);

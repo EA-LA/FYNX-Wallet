@@ -232,3 +232,97 @@ export function followUpText(plan, drill, now = Date.now()) {
   if (!items.length) L.push('No follow-ups yet.');
   return L.join('\n');
 }
+
+// Finished practice runs (with their follow-ups and tick-offs) travel between devices inside the launch
+// test report. Runs are matched by scenario and finish time (to the minute). A follow-up ticked off on
+// any device stays ticked; the people and answers of a finished run do not change.
+export const DRILL_SECTION = 'Incident practice runs';
+const unmd = s => String(s).replace(/\\([\\`*_[\]<>|])/g, '$1').replace(/\s+/g, ' ').trim();
+const minute = ms => Math.floor((ms || 0) / 60000);
+const runKey = run => `${run.scenario}@${minute(run.finishedAt)}`;
+const resultText = { handled: 'Handled', gap: 'Gap found' };
+
+export function drillReportLines(drill) {
+  const runs = (drill?.history || []).filter(r => r.finishedAt && findScenario(r.scenario));
+  if (!runs.length) return [];
+  const L = [`## ${DRILL_SECTION}`, '', 'Finished practice runs with their follow-ups, so they can be brought into another browser.', ''];
+  for (const run of runs) {
+    L.push(`### ${md(findScenario(run.scenario).title)} (finished ${stamp(run.finishedAt)} UTC)`, '');
+    if (run.startedAt) L.push(`- Started: ${stamp(run.startedAt)} UTC`);
+    L.push(`- People: ${run.people.length ? run.people.map(md).join(', ') : 'none listed'}`);
+    for (const stage of STAGES) {
+      const a = run.answers[stage.id]; if (!a) continue;
+      L.push(`- ${md(stage.title)}: ${resultText[a.result]}${a.followUp ? ` · Follow-up: ${md(a.followUp)}` : ''}${a.followUp && a.doneAt ? ` · done ${stamp(a.doneAt)} UTC` : ''}`);
+    }
+    L.push('');
+  }
+  return L;
+}
+
+const RUN_HEAD = /^###\s+(.+?)\s+\(finished (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\)\s*$/;
+const DONE = /\s+·\s+done (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC$/;
+const utc = (d, t) => { const v = Date.parse(`${d}T${t}:00Z`); return Number.isFinite(v) ? v : 0; };
+export function parseDrillReport(text) {
+  const runs = [];
+  let inSection = false, run = null, unknown = 0, refused = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 2000)) {
+    if (/^##\s/.test(line)) { inSection = unmd(line.replace(/^##\s+/, '')) === DRILL_SECTION; run = null; continue; }
+    if (!inSection) continue;
+    const h = line.match(RUN_HEAD);
+    if (h) {
+      const scenario = SCENARIOS.find(s => s.title === unmd(h[1]));
+      run = scenario ? { scenario: scenario.id, people: [], startedAt: 0, finishedAt: utc(h[2], h[3]), answers: {} } : null;
+      if (run) runs.push(run); else unknown += 1;
+      continue;
+    }
+    const m = line.match(/^\s*[-*]\s+(.+)$/); if (!m || !run) { if (m) unknown += 1; continue; }
+    let body = m[1].trim();
+    const started = body.match(/^Started: (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC$/);
+    if (started) { run.startedAt = utc(started[1], started[2]); continue; }
+    if (body.startsWith('People: ')) {
+      const list = body.slice(8).trim();
+      if (looksSecret(unmd(list))) { refused += 1; continue; }
+      run.people = list === 'none listed' ? [] : parsePeople(list.split(', ').map(unmd).join(','));
+      continue;
+    }
+    let doneAt = 0;
+    const d = body.match(DONE); if (d) { doneAt = utc(d[1], d[2]); body = body.slice(0, d.index); }
+    const stage = STAGES.find(s => body.startsWith(`${md(s.title)}: `));
+    const rest = stage ? body.slice(md(stage.title).length + 2) : '';
+    const r = rest.match(/^(Handled|Gap found)(?: · Follow-up: (.+))?$/);
+    if (!stage || !r) { unknown += 1; continue; }
+    const raw = r[2] ? unmd(r[2]) : '';
+    if (raw && looksSecret(raw)) refused += 1;
+    const followUp = cleanFollowUp(raw);
+    run.answers[stage.id] = { result: r[1] === 'Handled' ? 'handled' : 'gap', followUp, ...(followUp && doneAt ? { doneAt } : {}) };
+  }
+  const seen = new Set(), clean = [];
+  for (const raw of runs) {
+    const r = cleanDrill({ history: [raw] }).history[0];
+    if (!r || seen.has(runKey(r))) { unknown += 1; continue; }
+    seen.add(runKey(r)); clean.push(r);
+  }
+  return { runs: clean.slice(0, MAX_HISTORY), unknown, refused };
+}
+
+// Combine imported finished runs with this browser's. Returns the new drill state and what changed.
+export function mergeDrills(local, incomingRuns = []) {
+  const history = (local?.history || []).map(r => ({ ...r, answers: { ...r.answers } }));
+  const index = new Map(history.map((r, i) => [runKey(r), i]));
+  const changes = { added: [], ticked: 0, same: [] };
+  for (const inc of incomingRuns) {
+    const i = index.get(runKey(inc));
+    if (i === undefined) { history.push(inc); index.set(runKey(inc), history.length - 1); changes.added.push(inc); continue; }
+    let ticks = 0;
+    const mine = history[i];
+    for (const stage of STAGES) {
+      const a = mine.answers[stage.id], b = inc.answers[stage.id];
+      if (a?.followUp && b?.doneAt && !a.doneAt && a.followUp === b.followUp) { mine.answers[stage.id] = { ...a, doneAt: b.doneAt }; ticks += 1; }
+    }
+    if (ticks) changes.ticked += ticks; else changes.same.push(inc);
+  }
+  history.sort((a, b) => b.finishedAt - a.finishedAt);
+  const kept = history.slice(0, MAX_HISTORY), keptKeys = new Set(kept.map(runKey));
+  const dropped = changes.added.filter(r => !keptKeys.has(runKey(r))).length;
+  return { drill: { current: local?.current || null, history: kept }, ...changes, dropped, total: history.length };
+}
