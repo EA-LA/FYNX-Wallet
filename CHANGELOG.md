@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-07 07:16 UTC — Ready for your keys: live prices, full history, dependable network reads and a services check
+
+- **Launch readiness → Your services** (new): one press checks every outside service FYNX uses and says **Working**, **Not added yet**, **Key looks wrong** or **Not answering**. It covers Alchemy (network + history), CoinGecko (prices), the public backup, Transak, and real-money sending, which stays off until you turn it on. Keys are never shown.
+- **Crypto tools → Portfolio & history** (new): **Check balances** shows ETH and USDC for your verified wallet on all three networks. Your Base balance is shown in dollars, and test-network coins are never counted as money. **Load history** lists every ETH and USDC transfer in and out, newest first, with explorer links.
+- The FYNX server reads through Alchemy first and switches automatically to the public network if Alchemy is missing or down.
+- **What you do:** follow docs/SERVICES-SETUP.md (create the FYNX_PROVIDERS secret with your Alchemy and CoinGecko keys, then deploy the owner function). Until that deploy, the new buttons say the server still needs the update.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness and Crypto tools.
+
 ## 2026-11-07 06:19 UTC — [autopilot] Waitlist: address check, privacy-request replies and the waitlist launch tests in one place
 - **Address check** (new box under Sign-up insights): spots the same inbox signed up twice (for example j.smith@gmail.com and jsmith+fynx@gmail.com), likely mistyped addresses (gmial.com, .con), throwaway inboxes, shared mailboxes (info@, support@) and rows past their retention date. Each row in the table shows a small label, and “Show these” filters the list to just those rows. The copied summary now includes these counts (no email addresses).
 - **New “Show” filter** on the registration list (Needs a look, Possible duplicates, Likely mistyped, Disposable inbox, Shared mailbox, Retention ending, Past retention). Download CSV follows the same filter.

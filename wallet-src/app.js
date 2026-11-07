@@ -140,6 +140,7 @@ function clearPrivateWorkspace() {
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
   for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); renderDecisions(); clearReportImport();
+  clearServices(); clearPortfolio();
   $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
@@ -295,6 +296,85 @@ $('#sec-copy').addEventListener('click', async () => {
   catch { setText('#sec-status', 'Copying was blocked by the browser.'); }
 });
 setInterval(renderSecurityTimes, 15000);
+// Your services and Portfolio & history: answers from the FYNX server's data providers (keys stay on the server).
+const notDeployed = error => /Unknown operation/.test(error?.message || '');
+const SERVER_UPDATE = 'Your FYNX server has not been updated with this feature yet. Run the deploy step in the setup guide, then try again.';
+async function serverCall(request, statusId) {
+  try { return await api(request); }
+  catch (error) { if (notDeployed(error)) { setText(statusId, SERVER_UPDATE); return null; } throw error; }
+}
+const SVC_STATES = { working: ['Working', 'ok'], missing: ['Not added yet', 'todo'], invalid: ['Key looks wrong', 'flag'], error: ['Not answering', 'flag'], off: ['Off · your switch', 'todo'], on: ['On', 'ok'] };
+const SVC_HELP = {
+  alchemy: 'Add alchemyKey to the FYNX_PROVIDERS secret (setup guide, step 1).',
+  coingecko: 'Add coingeckoKey to the FYNX_PROVIDERS secret (setup guide, step 2).',
+  backup: 'The public endpoint is busy or down; Alchemy covers it once added.',
+  transak: 'Follow the Transak steps in docs/PROVIDER-SETUP.md (linked from the setup guide).',
+  mainnet: '',
+};
+function renderServices(data) {
+  const list = $('#svc-list'); list.replaceChildren();
+  for (const svc of data.services || []) {
+    const [label, tone] = SVC_STATES[svc.state] || ['Unknown', 'todo'];
+    const li = el('li', `svc-item is-${tone}`), body = el('div');
+    body.append(el('strong', '', svc.name), el('span', 'hint', svc.unlocks));
+    if (tone !== 'ok' && SVC_HELP[svc.id]) body.append(el('span', 'hint svc-help', SVC_HELP[svc.id]));
+    li.append(el('span', `svc-state is-${tone}`, `${label}${svc.ms ? ` · ${svc.ms} ms` : ''}`), body); list.append(li);
+  }
+  const ready = (data.services || []).filter(s => s.state === 'working').length;
+  setText('#svc-checked', `${ready} of ${(data.services || []).length} working · checked ${new Date(data.checkedAt).toLocaleTimeString()}`);
+}
+function clearServices() { $('#svc-list').replaceChildren(); setText('#svc-checked', ''); setText('#svc-status', ''); }
+$('#svc-check').addEventListener('click', event => run(event.currentTarget, async checkSession => {
+  const data = await serverCall({ action: 'services-status' }, '#svc-status'); checkSession();
+  if (data) { renderServices(data); setText('#svc-status', 'Checked. Keys are never shown here.'); }
+}, '#svc-status'));
+
+const usd = value => value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+const amountText = value => { const n = Number(value); return n === 0 ? '0' : n < 0.0001 ? '< 0.0001' : n.toLocaleString(undefined, { maximumFractionDigits: 6 }); };
+function clearPortfolio() {
+  $('#pf-rows').replaceChildren(); $('#pf-history-list').replaceChildren(); show('#pf-table', false); show('#pf-total', false);
+  for (const id of ['#pf-total', '#pf-prices', '#pf-status']) setText(id, '');
+}
+$('#pf-load').addEventListener('click', event => run(event.currentTarget, async checkSession => {
+  const data = await serverCall({ action: 'portfolio' }, '#pf-status'); checkSession(); if (!data) return;
+  let priceData = null, priceNote = '';
+  try { priceData = await api({ action: 'prices' }); } catch (error) { priceNote = notDeployed(error) ? SERVER_UPDATE : errorMessage(error); }
+  checkSession();
+  const body = $('#pf-rows'); body.replaceChildren(); let total = 0, priced = false;
+  for (const row of data.rows) {
+    const tr = document.createElement('tr');
+    const cells = [['Network', `${row.network}${row.testnet ? ' · test' : ''}`]];
+    if (!row.ok) cells.push(['ETH', 'Not reachable'], ['USDC', '—'], ['Value (USD)', 'Try again shortly']);
+    else {
+      let value = 'Test assets · no value';
+      if (!row.testnet) {
+        if (priceData) { const v = Number(row.eth) * priceData.prices.ETH.usd + Number(row.usdc) * priceData.prices.USDC.usd; total += v; priced = true; value = usd(v); }
+        else value = 'Add prices to see';
+      }
+      cells.push(['ETH', amountText(row.eth)], ['USDC', amountText(row.usdc)], ['Value (USD)', value]);
+    }
+    for (const [label, text] of cells) { const td = document.createElement('td'); td.dataset.label = label; td.textContent = text; tr.append(td); }
+    body.append(tr);
+  }
+  show('#pf-table', true);
+  setText('#pf-total', priced ? `${usd(total)} on Base (real assets) · ${data.address.slice(0, 6)}…${data.address.slice(-4)}` : `Wallet ${data.address.slice(0, 6)}…${data.address.slice(-4)}`); show('#pf-total', true);
+  const p = priceData?.prices;
+  setText('#pf-prices', p ? `Prices from ${priceData.source}, ${new Date(priceData.fetchedAt).toLocaleTimeString()}: ETH ${usd(p.ETH.usd)}${p.ETH.change24h !== null ? ` (${p.ETH.change24h >= 0 ? '+' : ''}${p.ETH.change24h.toFixed(2)}% 24h)` : ''} · USDC ${usd(p.USDC.usd)}. Balances via ${[...new Set(data.rows.filter(r => r.ok).map(r => r.via))].join(' and ') || '—'}.` : `Dollar values are off: ${priceNote}`);
+  setText('#pf-status', `Checked ${new Date(data.checkedAt).toLocaleTimeString()}.`);
+}, '#pf-status'));
+$('#pf-history').addEventListener('click', event => run(event.currentTarget, async checkSession => {
+  const data = await serverCall({ action: 'history', chainId: Number($('#pf-network').value) }, '#pf-status'); checkSession(); if (!data) return;
+  const list = $('#pf-history-list'); list.replaceChildren();
+  if (!data.items.length) list.append(el('li', 'pf-empty', `No ETH or USDC transfers on ${data.network} for this wallet yet.`));
+  for (const item of data.items) {
+    const li = el('li', `pf-tx is-${item.direction}`), main = el('div');
+    const other = item.direction === 'in' ? item.from : item.to;
+    main.append(el('strong', '', `${item.direction === 'in' ? 'Received' : 'Sent'} ${amountText(item.amount)} ${item.token}`), el('span', 'hint', `${item.direction === 'in' ? 'From' : 'To'} ${other ? `${other.slice(0, 6)}…${other.slice(-4)}` : 'unknown'} · ${item.time ? new Date(item.time).toLocaleString() : `block ${item.block ?? '—'}`}`));
+    const link = el('a', 'text-button', 'View ↗'); link.href = `${data.explorer}/tx/${item.hash}`; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.setAttribute('aria-label', `View transaction ${item.hash.slice(0, 10)} on the explorer`);
+    li.append(el('span', 'pf-dir', item.direction === 'in' ? '↓' : '↑'), main, link); li.firstChild.setAttribute('aria-hidden', 'true'); list.append(li);
+  }
+  setText('#pf-status', `${data.items.length} transfer${data.items.length === 1 ? '' : 's'} on ${data.network}${data.more ? ' (newest 100 shown)' : ''}.`);
+}, '#pf-status'));
 async function ready() {
   if (window.top !== window.self) throw new Error('Open the FYNX workspace directly in its own browser tab.');
   const app = initializeApp(firebaseConfig);

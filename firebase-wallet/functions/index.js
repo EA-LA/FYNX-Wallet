@@ -1,6 +1,9 @@
 import { defineSecret } from 'firebase-functions/params';
 import { providerStatus, createCheckout, checkoutStatus } from './fiat.js';
 const transakSandbox = defineSecret('FYNX_TRANSAK_SANDBOX');
+// Data-provider keys (Alchemy, CoinGecko) as one JSON secret; create it as {} before deploying. See docs/SERVICES-SETUP.md.
+const dataProviders = defineSecret('FYNX_PROVIDERS');
+import { providerConfig, servicesStatus, portfolio, history, prices } from './providers.js';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
@@ -17,7 +20,7 @@ initializeApp({ serviceAccountId: SERVICE_ACCOUNT });
 export const fynxWalletWorkspace = onCall({
   region: 'us-central1', serviceAccount: SERVICE_ACCOUNT,
   enforceAppCheck: true, cors: [ORIGIN], maxInstances: 3,
-  timeoutSeconds: 30, memory: '256MiB', secrets: [transakSandbox],
+  timeoutSeconds: 30, memory: '256MiB', secrets: [transakSandbox, dataProviders],
 }, async request => {
   appGuard(request);
   const db = getFirestore();
@@ -41,6 +44,10 @@ export const fynxWalletWorkspace = onCall({
         return createCheckout({ raw: transakSandbox.value(), db, uid: user.uid, wallet: snap.data()?.wallet, input, ip: request.rawRequest.ip });
       }
       case 'fiat-status': return checkoutStatus({ raw: transakSandbox.value(), db, uid: user.uid, input });
+      case 'services-status': return await servicesStatus(providerConfig(dataProviders.value()), { transak: providerStatus(transakSandbox.value()), mainnet: { enabled: false } });
+      case 'portfolio': return await portfolio((await profile.get()).data()?.wallet, providerConfig(dataProviders.value()));
+      case 'history': return await history((await profile.get()).data()?.wallet, input, providerConfig(dataProviders.value()));
+      case 'prices': return await prices(providerConfig(dataProviders.value()));
       case 'dashboard': return { html: dashboardHTML };
       case 'session': {
         const wallet = await profile.get();
