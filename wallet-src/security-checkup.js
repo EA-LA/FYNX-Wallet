@@ -113,8 +113,10 @@ export function summaryText({ result, methods, passkeys, signInWith, tests = nul
 }
 
 // The owner's Account security launch tests (identity gate), with their saved results. Shared with Launch readiness.
-export function identityTests(plan, records = {}) {
-  const gate = (plan?.items || []).find(g => g.id === 'identity');
+export function identityTests(plan, records = {}) { return gateTests(plan, records, 'identity'); }
+// The owner's own test steps for one launch gate, with the results recorded in this browser.
+export function gateTests(plan, records = {}, gateId) {
+  const gate = (plan?.items || []).find(g => g.id === gateId);
   if (!gate) return { gate: null, steps: [], total: 0, done: 0, failed: 0 };
   const steps = (gate.steps || []).filter(s => s.by === 'you').map(step => {
     const key = stepKey(gate.id, step.id), rec = records[key] || {}, state = stepState(gate, step, records);

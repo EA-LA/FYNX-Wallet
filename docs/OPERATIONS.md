@@ -16,7 +16,7 @@ Use **Owner workspace → Waitlist → Load registrations**, then **Load more re
 1. Check the support inbox for withdrawal requests before any campaign. Verify the request through the registered mailbox; do not ask for identity documents, wallet signatures, keys or recovery words.
 2. Sign in again if necessary, search for the exact email, confirm the matching record, and choose Remove. The backend requires a recent owner login. Deletion and its audit event commit atomically; neither the email nor document ID is copied to the audit log. A failed operation leaves the row visible and reports an error; retry or reload before reporting completion.
 3. Confirm the active Firestore record is gone. Remove the address from any separately approved mailing provider if one is added later. This repository currently has no such integration.
-4. Reply only when the operator chooses to do so. Automation here does not send messages.
+4. Reply only when the operator chooses to do so. Automation here does not send messages. The Waitlist tab can draft a reply: **Draft privacy reply** (under a row's status) lists what the waitlist holds for that address, and a deletion-confirmation draft appears after **Remove**. Check the draft and send it yourself from the support inbox.
 5. Waitlist records expire after 365 days. TTL deletion is asynchronous. Do not represent deletion as removal from provider backups or immutable blockchain data.
 6. Exclude all `example.com` acceptance-test addresses from any campaign.
 

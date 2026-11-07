@@ -11,12 +11,13 @@ import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
 import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, parseReport, mergeRecords, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
-import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests } from './security-checkup.js';
+import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText } from './incident-drill.js';
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS } from './tx-tracker.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
+import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
 const setText = (id, text) => { $(id).textContent = text; };
@@ -29,7 +30,7 @@ let generation = 0, verifiedAddress = null, busy = false, lastActivity = Date.no
 let dashboardFrame = null, dashboardLoading = false, dashboardTimer;
 let waitlistCursor = null, waitlistEmail = '', waitlistTotal = 0;
 const waitlistRecords = new Map();
-let waitlistPeriod = 'day', waitlistLoadingAll = false;
+let waitlistPeriod = 'day', waitlistLoadingAll = false, waitlistFlags = new Map(), removedTest = null;
 const providers = new Map();
 let signInInfo = null;
 let lastBalances = { eth: null, usdc: null };
@@ -38,6 +39,7 @@ function selectTab(name) {
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
   setText('#workspace-status', '');
   if (name === 'security') renderSecurity();
+  if (name === 'registrations') renderWaitlistTests();
   if (name === 'wallet') { renderCryptoSetup(); renderCryptoTests(); }
 }
 function clearDashboard() {
@@ -588,9 +590,10 @@ async function loadRegistrations({ more = false, email = waitlistEmail } = {}) {
 function renderRegistrations() {
   setText('#waitlist-count', waitlistEmail ? `${waitlistTotal} matching registration${waitlistTotal === 1 ? '' : 's'}` : `${waitlistTotal} registrations · ${waitlistRecords.size} loaded`);
   show('#more-waitlist', !!waitlistCursor);
-  renderWaitlistInsights();
+  waitlistFlags = addressFlags(waitlistRecords.values());
+  renderWaitlistInsights(); renderWaitlistTests();
   const body = $('#waitlist-rows'); body.replaceChildren();
-  const visible = waitlistEmail ? [...waitlistRecords.values()] : filterRecords(waitlistRecords.values(), waitlistFilter());
+  const visible = waitlistEmail ? [...waitlistRecords.values()] : visibleRegistrations();
   if (!visible.length) {
     const row = document.createElement('tr'), cell = document.createElement('td'); cell.colSpan = 4;
     cell.textContent = waitlistEmail ? 'No registration found for this email.' : waitlistRecords.size ? 'No loaded registration matches this filter.' : 'No registrations yet.'; row.append(cell); body.append(row);
@@ -598,29 +601,48 @@ function renderRegistrations() {
   if (!waitlistEmail && visible.length !== waitlistRecords.size) setText('#waitlist-count', `${waitlistTotal} registrations · ${waitlistRecords.size} loaded · ${visible.length} shown`);
   for (const record of visible) {
     const tr = document.createElement('tr');
-    for (const [label, value] of [['Email', isTestAddress(record.email) ? `${record.email} (test address)` : record.email], ['Registered', record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Pending timestamp']]) { const td = document.createElement('td'); td.dataset.label = label; td.textContent = value; tr.append(td); }
+    const flags = (waitlistFlags.get(record.id) || []).filter(f => f.kind !== 'test');
+    for (const [label, value] of [['Email', isTestAddress(record.email) ? `${record.email} (test address)` : record.email], ['Registered', record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Pending timestamp']]) {
+      const td = document.createElement('td'); td.dataset.label = label; td.textContent = value;
+      if (label === 'Email' && flags.length) { const tags = el('span', 'wl-flags'); for (const f of flags) tags.append(el('span', `wl-flag is-${f.kind}`, f.label)); td.append(tags); }
+      tr.append(td);
+    }
     const info = document.createElement('td'), details = document.createElement('details'), summary = document.createElement('summary');
     summary.textContent = record.status || 'Unknown status'; details.append(summary);
     for (const value of [`Consent: ${record.consent ? 'Recorded' : 'Not recorded'}`, `Notice: ${record.noticeVersion || 'Not recorded'}`, `Source: ${record.source || 'Not recorded'}`, `Expires: ${record.expiresAt ? new Date(record.expiresAt).toLocaleDateString() : 'Not recorded'}`]) { const line = document.createElement('p'); line.textContent = value; line.className = 'hint'; details.append(line); }
+    for (const f of flags) details.append(el('p', `hint wl-flag-detail is-${f.kind}`, `${f.label}: ${f.detail}`));
+    if (!isTestAddress(record.email)) {
+      const reply = el('button', 'text-button', 'Draft privacy reply'); reply.type = 'button';
+      reply.setAttribute('aria-label', `Draft a reply to a privacy request from ${record.email}`);
+      reply.addEventListener('click', () => openPrivacyReply('access', record));
+      details.append(reply);
+    }
     info.dataset.label = 'Status & consent'; info.append(details); tr.append(info);
     const td = document.createElement('td'), remove = document.createElement('button'); remove.className = 'text-button'; remove.textContent = 'Remove';
     remove.setAttribute('aria-label', `Remove registration for ${record.email}`);
     remove.addEventListener('click', () => run(remove, async () => {
       if (!window.confirm(`Permanently remove ${record.email} from the active waitlist?`)) return;
       await api({ action: 'waitlist-remove', id: record.id });
+      const removedAt = Date.now(), test = isTestAddress(record.email);
+      if (test) removedTest = { record: { ...record }, check: testSignupCheck(record, { now: removedAt }), at: removedAt };
       waitlistRecords.delete(record.id); waitlistTotal = Math.max(0, waitlistTotal - 1); renderRegistrations();
-      setText('#workspace-status', 'Registration removed from the active waitlist.');
+      setText('#workspace-status', test ? 'Test registration removed. You can record the waitlist launch test below.' : 'Registration removed from the active waitlist. A deletion confirmation draft is ready below.');
+      if (test) document.querySelector('#wl-test-offer button')?.focus({ preventScroll: false });
+      else openPrivacyReply('deleted', record, removedAt);
     }));
     td.dataset.label = 'Action'; td.append(remove); tr.append(td); body.append(tr);
   }
 }
 // Waitlist insights: counts, sign-up chart, breakdowns and exports from the rows loaded in this browser only.
 const waitlistFilter = () => ({ query: $('#wl-query').value, hideTests: $('#wl-hide-tests').checked, consent: $('#wl-consent').value });
+const visibleRegistrations = () => filterRecords(waitlistRecords.values(), waitlistFilter()).filter(r => matchesCheck(r, waitlistFlags, $('#wl-check').value));
 function clearWaitlistInsights() {
   waitlistLoadingAll = false; waitlistPeriod = 'day';
   $('#wl-stats').replaceChildren(); $('#wl-chart').replaceChildren(); $('#wl-breakdowns').replaceChildren();
-  setText('#wl-coverage', ''); setText('#wl-status', ''); $('#wl-query').value = ''; $('#wl-hide-tests').checked = false; $('#wl-consent').value = 'all';
+  setText('#wl-coverage', ''); setText('#wl-status', ''); $('#wl-query').value = ''; $('#wl-hide-tests').checked = false; $('#wl-consent').value = 'all'; $('#wl-check').value = 'all';
   show('#waitlist-insights', false); show('#wl-filter', false);
+  waitlistFlags = new Map(); removedTest = null; $('#wl-quality').replaceChildren(); closePrivacyReply(false);
+  $('#wl-testcheck').replaceChildren(); show('#wl-testcheck', false); $('#wl-tests').replaceChildren(); setText('#wl-tests-count', ''); setText('#wl-tests-status', '');
 }
 const shortDate = (time, opts) => new Date(time).toLocaleDateString(undefined, opts || { month: 'short', day: 'numeric' });
 function renderWaitlistChart() {
@@ -669,9 +691,107 @@ function renderWaitlistInsights() {
     for (const [key, count] of pairs.length ? pairs : [['None yet', '']]) { const li = el('li'); li.append(el('span', '', String(key)), el('strong', '', String(count))); list.append(li); }
     box.append(list); wrap.append(box);
   }
+  renderAddressCheck();
 }
+// Address check: counts with a "Show" button that sets the row filter.
+function renderAddressCheck() {
+  const list = $('#wl-quality'); list.replaceChildren();
+  const counts = checkCounts(waitlistRecords.values(), waitlistFlags);
+  const items = [
+    ['duplicate', counts.groups ? `${counts.groups} inbox${counts.groups === 1 ? '' : 'es'} signed up more than once (${counts.duplicate} rows)` : 'No inbox signed up twice', counts.duplicate, 'Gmail ignores dots and anything after a “+”, so these reach the same person.'],
+    ['typo', `${counts.typo} likely mistyped address${counts.typo === 1 ? '' : 'es'}`, counts.typo, 'For example gmial.com or .con. Mail to them will probably bounce; the person can join again with the right address.'],
+    ['disposable', `${counts.disposable} throwaway inbox${counts.disposable === 1 ? '' : 'es'}`, counts.disposable, 'Temporary-inbox services; the person may not be reachable at launch.'],
+    ['role', `${counts.role} shared mailbox${counts.role === 1 ? '' : 'es'}`, counts.role, 'info@, support@ and similar usually reach a team, not one person.'],
+    ['expired', `${counts.expired} past the retention date`, counts.expired, 'Automatic deletion is queued and normally completes within a day.'],
+  ];
+  for (const [kind, title, count, hint] of items) {
+    const li = el('li', `wl-q is-${count ? 'flag' : 'ok'}`), body = el('div');
+    body.append(el('strong', '', title), el('span', 'hint', hint)); li.append(el('span', 'wl-q-mark', count ? '!' : '✓'), body);
+    li.firstChild.setAttribute('aria-hidden', 'true');
+    if (count) {
+      const b = el('button', 'text-button', 'Show these'); b.type = 'button'; b.setAttribute('aria-label', `Show only: ${CHECKS.find(c => c[0] === kind)[1]}`);
+      b.addEventListener('click', () => { $('#wl-check').value = kind; renderRegistrations(); $('#wl-check').focus(); setText('#wl-status', `Showing: ${CHECKS.find(c => c[0] === kind)[1]}. Choose “Every registration” to see all rows again.`); });
+      li.append(b);
+    }
+    list.append(li);
+  }
+}
+// Privacy request replies: a draft built from the loaded record, shown for copying. Never sent from here.
+let replyFocus = null;
+function openPrivacyReply(kind, record, removedAt) {
+  replyFocus = kind === 'access' ? document.activeElement : null;
+  setText('#wl-reply-title', kind === 'access' ? `Reply to a request for their data · ${record.email}` : `Deletion confirmation · ${record.email}`);
+  $('#wl-reply-text').value = kind === 'access' ? accessReply(record) : deletionReply(record, { removedAt });
+  setText('#wl-reply-status', kind === 'access' ? 'If they asked to be removed instead, verify the request came from this mailbox, then press Remove.' : 'Removed. Send this only after you verified the request came from this mailbox.');
+  show('#wl-reply', true); $('#wl-reply-title').focus();
+}
+function closePrivacyReply(restore = true) {
+  $('#wl-reply-text').value = ''; setText('#wl-reply-status', ''); setText('#wl-reply-title', 'Privacy request reply'); show('#wl-reply', false);
+  if (restore && replyFocus?.isConnected) replyFocus.focus(); replyFocus = null;
+}
+$('#wl-reply-close').addEventListener('click', () => closePrivacyReply());
+$('#wl-reply-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('#wl-reply-text').value); setText('#wl-reply-status', 'Reply copied. Paste it into your email and check it before sending.'); }
+  catch { $('#wl-reply-text').select(); setText('#wl-reply-status', 'Copying was blocked by the browser. The text is selected: copy it with your keyboard.'); }
+});
+// Website-gate tests recorded right here (same records as Launch readiness, this browser only),
+// with a check of the loaded test sign-ups and a one-press record after removing one.
+function renderWaitlistTests() {
+  const box = document.getElementById('wl-tests'); if (!box) return;
+  const { gate, steps, total, done, failed } = gateTests(launchPlan, launchRecords, 'website');
+  setText('#wl-tests-count', total ? `${done} of ${total} recorded${failed ? ` · ${failed} failed` : ''}` : '');
+  box.replaceChildren();
+  for (const { step, key, state, result, note, fixed } of steps) {
+    const li = el('li', `sec-test is-${state}`); li.dataset.step = key;
+    const head = el('div', 'sec-test-head');
+    head.append(el('span', `launch-mark is-${state}`, fixed ? 'Done' : state === 'done' ? resultLabels[result] || 'Done' : state === 'failed' ? 'Failed' : 'To do'), el('span', 'sec-test-text', step.text));
+    li.append(head);
+    if (!fixed) {
+      const group = el('div', 'launch-results'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Result: ${step.text}`);
+      for (const r of RESULTS) {
+        const b = el('button', `launch-result result-${r}`, resultLabels[r]); b.type = 'button'; b.dataset.result = r; b.setAttribute('aria-pressed', String(result === r));
+        b.addEventListener('click', () => recordWaitlistStep(gate, step, { result: result === r ? '' : r }, `[data-result="${r}"]`));
+        group.append(b);
+      }
+      li.append(group, stepNoteEditor(key, note, value => recordWaitlistStep(gate, step, { note: value }, '.step-note-toggle'), '#wl-tests-status'));
+    }
+    box.append(li);
+  }
+  renderTestSignupCheck(gate, steps);
+}
+function renderTestSignupCheck(gate, steps) {
+  const wrap = $('#wl-testcheck'); wrap.replaceChildren();
+  const tests = [...waitlistRecords.values()].filter(r => isTestAddress(r.email)).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 3);
+  const findStep = steps.find(s => s.step.id === 'find-remove');
+  for (const record of tests) {
+    const c = testSignupCheck(record), section = el('section', `wl-tc is-${c.ok ? 'ok' : 'flag'}`);
+    section.append(el('h4', '', `Test sign-up check · ${record.email} · ${c.passed} of ${c.total}`));
+    const list = el('ul');
+    for (const item of c.checks) { const li = el('li', item.ok ? 'is-ok' : 'is-flag'); li.append(el('span', 'wl-q-mark', item.ok ? '✓' : '!'), el('span', '', `${item.label}${item.detail ? ` · ${item.detail}` : ''}${item.ok ? '' : ' — missing'}`)); li.firstChild.setAttribute('aria-hidden', 'true'); list.append(li); }
+    section.append(list, el('p', 'hint', c.ok ? 'Everything the waitlist should record is there. Now press Remove on this row in the table above.' : 'Something the waitlist should record is missing. Record the test as Failed with a note, and tell your developer.'));
+    wrap.append(section);
+  }
+  if (removedTest && findStep && !findStep.fixed && findStep.result !== 'pass') {
+    const offer = el('div', 'wl-tc wl-test-offer'); offer.id = 'wl-test-offer';
+    const { record, check } = removedTest;
+    offer.append(el('p', '', `You removed the test address ${record.email} after ${check.passed} of ${check.total} sign-up checks passed.`));
+    const b = el('button', 'button secondary', check.ok ? 'Record “find and remove” as Passed' : 'Record “find and remove” as Failed'); b.type = 'button';
+    b.addEventListener('click', () => { recordWaitlistStep(gate, findStep.step, { result: check.ok ? 'pass' : 'fail', note: findRemoveNote(record, check, { now: removedTest.at }) }, `[data-result="${check.ok ? 'pass' : 'fail'}"]`); removedTest = null; renderWaitlistTests(); });
+    offer.append(b); wrap.append(offer);
+  }
+  show('#wl-testcheck', wrap.childElementCount > 0);
+}
+function recordWaitlistStep(gate, step, patch, focusKey) {
+  const key = stepKey(gate.id, step.id), prev = launchRecords[key] || { result: '', note: '', at: 0 };
+  const next = { ...prev, ...patch, at: Date.now() };
+  if (!next.result && !next.note) delete launchRecords[key]; else launchRecords[key] = next;
+  saveLaunchRecords(); renderLaunch(); renderWaitlistTests();
+  document.querySelector(`#wl-tests [data-step="${CSS.escape(key)}"] ${focusKey}`)?.focus({ preventScroll: true });
+  setText('#wl-tests-status', 'note' in patch && !('result' in patch) ? (next.note ? 'Note saved. It also appears in Launch readiness and your test report.' : 'Note removed.') : next.result ? `Recorded: ${resultLabels[next.result]}. It also appears in Launch readiness and your test report.` : 'Result cleared.');
+}
+$('#wl-open-launch').addEventListener('click', () => { selectTab('launch'); openGate('website'); });
 for (const button of document.querySelectorAll('[data-wl-period]')) button.addEventListener('click', () => { waitlistPeriod = button.dataset.wlPeriod; renderWaitlistChart(); });
-for (const [id, type] of [['#wl-query', 'input'], ['#wl-hide-tests', 'change'], ['#wl-consent', 'change']]) $(id).addEventListener(type, () => renderRegistrations());
+for (const [id, type] of [['#wl-query', 'input'], ['#wl-hide-tests', 'change'], ['#wl-consent', 'change'], ['#wl-check', 'change']]) $(id).addEventListener(type, () => renderRegistrations());
 $('#wl-load-all').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   waitlistLoadingAll = true;
   try {
@@ -683,14 +803,14 @@ $('#wl-load-all').addEventListener('click', event => run(event.currentTarget, as
   } finally { waitlistLoadingAll = false; }
 }, '#wl-status'));
 $('#wl-download').addEventListener('click', () => {
-  const rows = filterRecords(waitlistRecords.values(), waitlistFilter());
+  const rows = visibleRegistrations();
   if (!rows.length) { setText('#wl-status', 'Nothing to download: no loaded registration matches the filter.'); return; }
   const url = URL.createObjectURL(new Blob([toCSV(rows)], { type: 'text/csv;charset=utf-8' })), a = document.createElement('a');
   a.href = url; a.download = `fynx-waitlist-${new Date().toISOString().slice(0, 10)}.csv`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   setText('#wl-status', `Downloaded ${rows.length} registration${rows.length === 1 ? '' : 's'}${rows.length < waitlistTotal ? ` (of ${waitlistTotal}; only loaded rows matching the filter are included)` : ''}. The file contains email addresses — keep it private.`);
 });
 $('#wl-copy').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(summaryText(summarize(waitlistRecords.values(), { total: waitlistTotal }))); setText('#wl-status', 'Summary copied (counts only, no email addresses).'); }
+  try { await navigator.clipboard.writeText(`${summaryText(summarize(waitlistRecords.values(), { total: waitlistTotal }))}\n${checkSummaryLine(checkCounts(waitlistRecords.values(), waitlistFlags))}`); setText('#wl-status', 'Summary copied (counts only, no email addresses).'); }
   catch { setText('#wl-status', 'Copying was blocked by the browser.'); }
 });
 $('#load-waitlist').addEventListener('click', event => run(event.currentTarget, () => loadRegistrations()));
@@ -921,7 +1041,7 @@ function previewReport(text) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
       decisionAnswers = cleanAnswers(d.answers); decisionTimes = cleanTimes(d.times, decisionAnswers); saveDecisionAnswers();
     }
-    clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests();
+    clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
     setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet and your test report now include them.`);
     $('#import-check').focus();
   });

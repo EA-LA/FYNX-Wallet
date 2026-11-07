@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-07 06:19 UTC — [autopilot] Waitlist: address check, privacy-request replies and the waitlist launch tests in one place
+- **Address check** (new box under Sign-up insights): spots the same inbox signed up twice (for example j.smith@gmail.com and jsmith+fynx@gmail.com), likely mistyped addresses (gmial.com, .con), throwaway inboxes, shared mailboxes (info@, support@) and rows past their retention date. Each row in the table shows a small label, and “Show these” filters the list to just those rows. The copied summary now includes these counts (no email addresses).
+- **New “Show” filter** on the registration list (Needs a look, Possible duplicates, Likely mistyped, Disposable inbox, Shared mailbox, Retention ending, Past retention). Download CSV follows the same filter.
+- **Privacy request replies**: open a registration’s status and press “Draft privacy reply” to get a ready-to-paste answer listing exactly what the waitlist holds for that person. After you remove someone, a deletion confirmation draft appears (honest about backups). Nothing is sent from the page; drafts clear on sign-out.
+- **Your waitlist launch tests** now live on the Waitlist tab: after you join from your phone with an @example.com address and look it up, a six-point sign-up check confirms consent, notice version, source, sign-up time and the 365-day deletion date. When you remove it, one press records “find and remove” as Passed with a short note — shared with Launch readiness and your test report.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Waitlist.
+
 ## 2026-11-07 02:16 UTC — [autopilot] Crypto tools: transaction tracking now spots replaced, dropped and reorganised transactions
 
 - **"Track confirmation" tells you what really happened to a transaction.** Before, anything without a receipt just said "pending". Now each check says one of: waiting to be included, confirmed (with a confirmations count and a small progress bar, for example "5 of 30 confirmations"), failed on-chain, replaced (you pressed "Speed up" or "Cancel" in your wallet and another version went through), dropped by the network, or moved by a block reorganisation. Each result comes with a plain explanation and what to do next, such as "do not send it again".
