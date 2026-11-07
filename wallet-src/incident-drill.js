@@ -75,6 +75,19 @@ export const SCENARIOS = [
       close: 'How should waitlist files be shared in future, if at all?',
     },
   },
+  {
+    id: 'pilot', title: 'Pilot transfers do not add up',
+    story: 'Day three of the pilot. The reconciliation in Crypto tools says “Needs a look”: a 240 USDC transfer on Base that nobody remembers starting, above your 50 USDC limit, and the USDC balance is 240 below what the history explains. The rollback plan is in docs/PILOT-ROLLBACK.md.',
+    prompts: {
+      record: 'What do you write down first (UTC time, network, the transaction ID, the saved reconciliation report)? Who is told?',
+      contain: 'Which switch do you turn off first, and what happens to a transfer someone is reviewing right now? What if the workspace itself cannot be reached?',
+      accounts: 'FYNX cannot reverse an on-chain transfer. What do you check about the owner account, passkeys and the connected wallet, and what do you tell the pilot user?',
+      evidence: 'Which records show who changed the limits or turned sending on (the audit log), and which release was live at the time?',
+      notify: 'What does the message to the pilot group say, and what must it not promise? Who decides whether anyone else must be told?',
+      retest: 'What must the reconciliation show before reopening, and who signs off in writing?',
+      close: 'What would have caught this sooner (daily reconciliation, an alert, lower limits)?',
+    },
+  },
 ];
 export const findScenario = id => SCENARIOS.find(s => s.id === id) || null;
 export const RESULTS = { handled: 'We knew what to do', gap: 'Gap found' };

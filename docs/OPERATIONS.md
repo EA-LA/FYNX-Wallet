@@ -41,7 +41,7 @@ Log queries and an incident procedure are prepared below; no monitored alert des
 
 GitHub stores source history. Firestore recovery/export settings are shared-project decisions; this change does not enable a new shared backup schedule. Before public launch, confirm retention, protected export destination, recovery objectives and a restore drill in a separate test project. A written procedure is not a tested restore. Step-by-step commands for matching backups to the owner’s decision and for the restore test in a separate project are in [BACKUP-RESTORE.md](BACKUP-RESTORE.md). Practise the incident procedure below with the team using Owner workspace → Launch readiness → *Incident practice run*.
 
-For each release: run `npm run check`, inspect dependency advisories, review the diff for secrets and changes to signing/auth, deploy only the named function, verify a live backend result and denial cases, then push the verified frontend and confirm GitHub Pages. The previous Git commit can restore the frontend; backend rollback requires deploying its corresponding reviewed function source separately. Document both revisions.
+For each release: run `npm run check`, inspect dependency advisories, review the diff for secrets and changes to signing/auth, deploy only the named function, verify a live backend result and denial cases, then push the verified frontend and confirm GitHub Pages. The previous Git commit can restore the frontend; backend rollback requires deploying its corresponding reviewed function source separately. Document both revisions. During a real-money pilot, follow [PILOT-ROLLBACK.md](PILOT-ROLLBACK.md): turn off real-money sending first, then roll back and reconcile.
 
 ## Signing and recovery support
 

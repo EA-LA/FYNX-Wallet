@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-07 22:18 UTC — [autopilot] Owner workspace: pilot reconciliation and a rollback plan
+
+- **Crypto tools → Portfolio & history** now has a **Reconciliation** box. After you check balances and load the history for a network, it tells you in one line whether everything adds up: **Balanced**, **Needs a look** or **Not finished**.
+- It lists what came in and went out (ETH and USDC), matches each transfer with the ones you sent from this page, flags any outgoing transfer you did not start here, flags any real-money transfer on Base above your per-transfer limit (or the 0.1 ETH / 250 USDC pilot ceiling), checks that your USDC balance matches the history to the last cent, and explains the small ETH difference as network fees.
+- Transactions that failed, were dropped or are still waiting are explained in plain words instead of looking like a mismatch.
+- **Copy** or **Download** a reconciliation report for your pilot records (totals, findings, dates, shortened addresses and public transaction IDs only). Read-only: nothing is signed, sent or saved.
+- New written **rollback plan** (docs/PILOT-ROLLBACK.md): when to stop the pilot, the exact steps (turn off real-money sending first), how to reconcile afterwards and what must be true before reopening.
+- **Launch readiness → Incident practice run** has a fifth practice situation, "Pilot transfers do not add up", to rehearse the rollback with your team.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Crypto tools → Portfolio & history (needs the server update from the services setup guide to load history), and Launch readiness → Incident practice run.
+
 ## 2026-11-07 18:30 UTC — [autopilot] Owner workspace: privacy requests and practice runs now move between your devices
 
 - The test report you copy on one device (Launch readiness → Copy test report) now also carries your waitlist privacy request log and your finished incident practice runs.

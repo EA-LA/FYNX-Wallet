@@ -17,6 +17,7 @@ import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, clea
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
+import { reconcile, reconcileReport, STATE_TEXT as RC_STATE } from './reconcile.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
@@ -364,12 +365,15 @@ $('#svc-check').addEventListener('click', event => run(event.currentTarget, asyn
 
 const usd = value => value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const amountText = value => { const n = Number(value); return n === 0 ? '0' : n < 0.0001 ? '< 0.0001' : n.toLocaleString(undefined, { maximumFractionDigits: 6 }); };
+let lastPortfolio = null, lastHistory = null, lastReconcile = null;
 function clearPortfolio() {
+  lastPortfolio = null; lastHistory = null; lastReconcile = null; clearReconcile();
   $('#pf-rows').replaceChildren(); $('#pf-history-list').replaceChildren(); show('#pf-table', false); show('#pf-total', false);
   for (const id of ['#pf-total', '#pf-prices', '#pf-status']) setText(id, '');
 }
 $('#pf-load').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   const data = await serverCall({ action: 'portfolio' }, '#pf-status'); checkSession(); if (!data) return;
+  lastPortfolio = data;
   let priceData = null, priceNote = '';
   try { priceData = await api({ action: 'prices' }); } catch (error) { priceNote = notDeployed(error) ? SERVER_UPDATE : errorMessage(error); }
   checkSession();
@@ -394,6 +398,7 @@ $('#pf-load').addEventListener('click', event => run(event.currentTarget, async 
   const p = priceData?.prices;
   setText('#pf-prices', p ? `Prices from ${priceData.source}, ${new Date(priceData.fetchedAt).toLocaleTimeString()}: ETH ${usd(p.ETH.usd)}${p.ETH.change24h !== null ? ` (${p.ETH.change24h >= 0 ? '+' : ''}${p.ETH.change24h.toFixed(2)}% 24h)` : ''} · USDC ${usd(p.USDC.usd)}. Balances via ${[...new Set(data.rows.filter(r => r.ok).map(r => r.via))].join(' and ') || '—'}.` : `Dollar values are off: ${priceNote}`);
   setText('#pf-status', `Checked ${new Date(data.checkedAt).toLocaleTimeString()}.`);
+  renderReconcile();
 }, '#pf-status'));
 $('#pf-history').addEventListener('click', event => run(event.currentTarget, async checkSession => {
   const data = await serverCall({ action: 'history', chainId: Number($('#pf-network').value) }, '#pf-status'); checkSession(); if (!data) return;
@@ -407,7 +412,38 @@ $('#pf-history').addEventListener('click', event => run(event.currentTarget, asy
     li.append(el('span', 'pf-dir', item.direction === 'in' ? '↓' : '↑'), main, link); li.firstChild.setAttribute('aria-hidden', 'true'); list.append(li);
   }
   setText('#pf-status', `${data.items.length} transfer${data.items.length === 1 ? '' : 's'} on ${data.network}${data.more ? ' (newest 100 shown)' : ''}.`);
+  lastHistory = data; renderReconcile();
 }, '#pf-status'));
+// Reconciliation (pilot / rollback step): history vs this page's transactions vs balances. Read-only, kept in memory only.
+const RC_CHECK = { match: 'Matches', fees: 'Lower by network fees', differs: 'Differs', partial: 'History partial', unknown: 'Check balances first' };
+function clearReconcile() { $('#rc-rows').replaceChildren(); $('#rc-findings').replaceChildren(); setText('#rc-state', ''); show('#rc-box', false); }
+function renderReconcile() {
+  if (!lastHistory) return;
+  const balances = lastPortfolio?.rows?.find(r => r.chainId === lastHistory.chainId) || null;
+  const result = lastReconcile = reconcile({ history: lastHistory, journal: [...journal.values()], balances, wallet: lastPortfolio?.address || null, policy: mainnetPolicy() });
+  const state = $('#rc-state'); state.className = `rc-state is-${result.state}`; state.textContent = `${result.network} · ${RC_STATE[result.state]}`;
+  const body = $('#rc-rows'); body.replaceChildren();
+  for (const token of ['ETH', 'USDC']) {
+    const t = result.totals[token], b = result.balance[token], tr = document.createElement('tr');
+    const cells = [['Asset', token, ''], ['Received', `${amountText(t.in)} (${t.inCount})`, ''], ['Sent', `${amountText(t.out)} (${t.outCount})`, ''], ['Net', t.net.startsWith('-') ? `−${amountText(t.net.slice(1))}` : amountText(t.net), ''], ['Balance', b.actual === null ? '—' : amountText(b.actual), ''], ['Check', RC_CHECK[b.state], `is-${b.state}`]];
+    for (const [label, text, cls] of cells) { const td = document.createElement('td'); td.dataset.label = label; td.textContent = text; if (cls) td.className = cls; tr.append(td); }
+    body.append(tr);
+  }
+  const list = $('#rc-findings'); list.replaceChildren();
+  for (const f of result.findings) list.append(el('li', `is-${f.tone}`, f.text));
+  show('#rc-box', true);
+}
+$('#rc-copy').addEventListener('click', async () => {
+  if (!lastReconcile) return;
+  try { await navigator.clipboard.writeText(reconcileReport(lastReconcile)); setText('#pf-status', 'Reconciliation report copied. It has totals, findings, dates, shortened addresses and public transaction IDs only.'); }
+  catch { setText('#pf-status', 'Copying was blocked by the browser. Use Download instead.'); }
+});
+$('#rc-download').addEventListener('click', () => {
+  if (!lastReconcile) return;
+  const url = URL.createObjectURL(new Blob([reconcileReport(lastReconcile)], { type: 'text/markdown' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-reconciliation-${lastReconcile.network.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${lastReconcile.checkedAt.slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setText('#pf-status', 'Reconciliation report downloaded.');
+});
 async function ready() {
   if (window.top !== window.self) throw new Error('Open the FYNX workspace directly in its own browser tab.');
   const app = initializeApp(firebaseConfig);
