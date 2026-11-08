@@ -43,6 +43,9 @@ const MISSING = {
   replaced: ['todo', 'Replaced by another transaction with the same nonce. Check the replacement on the explorer: it may be the one in the history.'],
   dropped: ['ok', 'Dropped by the network, so nothing moved. It is not expected in the history.'],
 };
+// Lower-case on purpose: they sit inside sentences. Kept in step with REASONS in pilot-register.js.
+const REASON_TEXT = { 'earlier-session': 'sent from FYNX in an earlier session', 'other-device': 'sent from another device', 'other-app': 'sent from another wallet app', 'own-transfer': 'moved between own wallets' };
+const SOURCE_TEXT = { 'this-page': 'from this page', earlier: 'from FYNX, earlier session', marked: 'marked yours', outside: 'not from this page' };
 const WAITING = ['todo', 'Not settled yet. Use “Check status” in Step 5 · Track, then load the history again.'];
 
 function cleanItem(item) {
@@ -55,7 +58,8 @@ function cleanItem(item) {
 }
 
 // input: { history: { chainId, network, items, more }, journal: [{ hash, label, network: { id }, address, status }],
-//          balances: { chainId, eth, usdc, ok } | null, wallet: address | null, policy: mainnet setting | null, now }
+//          balances: { chainId, eth, usdc, ok } | null, wallet: address | null, policy: mainnet setting | null, now,
+//          known: pilot register entries [{ hash, chainId, kind: 'page' | 'marked', label?, reason?, address? }] }
 export function reconcile(input = {}) {
   const history = input.history || {};
   const chainId = Number(history.chainId);
@@ -72,6 +76,13 @@ export function reconcile(input = {}) {
     if (wallet && typeof entry.address === 'string' && entry.address.toLowerCase() !== wallet) { otherWallet.push(entry); continue; }
     submitted.set(entry.hash.toLowerCase(), entry);
   }
+  // Remembered in this browser (wallet-src/pilot-register.js): earlier FYNX sessions and transfers you marked as yours.
+  const earlier = new Map(), marked = new Map();
+  for (const entry of Array.isArray(input.known) ? input.known : []) {
+    if (!entry || typeof entry.hash !== 'string' || !HASH.test(entry.hash) || Number(entry.chainId) !== chainId) continue;
+    if (wallet && typeof entry.address === 'string' && entry.address.toLowerCase() !== wallet) continue;
+    (entry.kind === 'marked' ? marked : entry.kind === 'page' ? earlier : new Map()).set(entry.hash.toLowerCase(), entry);
+  }
 
   const totals = {};
   for (const token of TOKENS) totals[token] = { inUnits: 0n, outUnits: 0n, inCount: 0, outCount: 0 };
@@ -80,11 +91,12 @@ export function reconcile(input = {}) {
     const t = totals[item.token];
     if (item.direction === 'in') { t.inUnits += item.units; t.inCount += 1; } else { t.outUnits += item.units; t.outCount += 1; }
     const fromPage = submitted.has(item.hash);
+    const source = fromPage ? 'this-page' : earlier.has(item.hash) ? 'earlier' : (item.direction === 'out' && marked.has(item.hash)) ? 'marked' : 'outside';
     const limit = item.direction === 'out' ? transferLimit(chainId, item.token, input.policy) : null;
     const above = Boolean(limit && limit.units !== null && item.units > limit.units);
-    const row = { ...item, source: fromPage ? 'this-page' : 'outside', label: fromPage ? submitted.get(item.hash).label : null, aboveLimit: above ? limit : null };
+    const row = { ...item, source, label: fromPage ? submitted.get(item.hash).label : source === 'earlier' ? earlier.get(item.hash).label || null : null, reason: source === 'marked' ? marked.get(item.hash).reason : null, aboveLimit: above ? limit : null };
     transfers.push(row);
-    if (item.direction === 'out' && !fromPage) outside.push(row);
+    if (item.direction === 'out' && source === 'outside') outside.push(row);
     if (above) overLimit.push(row);
   }
   const inHistory = new Set(items.map(i => i.hash));
@@ -95,6 +107,8 @@ export function reconcile(input = {}) {
     missing.push({ hash, label: typeof entry.label === 'string' ? entry.label : 'Transaction', status: entry.status || 'pending', tone, reason });
   }
   const matched = transfers.filter(t => t.source === 'this-page').length;
+  const fromEarlier = transfers.filter(t => t.source === 'earlier').length;
+  const explained = transfers.filter(t => t.source === 'marked');
 
   const totalsOut = {};
   for (const token of TOKENS) {
@@ -124,7 +138,9 @@ export function reconcile(input = {}) {
   if (!complete) add('todo', 'The history has more than 100 transfers, so only the newest 100 were checked. Totals and balance checks cover those only.');
   if (!items.length) add('ok', `No ETH or USDC transfers on ${network} for this wallet yet.`);
   if (matched) add('ok', `${matched} transfer${matched === 1 ? '' : 's'} in the history ${matched === 1 ? 'was' : 'were'} submitted from this page.`);
-  if (outside.length) add('flag', `${outside.length} outgoing transfer${outside.length === 1 ? ' was' : 's were'} not submitted from this page session. Confirm each one was yours (another device, another app or an earlier session).`);
+  if (fromEarlier) add('ok', `${fromEarlier} transfer${fromEarlier === 1 ? '' : 's'} in the history ${fromEarlier === 1 ? 'was' : 'were'} submitted from FYNX in an earlier session on this browser.`);
+  if (explained.length) add('ok', `${explained.length} outgoing transfer${explained.length === 1 ? '' : 's'} you marked as yours: ${[...new Set(explained.map(t => REASON_TEXT[t.reason] || 'marked'))].join('; ')}.`);
+  if (outside.length) add('flag', `${outside.length} outgoing transfer${outside.length === 1 ? ' was' : 's were'} not submitted from FYNX on this browser. Check each one below and mark it as yours, or follow the rollback plan if it was not.`);
   for (const row of overLimit) add('flag', `Sent ${row.amount} ${row.token} (${row.time ? row.time.slice(0, 10) : `block ${row.block ?? '—'}`}): above ${row.aboveLimit.source} of ${row.aboveLimit.value} ${row.token} per transfer.`);
   for (const m of missing) add(m.tone, `${m.label} (${m.hash.slice(0, 10)}…): ${m.reason}`);
   if (otherWallet.length) add('todo', `${otherWallet.length} transaction${otherWallet.length === 1 ? '' : 's'} on this page came from a different connected wallet and ${otherWallet.length === 1 ? 'is' : 'are'} not part of this check.`);
@@ -137,7 +153,7 @@ export function reconcile(input = {}) {
 
   const flags = findings.filter(f => f.tone === 'flag').length, todos = findings.filter(f => f.tone === 'todo').length;
   const state = flags ? 'review' : (!complete || balance.USDC.state === 'unknown' || todos) ? 'incomplete' : 'balanced';
-  return { chainId, network, wallet, complete, checkedAt: new Date(now).toISOString(), state, totals: totalsOut, balance, transfers, outside, overLimit, missing, matched, findings, flags, todos };
+  return { chainId, network, wallet, complete, checkedAt: new Date(now).toISOString(), state, totals: totalsOut, balance, transfers, outside, overLimit, missing, matched, fromEarlier, explained, findings, flags, todos };
 }
 
 export const STATE_TEXT = Object.freeze({
@@ -161,7 +177,7 @@ export function reconcileReport(result) {
   if (!result.transfers.length) lines.push('None.');
   for (const t of result.transfers) {
     const other = t.direction === 'in' ? t.from : t.to;
-    lines.push(`- ${t.time ? t.time.slice(0, 16).replace('T', ' ') : `block ${t.block ?? '—'}`} · ${t.direction === 'in' ? 'received' : 'sent'} ${t.amount} ${t.token} ${t.direction === 'in' ? 'from' : 'to'} ${shortAddress(other)} · ${t.source === 'this-page' ? 'from this page' : 'not from this page'}${t.aboveLimit ? ' · ABOVE LIMIT' : ''} · ${t.hash}`);
+    lines.push(`- ${t.time ? t.time.slice(0, 16).replace('T', ' ') : `block ${t.block ?? '—'}`} · ${t.direction === 'in' ? 'received' : 'sent'} ${t.amount} ${t.token} ${t.direction === 'in' ? 'from' : 'to'} ${shortAddress(other)} · ${SOURCE_TEXT[t.source] || 'not from this page'}${t.source === 'marked' ? ` (${REASON_TEXT[t.reason] || 'marked'})` : ''}${t.aboveLimit ? ' · ABOVE LIMIT' : ''} · ${t.hash}`);
   }
   lines.push('', 'Read-only check. Network fees are not listed in the history. Rollback steps: docs/PILOT-ROLLBACK.md.');
   return lines.join('\n') + '\n';

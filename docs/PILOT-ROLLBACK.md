@@ -43,7 +43,7 @@ Use **Crypto tools → Portfolio & history** (read-only; nothing is signed or se
    - **Not finished** — balances not checked yet, a transaction is still waiting, or the history has more than 100 transfers (only the newest 100 are checked; use the explorer for older ones).
 4. **Copy** or **Download** the report and keep it with the pilot records. It contains totals, findings, dates, shortened addresses and public transaction IDs — never keys or full addresses.
 
-Transactions submitted from this page are only known while the page stays open. If you reload, transfers from before the reload show as "not from this page": confirm them against your own notes or the explorer.
+Every transaction you submit from the owner workspace is remembered in that browser (public transaction ID, network, wallet, label and time; nothing else), so a reconciliation on a later day still knows it came from FYNX. Outgoing transfers that were not submitted from FYNX on that browser are listed under "Outgoing transfers to check": open each on the explorer and, if it was yours, choose how it was sent (earlier FYNX session, another device, another wallet app, between your own wallets) and press "Mark as mine". The reason appears in the saved report. If you do not recognise a transfer, do not mark it: follow the rollback steps above. A marked transfer above the limit is still flagged. "Forget remembered transfers" clears the list in that browser. If a waiting transaction settles in Track while a history is loaded, the reconciliation updates and asks you to load the history again.
 
 ## Practise it
 

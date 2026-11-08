@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-08 02:20 UTC — [autopilot] Owner workspace: reconciliation remembers your FYNX transfers and lets you sign off the rest
+
+- Crypto tools → Portfolio & history → Reconciliation now remembers, in this browser, every transaction you send from the workspace. A check on a later day no longer calls your own earlier FYNX transfers "not from this page".
+- New "Outgoing transfers to check" list: each transfer that did not come from FYNX on this browser, with a link to the explorer, a "How was it sent?" choice (earlier FYNX session, another device, another wallet app, between my own wallets) and "Mark as mine" (with Undo). Once everything is explained, the result can turn "Balanced". The reasons appear in the saved reconciliation report. Transfers above your limit stay flagged even when marked.
+- When a waiting transaction settles in Step 5 · Track, the reconciliation updates straight away and tells you to load the history again.
+- "Forget remembered transfers" clears the list in this browser. Only public transaction IDs are kept; nothing is signed or sent.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools tab, after Load history).
+
 ## 2026-11-07 22:18 UTC — [autopilot] Owner workspace: pilot reconciliation and a rollback plan
 
 - **Crypto tools → Portfolio & history** now has a **Reconciliation** box. After you check balances and load the history for a network, it tells you in one line whether everything adds up: **Balanced**, **Needs a look** or **Not finished**.

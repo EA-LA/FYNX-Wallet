@@ -18,6 +18,7 @@ import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE } from './reconcile.js';
+import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange } from './pilot-register.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
@@ -416,11 +417,55 @@ $('#pf-history').addEventListener('click', event => run(event.currentTarget, asy
 }, '#pf-status'));
 // Reconciliation (pilot / rollback step): history vs this page's transactions vs balances. Read-only, kept in memory only.
 const RC_CHECK = { match: 'Matches', fees: 'Lower by network fees', differs: 'Differs', partial: 'History partial', unknown: 'Check balances first' };
-function clearReconcile() { $('#rc-rows').replaceChildren(); $('#rc-findings').replaceChildren(); setText('#rc-state', ''); show('#rc-box', false); }
+function clearReconcile() { for (const id of ['#rc-rows', '#rc-findings', '#rc-outside-list', '#rc-marked-list']) $(id).replaceChildren(); for (const id of ['#rc-state', '#rc-register', '#rc-updated']) setText(id, ''); show('#rc-updated', false); show('#rc-box', false); }
+// Pilot transfer register (wallet-src/pilot-register.js): public transaction IDs only, in this browser only.
+let pilotRegister;
+try { pilotRegister = cleanRegister(JSON.parse(localStorage.getItem(REGISTER_KEY) || '{}')); } catch { pilotRegister = { entries: [] }; }
+function savePilotRegister() { try { localStorage.setItem(REGISTER_KEY, JSON.stringify(pilotRegister)); return true; } catch { setText('#pf-status', 'This browser blocked saving. Remembered transfers last until you close the page.'); return false; } }
+const txWhen = t => t.time ? new Date(t.time).toLocaleString() : `block ${t.block ?? '—'}`;
+function explorerLink(hash) {
+  const link = el('a', 'text-button', 'View ↗'); link.href = `${lastHistory.explorer}/tx/${hash}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
+  link.setAttribute('aria-label', `View transaction ${hash.slice(0, 10)} on the explorer`); return link;
+}
+function renderReconcileLists(result) {
+  const outside = $('#rc-outside-list'), marked = $('#rc-marked-list'); outside.replaceChildren(); marked.replaceChildren();
+  for (const t of result.outside) {
+    const li = el('li', `rc-item${t.aboveLimit ? ' is-over' : ''}`), main = el('div'), id = `rc-reason-${t.hash.slice(2, 12)}`;
+    main.append(el('strong', '', `Sent ${amountText(t.amount)} ${t.token}${t.aboveLimit ? ' · above the limit' : ''}`), el('span', 'hint', `To ${t.to ? `${t.to.slice(0, 6)}…${t.to.slice(-4)}` : 'unknown'} · ${txWhen(t)} · ${t.hash.slice(0, 10)}…`));
+    const label = el('label', 'visually-hidden-label', `How was the ${amountText(t.amount)} ${t.token} transfer sent?`); label.htmlFor = id;
+    const select = el('select'); select.id = id; select.append(new Option('How was it sent?', ''));
+    for (const [value, text] of Object.entries(RC_REASONS)) select.append(new Option(text, value));
+    const mark = el('button', 'button secondary', 'Mark as mine'); mark.type = 'button'; mark.dataset.hash = t.hash;
+    mark.setAttribute('aria-label', `Mark as mine: sent ${amountText(t.amount)} ${t.token}, ${txWhen(t)}`);
+    mark.addEventListener('click', () => {
+      if (!select.value) { setText('#pf-status', 'Choose how the transfer was sent first.'); select.focus(); return; }
+      pilotRegister = markKnown(pilotRegister, { hash: t.hash, chainId: result.chainId, reason: select.value });
+      const saved = savePilotRegister(); renderReconcile();
+      if (saved) setText('#pf-status', `Marked as yours: ${reasonLabel(select.value).toLowerCase()}. Remembered in this browser.`);
+      ($('#rc-outside-list .button') || $('#rc-state')).focus();
+    });
+    li.append(main, label, select, explorerLink(t.hash), mark); outside.append(li);
+  }
+  for (const t of result.explained) {
+    const li = el('li', `rc-item${t.aboveLimit ? ' is-over' : ''}`), main = el('div');
+    main.append(el('strong', '', `Sent ${amountText(t.amount)} ${t.token}`), el('span', 'hint', `${reasonLabel(t.reason)} · ${txWhen(t)} · ${t.hash.slice(0, 10)}…`));
+    const undo = el('button', 'text-button', 'Undo'); undo.type = 'button'; undo.setAttribute('aria-label', `Undo marking: sent ${amountText(t.amount)} ${t.token}, ${txWhen(t)}`);
+    undo.addEventListener('click', () => {
+      pilotRegister = unmark(pilotRegister, { hash: t.hash, chainId: result.chainId }); savePilotRegister(); renderReconcile();
+      setText('#pf-status', 'No longer marked. The transfer is back on the list to check.');
+      ($('#rc-marked-list .text-button:not([href])') || $('#rc-outside-list select') || $('#rc-state')).focus();
+    });
+    li.append(main, explorerLink(t.hash), undo); marked.append(li);
+  }
+  show('#rc-outside', result.outside.length > 0); show('#rc-marked', result.explained.length > 0);
+  const sum = registerSummary(pilotRegister);
+  setText('#rc-register', sum.page || sum.marked ? `Remembered in this browser since ${new Date(sum.since).toLocaleDateString()}: ${sum.page} transaction${sum.page === 1 ? '' : 's'} submitted from FYNX and ${sum.marked} marked as yours (public transaction IDs only).` : 'Transactions you submit from this page are remembered in this browser, so a later reconciliation knows they came from FYNX.');
+  $('#rc-forget').hidden = !(sum.page || sum.marked);
+}
 function renderReconcile() {
   if (!lastHistory) return;
   const balances = lastPortfolio?.rows?.find(r => r.chainId === lastHistory.chainId) || null;
-  const result = lastReconcile = reconcile({ history: lastHistory, journal: [...journal.values()], balances, wallet: lastPortfolio?.address || null, policy: mainnetPolicy() });
+  const result = lastReconcile = reconcile({ history: lastHistory, journal: [...journal.values()], balances, wallet: lastPortfolio?.address || null, policy: mainnetPolicy(), known: forNetwork(pilotRegister, lastHistory.chainId) });
   const state = $('#rc-state'); state.className = `rc-state is-${result.state}`; state.textContent = `${result.network} · ${RC_STATE[result.state]}`;
   const body = $('#rc-rows'); body.replaceChildren();
   for (const token of ['ETH', 'USDC']) {
@@ -431,12 +476,18 @@ function renderReconcile() {
   }
   const list = $('#rc-findings'); list.replaceChildren();
   for (const f of result.findings) list.append(el('li', `is-${f.tone}`, f.text));
+  renderReconcileLists(result);
   show('#rc-box', true);
 }
 $('#rc-copy').addEventListener('click', async () => {
   if (!lastReconcile) return;
   try { await navigator.clipboard.writeText(reconcileReport(lastReconcile)); setText('#pf-status', 'Reconciliation report copied. It has totals, findings, dates, shortened addresses and public transaction IDs only.'); }
   catch { setText('#pf-status', 'Copying was blocked by the browser. Use Download instead.'); }
+});
+$('#rc-forget').addEventListener('click', () => {
+  if (!window.confirm('Forget every remembered FYNX transaction and every transfer you marked as yours, in this browser? The next reconciliation will list them as “not from FYNX” again.')) return;
+  pilotRegister = { entries: [] }; try { localStorage.removeItem(REGISTER_KEY); } catch { /* ignore */ }
+  renderReconcile(); setText('#pf-status', 'Remembered transfers forgotten in this browser.'); $('#rc-state').focus();
 });
 $('#rc-download').addEventListener('click', () => {
   if (!lastReconcile) return;
@@ -595,7 +646,13 @@ async function checkStatus(hash, checkSession) {
   const result = await checkTransaction(request => current.provider.request(request), hash, item ? { from: item.address, nonce: item.nonce, submittedAt: item.submittedAt } : {}, current.network);
   checkSession(); await current.assertCurrent(epoch);
   if (current !== connection) throw new Error('Wallet changed.');
+  const before = item?.status;
   if (item) { item.status = result.status; item.result = result; item.checkedAt = Date.now(); if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce; renderJournal(); }
+  // Keep the reconciliation current: a transfer that just settled changes what it expects in the history.
+  if (item && lastHistory && settledChange(before, item, lastHistory.chainId)) {
+    renderReconcile();
+    setText('#rc-updated', `Updated ${new Date().toLocaleTimeString()}: “${item.label}” is now ${(result.label || result.status).toLowerCase()}. Press Load history again to include it in the totals.`); show('#rc-updated', true);
+  }
   return result;
 }
 
@@ -688,7 +745,10 @@ async function autoCheckTick() {
 setInterval(autoCheckTick, 5000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) autoCheckTick(); });
 function trackTransaction(hash, label) {
-  journal.set(hash, { hash, label, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null }); renderJournal();
+  const entry = { hash, label, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null };
+  journal.set(hash, entry); renderJournal();
+  // Remembered in this browser so a later reconciliation knows this transfer came from FYNX.
+  pilotRegister = addSubmitted(pilotRegister, entry); savePilotRegister();
 }
 function renderJournal() {
   const list = $('#transaction-journal'), focused = list.contains(document.activeElement) ? document.activeElement.dataset.hash : null;
