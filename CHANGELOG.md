@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-08 10:17 UTC — [autopilot] Owner workspace: reconciliation re-loads the history by itself; privacy request deletions follow you between devices
+
+- Crypto tools → Portfolio & history → Reconciliation: when a transfer you sent is confirmed on the network but the history provider has not listed it yet, the workspace now loads the history again by itself after about 45 seconds (at most twice) and tells you when. No more pressing "Load history" over and over during a pilot check. "Don't reload automatically" turns it off. It only reads; it waits while the tab is in the background and stops when you sign out.
+- Waitlist → Privacy requests: deleting a request now travels in the Launch readiness test report. On your other device the import preview shows "deleted on the other device, will be deleted here" (with that device's own reference) before you press Add.
+- Fixed: bringing in an older test report used to bring back privacy requests you had already deleted. It no longer does.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools → Portfolio & history; Waitlist → Privacy requests; Launch readiness → Bring in results from another device).
+
 ## 2026-11-08 06:16 UTC — [autopilot] Owner workspace: pilot transfers follow you between devices; waitlist removal is double-checked
 
 - Launch readiness → "Copy test report" now also carries the pilot transfer list from Crypto tools → Reconciliation: the transactions you sent from FYNX and the outside transfers you marked as yours. Paste the report on your other device under "Bring in results from another device" and its reconciliation knows them too, so a check on your computer no longer flags transfers you sent or explained on your phone. Only public transaction IDs travel; wallet addresses stay on each device.

@@ -64,11 +64,28 @@ export function cleanEntry(raw) {
   return entry;
 }
 const order = (a, b) => (a.answered ? 1 : 0) - (b.answered ? 1 : 0) || (a.answered ? b.answered.localeCompare(a.answered) : a.received.localeCompare(b.received)) || b.added - a.added;
+// Deleted requests leave a small marker (id and deletion time only) so the deletion can travel to other
+// devices in the test report and an older report cannot bring the request back.
+export const MAX_DELETED = 200;
+const ID = /^[a-z0-9-]{1,40}$/;
+export function cleanDeleted(raw) {
+  const best = new Map();
+  for (const d of Array.isArray(raw) ? raw : []) {
+    if (!d || typeof d.id !== 'string' || !ID.test(d.id) || !Number.isFinite(d.at) || d.at <= 0) continue;
+    if (!best.has(d.id) || d.at > best.get(d.id)) best.set(d.id, d.at);
+  }
+  return [...best].map(([id, at]) => ({ id, at })).sort((a, b) => b.at - a.at).slice(0, MAX_DELETED);
+}
+// A marker wins over a request that was last changed in the same minute or before it was deleted.
+const minuteOf = ms => Math.floor((ms || 0) / 60000) * 60000;
+const deletedAfter = (entry, at) => at !== undefined && minuteOf(at) >= minuteOf(entry.changed);
 export function cleanLog(raw) {
   const list = Array.isArray(raw?.entries) ? raw.entries : [], seen = new Set(), entries = [];
-  for (const item of list) { const e = cleanEntry(item); if (e && !seen.has(e.id)) { seen.add(e.id); entries.push(e); } }
-  return { entries: entries.sort(order).slice(0, MAX_ENTRIES) };
+  const deleted = cleanDeleted(raw?.deleted), gone = new Map(deleted.map(d => [d.id, d.at]));
+  for (const item of list) { const e = cleanEntry(item); if (e && !seen.has(e.id) && !deletedAfter(e, gone.get(e.id))) { seen.add(e.id); entries.push(e); } }
+  return { entries: entries.sort(order).slice(0, MAX_ENTRIES), deleted };
 }
+const withEntries = (log, entries) => ({ entries, deleted: cleanDeleted(log?.deleted) });
 
 // Add a request. Returns { log, entry } or { error }.
 export function addRequest(log, input, { today, now = Date.now(), id } = {}) {
@@ -81,7 +98,7 @@ export function addRequest(log, input, { today, now = Date.now(), id } = {}) {
   if (problem) return { error: problem };
   if (log.entries.length >= MAX_ENTRIES) return { error: `The log holds up to ${MAX_ENTRIES} requests. Copy it, then delete old answered requests.` };
   const entry = cleanEntry({ id: id || `pr-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`, received, type: input.type, ref: input.ref, note: input.note, added: now, changed: now });
-  return { log: { entries: [...log.entries, entry].sort(order) }, entry };
+  return { log: withEntries(log, [...log.entries, entry].sort(order)), entry };
 }
 export function answerRequest(log, id, { answered, outcome, now = Date.now() } = {}) {
   const target = log.entries.find(e => e.id === id);
@@ -89,12 +106,15 @@ export function answerRequest(log, id, { answered, outcome, now = Date.now() } =
   if (dayNumber(answered) === null) return { error: 'Choose the date you answered.' };
   if (dayNumber(answered) < dayNumber(target.received)) return { error: 'The answer date cannot be before the request arrived.' };
   const next = { ...target, answered, outcome: outcomeIds.has(outcome) ? outcome : defaultOutcome(target.type), changed: now };
-  return { log: { entries: log.entries.map(e => e.id === id ? next : e).sort(order) }, entry: next };
+  return { log: withEntries(log, log.entries.map(e => e.id === id ? next : e).sort(order)), entry: next };
 }
 export function reopenRequest(log, id, now = Date.now()) {
-  return { entries: log.entries.map(e => { if (e.id !== id) return e; const { answered, outcome, ...rest } = e; return { ...rest, changed: now }; }).sort(order) };
+  return withEntries(log, log.entries.map(e => { if (e.id !== id) return e; const { answered, outcome, ...rest } = e; return { ...rest, changed: now }; }).sort(order));
 }
-export const removeRequest = (log, id) => ({ entries: log.entries.filter(e => e.id !== id) });
+export function removeRequest(log, id, now = Date.now()) {
+  if (!log.entries.some(e => e.id === id)) return withEntries(log, log.entries);
+  return { entries: log.entries.filter(e => e.id !== id), deleted: cleanDeleted([{ id, at: now }, ...(log.deleted || [])]) };
+}
 
 // Where a request stands on a given day.
 export function requestState(entry, today) {
@@ -170,23 +190,31 @@ export const PRIVACY_SECTION = 'Waitlist privacy requests';
 const stampUtc = ms => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
 const minute = ms => Math.floor((ms || 0) / 60000) * 60000;
 export function privacyReportLines(log) {
-  const entries = log?.entries || [];
-  if (!entries.length) return [];
+  const entries = log?.entries || [], deleted = cleanDeleted(log?.deleted);
+  if (!entries.length && !deleted.length) return [];
   const lines = [`## ${PRIVACY_SECTION}`, '', 'Dates, request types and answers only (no references, notes or email addresses), so the log can be brought into another browser.', ''];
   for (const e of entries) {
     lines.push(`- ${e.id} · arrived ${e.received} · ${typeLabel(e.type)} · ${e.answered ? `answered ${e.answered} (${outcomeLabel(e.outcome)})` : 'open'}${e.changed ? ` · changed ${stampUtc(e.changed)} UTC` : ''}`);
   }
+  for (const d of deleted) lines.push(`- ${d.id} · deleted ${stampUtc(d.at)} UTC`);
   lines.push('');
   return lines;
 }
 
+const DEL_LINE = /^\s*[-*]\s+([a-z0-9-]{1,40}) · deleted (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\s*$/;
 const PR_LINE = /^\s*[-*]\s+([a-z0-9-]{1,40}) · arrived (\d{4}-\d{2}-\d{2}) · (.+?) · (open|answered (\d{4}-\d{2}-\d{2}) \((.+)\))(?: · changed (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC)?\s*$/;
 export function parsePrivacyReport(text) {
-  const entries = [];
+  const entries = [], deleted = [];
   let inSection = false, unknown = 0;
   for (const line of String(text || '').split(/\r?\n/).slice(0, 2000)) {
     if (/^##\s/.test(line)) { inSection = line.replace(/^##\s+/, '').trim() === PRIVACY_SECTION; continue; }
     if (!inSection || !line.trim() || !/^\s*[-*]\s/.test(line)) continue;
+    const del = line.match(DEL_LINE);
+    if (del) {
+      const at = Date.parse(`${del[2]}T${del[3]}:00Z`);
+      if (Number.isFinite(at) && !deleted.some(d => d.id === del[1])) deleted.push({ id: del[1], at }); else unknown += 1;
+      continue;
+    }
     const m = line.match(PR_LINE);
     const type = m && TYPES.find(t => t[1] === m[3])?.[0];
     const outcome = m?.[6] ? OUTCOMES.find(o => o[1] === m[6])?.[0] : undefined;
@@ -196,17 +224,26 @@ export function parsePrivacyReport(text) {
     if (!e || entries.some(x => x.id === e.id) || (m[5] && !e.answered)) { unknown += 1; continue; }
     entries.push(e);
   }
-  return { log: cleanLog({ entries }), unknown };
+  // Keep both here: the merge decides which one wins against this browser's log.
+  return { log: { entries: cleanLog({ entries }).entries, deleted: cleanDeleted(deleted) }, unknown };
 }
 
 const sameRequest = (a, b) => a.received === b.received && a.type === b.type && (a.answered || '') === (b.answered || '') && (a.outcome || '') === (b.outcome || '');
 // Combine an imported log with this browser's. New requests are added; when both have a request and it
-// differs, the one changed later wins (this browser's reference and note are kept). Deleting a request
-// does not travel: delete it on each device.
+// differs, the one changed later wins (this browser's reference and note are kept). Deletions travel as
+// markers: a request deleted on the other device is deleted here unless this browser changed it later,
+// and a request deleted here is not brought back by an older report.
 export function mergePrivacyLogs(local, incoming) {
-  const byId = new Map((local?.entries || []).map(e => [e.id, e])), changes = { added: [], updated: [], same: [], kept: [] };
+  const byId = new Map((local?.entries || []).map(e => [e.id, e])), changes = { added: [], updated: [], same: [], kept: [], removed: [], gone: [], keptDeleted: [] };
+  const deleted = cleanDeleted([...(local?.deleted || []), ...(incoming?.deleted || [])]), gone = new Map(deleted.map(d => [d.id, d.at]));
+  for (const d of cleanDeleted(incoming?.deleted)) {
+    const mine = byId.get(d.id);
+    if (!mine) continue;
+    if (deletedAfter(mine, d.at)) { byId.delete(d.id); changes.removed.push(mine); } else changes.keptDeleted.push(d.id);
+  }
   for (const inc of incoming?.entries || []) {
     const mine = byId.get(inc.id);
+    if (!mine && deletedAfter(inc, gone.get(inc.id))) { changes.gone.push(inc.id); continue; }
     if (!mine) { byId.set(inc.id, { ...inc }); changes.added.push(inc.id); continue; }
     if (sameRequest(mine, inc)) { changes.same.push(inc.id); continue; }
     if (minute(inc.changed) > minute(mine.changed)) {
@@ -216,5 +253,7 @@ export function mergePrivacyLogs(local, incoming) {
       byId.set(inc.id, next); changes.updated.push(inc.id);
     } else changes.kept.push(inc.id);
   }
-  return { log: cleanLog({ entries: [...byId.values()] }), ...changes };
+  // A marker that lost to a later change is dropped, so the kept request is not deleted on the next import.
+  const keep = deleted.filter(d => !byId.has(d.id) || deletedAfter(byId.get(d.id), d.at));
+  return { log: cleanLog({ entries: [...byId.values()], deleted: keep }), ...changes };
 }

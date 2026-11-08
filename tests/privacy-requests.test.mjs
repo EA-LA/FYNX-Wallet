@@ -94,8 +94,8 @@ test('stored logs are re-cleaned: emails, secrets, bad dates and duplicates are 
   assert.equal(log.entries[0].note, 'ok note');
   assert.equal(log.entries[1].answered, undefined);
   assert.equal(log.entries[2].outcome, 'removed');
-  assert.deepEqual(cleanLog(null), empty);
-  assert.deepEqual(cleanLog({ entries: 'x' }), empty);
+  assert.deepEqual(cleanLog(null), { entries: [], deleted: [] });
+  assert.deepEqual(cleanLog({ entries: 'x' }), { entries: [], deleted: [] });
 });
 
 test('the log has a size limit', () => {

@@ -182,3 +182,30 @@ export function reconcileReport(result) {
   lines.push('', 'Read-only check. Network fees are not listed in the history. Rollback steps: docs/PILOT-ROLLBACK.md.');
   return lines.join('\n') + '\n';
 }
+
+// Automatic history re-load: a transaction confirmed on-chain but not yet listed by the history provider
+// is usually only provider lag. The page loads the history again by itself, after a short wait, at most
+// `max` times for the same set of missing transactions (one read-only server call each time).
+export const HISTORY_RETRY = Object.freeze({ delayMs: 45000, max: 2 });
+// state: { key, attempts, cancelled } from earlier calls (or {}). Returns the plan for this result.
+export function historyRetry(result, state = {}, options = HISTORY_RETRY) {
+  const max = Number.isInteger(options?.max) && options.max >= 0 ? options.max : HISTORY_RETRY.max;
+  const delayMs = Number.isFinite(options?.delayMs) && options.delayMs >= 0 ? options.delayMs : HISTORY_RETRY.delayMs;
+  const waiting = (Array.isArray(result?.missing) ? result.missing : []).filter(m => m && m.status === 'confirmed' && HASH.test(m.hash || ''));
+  if (!waiting.length) return { due: false, reason: 'none', key: '', attempts: 0, max, delayMs, count: 0, hashes: [] };
+  const hashes = waiting.map(m => m.hash.toLowerCase()).sort();
+  const key = `${Number(result.chainId)}:${hashes.join(',')}`;
+  const attempts = state && state.key === key && Number.isInteger(state.attempts) ? state.attempts : 0;
+  const base = { key, attempts, max, delayMs, count: hashes.length, hashes };
+  if (state && state.key === key && state.cancelled) return { ...base, due: false, reason: 'cancelled' };
+  if (attempts >= max) return { ...base, due: false, reason: 'used-up' };
+  return { ...base, due: true, reason: 'waiting', attempt: attempts + 1 };
+}
+// One plain sentence for the reconciliation box.
+export function retryText(plan, at) {
+  const n = plan.count, what = `${n} confirmed transaction${n === 1 ? ' is' : 's are'} not in the history yet`;
+  if (plan.reason === 'waiting') return `${what}. The history provider can lag a few minutes, so FYNX loads the history again by itself${at ? ` at ${at}` : ''} (try ${plan.attempt} of ${plan.max}). Read-only.`;
+  if (plan.reason === 'used-up') return `${what} after ${plan.max} automatic re-load${plan.max === 1 ? '' : 's'}. Open ${n === 1 ? 'it' : 'them'} on the explorer, then press Load history again in a few minutes.`;
+  if (plan.reason === 'cancelled') return `${what}. Automatic re-load is off for ${n === 1 ? 'it' : 'them'}: press Load history when you are ready.`;
+  return '';
+}

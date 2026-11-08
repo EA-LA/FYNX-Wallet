@@ -17,7 +17,7 @@ import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, clea
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
-import { reconcile, reconcileReport, STATE_TEXT as RC_STATE } from './reconcile.js';
+import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retryText } from './reconcile.js';
 import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
@@ -367,6 +367,7 @@ $('#svc-check').addEventListener('click', event => run(event.currentTarget, asyn
 const usd = value => value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const amountText = value => { const n = Number(value); return n === 0 ? '0' : n < 0.0001 ? '< 0.0001' : n.toLocaleString(undefined, { maximumFractionDigits: 6 }); };
 let lastPortfolio = null, lastHistory = null, lastReconcile = null;
+const historyAuto = { key: '', attempts: 0, cancelled: false, timer: 0, generation: -1, dueAt: 0 };
 function clearPortfolio() {
   lastPortfolio = null; lastHistory = null; lastReconcile = null; clearReconcile();
   $('#pf-rows').replaceChildren(); $('#pf-history-list').replaceChildren(); show('#pf-table', false); show('#pf-total', false);
@@ -402,7 +403,10 @@ $('#pf-load').addEventListener('click', event => run(event.currentTarget, async 
   renderReconcile();
 }, '#pf-status'));
 $('#pf-history').addEventListener('click', event => run(event.currentTarget, async checkSession => {
-  const data = await serverCall({ action: 'history', chainId: Number($('#pf-network').value) }, '#pf-status'); checkSession(); if (!data) return;
+  historyAuto.attempts = 0; historyAuto.cancelled = false; await loadHistory(Number($('#pf-network').value), checkSession);
+}, '#pf-status'));
+async function loadHistory(chainId, checkSession, auto = false) {
+  const data = await serverCall({ action: 'history', chainId }, '#pf-status'); checkSession(); if (!data) return false;
   const list = $('#pf-history-list'); list.replaceChildren();
   if (!data.items.length) list.append(el('li', 'pf-empty', `No ETH or USDC transfers on ${data.network} for this wallet yet.`));
   for (const item of data.items) {
@@ -412,12 +416,48 @@ $('#pf-history').addEventListener('click', event => run(event.currentTarget, asy
     const link = el('a', 'text-button', 'View ↗'); link.href = `${data.explorer}/tx/${item.hash}`; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.setAttribute('aria-label', `View transaction ${item.hash.slice(0, 10)} on the explorer`);
     li.append(el('span', 'pf-dir', item.direction === 'in' ? '↓' : '↑'), main, link); li.firstChild.setAttribute('aria-hidden', 'true'); list.append(li);
   }
-  setText('#pf-status', `${data.items.length} transfer${data.items.length === 1 ? '' : 's'} on ${data.network}${data.more ? ' (newest 100 shown)' : ''}.`);
+  setText('#pf-status', `${auto ? 'History loaded again automatically: ' : ''}${data.items.length} transfer${data.items.length === 1 ? '' : 's'} on ${data.network}${data.more ? ' (newest 100 shown)' : ''}.`);
   lastHistory = data; renderReconcile();
-}, '#pf-status'));
+  return true;
+}
+// Automatic re-load (wallet-src/reconcile.js historyRetry): only for confirmed transactions the provider has not listed
+// yet, after a short wait, at most twice for the same transactions. Paused while the page is hidden or busy; stops on sign-out.
+function stopHistoryAuto(reset = true) {
+  clearTimeout(historyAuto.timer); historyAuto.timer = 0;
+  if (reset) Object.assign(historyAuto, { key: '', attempts: 0, cancelled: false });
+}
+function showHistoryAuto(plan, at) {
+  const text = plan ? retryText(plan, at) : '';
+  setText('#rc-auto-text', text); show('#rc-auto', Boolean(text)); $('#rc-auto-cancel').hidden = !(plan && plan.due);
+}
+function planHistoryAuto(result) {
+  if (!result || historyAuto.generation !== generation) { stopHistoryAuto(); historyAuto.generation = generation; }
+  const plan = historyRetry(result, historyAuto);
+  if (plan.key !== historyAuto.key) { stopHistoryAuto(); historyAuto.key = plan.key; }
+  if (!plan.due) { stopHistoryAuto(false); showHistoryAuto(plan); return false; }
+  if (!historyAuto.timer) {
+    const chainId = result.chainId, key = plan.key, expected = generation;
+    const fire = () => {
+      historyAuto.timer = 0;
+      if (expected !== generation || !lastHistory || lastHistory.chainId !== chainId || historyAuto.key !== key || historyAuto.cancelled) return;
+      if (document.hidden) { document.addEventListener('visibilitychange', () => { if (!historyAuto.timer) historyAuto.timer = setTimeout(fire, 2000); }, { once: true }); return; }
+      if (busy) { historyAuto.timer = setTimeout(fire, 5000); return; }
+      historyAuto.attempts += 1;
+      run(null, checkSession => loadHistory(chainId, checkSession, true), '#pf-status');
+    };
+    historyAuto.timer = setTimeout(fire, plan.delayMs);
+    historyAuto.dueAt = Date.now() + plan.delayMs;
+  }
+  showHistoryAuto(plan, new Date(historyAuto.dueAt).toLocaleTimeString());
+  return true;
+}
+$('#rc-auto-cancel').addEventListener('click', () => {
+  historyAuto.cancelled = true; stopHistoryAuto(false); if (lastReconcile) planHistoryAuto(lastReconcile);
+  setText('#pf-status', 'Automatic history re-load turned off for these transactions.'); $('#rc-state').focus();
+});
 // Reconciliation (pilot / rollback step): history vs this page's transactions vs balances. Read-only, kept in memory only.
 const RC_CHECK = { match: 'Matches', fees: 'Lower by network fees', differs: 'Differs', partial: 'History partial', unknown: 'Check balances first' };
-function clearReconcile() { for (const id of ['#rc-rows', '#rc-findings', '#rc-outside-list', '#rc-marked-list']) $(id).replaceChildren(); for (const id of ['#rc-state', '#rc-register', '#rc-updated']) setText(id, ''); show('#rc-updated', false); show('#rc-box', false); }
+function clearReconcile() { stopHistoryAuto(); show('#rc-auto', false); setText('#rc-auto-text', ''); for (const id of ['#rc-rows', '#rc-findings', '#rc-outside-list', '#rc-marked-list']) $(id).replaceChildren(); for (const id of ['#rc-state', '#rc-register', '#rc-updated']) setText(id, ''); show('#rc-updated', false); show('#rc-box', false); }
 // Pilot transfer register (wallet-src/pilot-register.js): public transaction IDs only, in this browser only.
 let pilotRegister;
 try { pilotRegister = cleanRegister(JSON.parse(localStorage.getItem(REGISTER_KEY) || '{}')); } catch { pilotRegister = { entries: [] }; }
@@ -478,6 +518,7 @@ function renderReconcile() {
   for (const f of result.findings) list.append(el('li', `is-${f.tone}`, f.text));
   renderReconcileLists(result);
   show('#rc-box', true);
+  return planHistoryAuto(result);
 }
 $('#rc-copy').addEventListener('click', async () => {
   if (!lastReconcile) return;
@@ -650,8 +691,8 @@ async function checkStatus(hash, checkSession) {
   if (item) { item.status = result.status; item.result = result; item.checkedAt = Date.now(); if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce; renderJournal(); }
   // Keep the reconciliation current: a transfer that just settled changes what it expects in the history.
   if (item && lastHistory && settledChange(before, item, lastHistory.chainId)) {
-    renderReconcile();
-    setText('#rc-updated', `Updated ${new Date().toLocaleTimeString()}: “${item.label}” is now ${(result.label || result.status).toLowerCase()}. Press Load history again to include it in the totals.`); show('#rc-updated', true);
+    const auto = renderReconcile();
+    setText('#rc-updated', `Updated ${new Date().toLocaleTimeString()}: “${item.label}” is now ${(result.label || result.status).toLowerCase()}. ${auto ? 'The history is loaded again by itself shortly to include it.' : 'Press Load history again to include it in the totals.'}`); show('#rc-updated', true);
   }
   return result;
 }
@@ -1368,9 +1409,9 @@ function previewReport(text) {
   const parsed = parseReport(text, launchPlan), count = Object.keys(parsed.records).length;
   if (parsed.secret) { clearReportImport(); setText('#import-status', 'This text looks like it contains a recovery phrase or key, so it was cleared and not read. Never paste those into any website.'); return; }
   const dec = parseDecisions(text), decCount = Object.keys(dec.answers).length;
-  const prIn = parsePrivacyReport(text), prCount = prIn.log.entries.length, drIn = parseDrillReport(text), drCount = drIn.runs.length;
+  const prIn = parsePrivacyReport(text), prCount = prIn.log.entries.length, prDeleted = prIn.log.deleted.length, drIn = parseDrillReport(text), drCount = drIn.runs.length;
   const rgIn = parseRegisterReport(text), rgCount = rgIn.register.entries.length;
-  if (!count && !decCount && !prCount && !drCount && !rgCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
   const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
@@ -1402,11 +1443,11 @@ function previewReport(text) {
     }
     box.append(dl);
   }
-  if (prCount) {
+  if (prCount || prDeleted) {
     const psum = guideEl('ul', 'launch-import-sum');
-    for (const [cls, n, label] of [['is-add', pm.added.length, 'new here'], ['is-update', pm.updated.length, 'changed later than this browser'], ['is-same', pm.same.length, 'already here'], ['is-kept', pm.kept.length, 'kept: this browser changed it later']]) if (n) psum.append(guideEl('li', cls, `${n} ${label}`));
+    for (const [cls, n, label] of [['is-add', pm.added.length, 'new here'], ['is-update', pm.updated.length, 'changed later than this browser'], ['is-same', pm.same.length, 'already here'], ['is-kept', pm.kept.length, 'kept: this browser changed it later'], ['is-update', pm.removed.length, 'deleted on the other device, will be deleted here'], ['is-same', pm.gone.length, 'already deleted here, not brought back'], ['is-kept', pm.keptDeleted.length, 'deleted on the other device but changed here later, kept']]) if (n) psum.append(guideEl('li', cls, `${n} ${label}`));
     if (prIn.unknown) psum.append(guideEl('li', 'is-kept', `${prIn.unknown} line${prIn.unknown === 1 ? '' : 's'} not understood`));
-    box.append(guideEl('h4', '', `${prCount} privacy request${prCount === 1 ? '' : 's'} found in the report`), psum);
+    box.append(guideEl('h4', '', prCount ? `${prCount} privacy request${prCount === 1 ? '' : 's'} found in the report${prDeleted ? ` (and ${prDeleted} deletion${prDeleted === 1 ? '' : 's'})` : ''}` : `${prDeleted} privacy request deletion${prDeleted === 1 ? '' : 's'} found in the report`), psum);
     const pl = guideEl('ul', 'launch-import-list'), byId = new Map(prIn.log.entries.map(e => [e.id, e]));
     for (const kind of ['added', 'updated', 'kept']) for (const id of pm[kind]) {
       const e = byId.get(id); if (!e) continue;
@@ -1414,8 +1455,13 @@ function previewReport(text) {
       body.append(guideEl('span', '', typeLabel(e.type)), guideEl('small', '', `Arrived ${e.received} · ${e.answered ? `answered ${e.answered} (${outcomeLabel(e.outcome)})` : `open, due ${requestState(e, localToday()).due}`}${kind === 'kept' ? ' · this browser’s version is newer and stays' : ''}`));
       li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); pl.append(li);
     }
+    for (const e of pm.removed) {
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', typeLabel(e.type)), guideEl('small', '', `Arrived ${e.received} · deleted on the other device${e.ref ? ` · this browser’s reference “${e.ref}” goes with it` : ''}`));
+      li.append(guideEl('span', 'import-mark import-updated', 'Delete'), body); pl.append(li);
+    }
     if (pl.children.length) box.append(pl);
-    box.append(guideEl('p', 'hint', 'References and notes are not in the report; they stay on the device where you typed them. A request deleted on one device must be deleted on each device.'));
+    box.append(guideEl('p', 'hint', 'References and notes are not in the report; they stay on the device where you typed them. Deleting a request travels too: it is deleted here unless you changed it here after it was deleted.'));
   }
   if (drCount) {
     const newRuns = drm.added.length - drm.dropped, dsum = guideEl('ul', 'launch-import-sum');
@@ -1447,9 +1493,9 @@ function previewReport(text) {
     box.append(guideEl('p', 'hint', 'Only public transaction IDs travel; wallet addresses stay on each device. “Undo” on a mark and “Forget remembered transfers” do not travel: do them on each device.'));
   }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, changes = results + decisions + requests + runs + ticks + transfers;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, changes = results + decisions + requests + runs + ticks + transfers;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(requests, 'privacy request'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
@@ -1460,7 +1506,7 @@ function previewReport(text) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
       decisionAnswers = cleanAnswers(d.answers); decisionTimes = cleanTimes(d.times, decisionAnswers); saveDecisionAnswers();
     }
-    if (requests) { privacyLog = pmi.log; savePrivacyLog(); renderPrivacyLog(); }
+    if (logChanged) { privacyLog = pmi.log; savePrivacyLog(); renderPrivacyLog(); }
     if (runs || ticks) { drill = dri.drill; saveDrill(); }
     if (transfers) { pilotRegister = rgi.register; savePilotRegister(); renderReconcile(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
