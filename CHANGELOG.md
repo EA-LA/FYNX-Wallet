@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-08 18:20 UTC — [autopilot] Owner workspace: hand-off list for engineering and "blocked by" on every gate
+
+- Launch readiness → "What can move now" has a new "Hand off to engineering" box. One press copies (or downloads) a short list for your engineer or Claude: the engineering steps that can start today (the ones that unlock the most later work first), the ones still waiting and on what, any of your tests that failed, and the decisions only you (or an outside party) can make to unblock engineering. "Preview the list" shows it before you copy. Your notes are never included.
+- Each launch gate now shows a "Blocked by" line with the exact steps holding it up (who owns each one, and how many steps it holds). Each one is a link that jumps to that step. The gate bar also says how many of its steps are waiting.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab).
+
 ## 2026-11-08 14:40 UTC — [autopilot] Owner workspace: Launch readiness shows what can move now and what is waiting
 
 - Launch readiness has a new "What can move now" panel under the progress overview: how many steps are ready for you right now, how many are ready for engineering or outside parties, and how many are waiting on another step.

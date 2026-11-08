@@ -243,3 +243,71 @@ export function shortStep(step) {
   if (s.length > 90) s = `${s.slice(0, 90).replace(/\s+\S*$/, '')}…`;
   return s;
 }
+
+// Per gate: the open steps that this gate's waiting steps still wait for (inside or outside the gate),
+// most-waited-on first. Only steps that are not done themselves count as waiting.
+export function gateBlockers(plan, records, gateId, index = stepIndex(plan)) {
+  const gate = plan.items.find(g => g.id === gateId);
+  if (!gate) return { waiting: 0, blockers: [] };
+  const blockers = new Map();
+  let waiting = 0;
+  for (const step of gate.steps || []) {
+    if (stepState(gate, step, records) === 'done') continue;
+    const on = waitingOn(plan, records, stepKey(gate.id, step.id), index);
+    if (!on.length) continue;
+    waiting += 1;
+    for (const b of on) {
+      const key = stepKey(b.gate.id, b.step.id);
+      if (!blockers.has(key)) blockers.set(key, { key, gate: b.gate, step: b.step, count: 0, order: blockers.size });
+      blockers.get(key).count += 1;
+    }
+  }
+  const list = [...blockers.values()].sort((a, b) => b.count - a.count || a.order - b.order).map(({ order, ...rest }) => rest);
+  return { waiting, blockers: list };
+}
+
+// A short markdown brief for the engineer (or Claude): open engineering steps that can start now,
+// those still waiting (and on what), and the steps that only the owner or an outside party can do to
+// unblock them. Built from the checklist text and results only: no notes, so nothing private travels.
+export function engineeringBrief(plan, records, { date = new Date() } = {}) {
+  const o = launchOrder(plan, records);
+  const mine = row => row.step.by === 'engineering';
+  const ready = o.ready.filter(mine).map((r, i) => [r, i]).sort((a, b) => b[0].unblocks - a[0].unblocks || a[1] - b[1]).map(([r]) => r);
+  const failed = [...o.ready, ...o.waiting].filter(r => r.failed);
+  const waiting = o.waiting.filter(mine);
+  const unblock = new Map();
+  for (const row of waiting) for (const b of row.on) {
+    if (b.step.by === 'engineering') continue;
+    const key = stepKey(b.gate.id, b.step.id);
+    if (!unblock.has(key)) unblock.set(key, { key, gate: b.gate, step: b.step, count: 0 });
+    unblock.get(key).count += 1;
+  }
+  const name = ({ gate, step }, here) => `${shortStep(step)}${here && gate.id === here.id ? '' : ` (${gate.title})`}`;
+  const stamp = date.toISOString().slice(0, 16).replace('T', ' ');
+  const lines = [
+    '# FYNX Wallet: what engineering can start now',
+    '',
+    `Made ${stamp} UTC from the Launch readiness checklist and the results recorded in this browser. Notes are not included.`,
+    `Open engineering steps: ${ready.length + waiting.length} (${ready.length} can start now, ${waiting.length} waiting on another step).`,
+    '',
+    `## Start now (${ready.length})`,
+  ];
+  if (!ready.length) lines.push('', 'Nothing for engineering can start right now.');
+  for (const r of ready) {
+    lines.push(`- [ ] **${r.gate.title}**: ${String(r.step.text).replace(/\s+/g, ' ').trim()} (\`${r.key}\`)${r.unblocks ? ` — frees ${r.unblocks} later ${r.unblocks === 1 ? 'step' : 'steps'}` : ''}`);
+  }
+  if (failed.length) {
+    lines.push('', `## Failed in the owner's testing: look for a fix, then ask for a retest (${failed.length})`);
+    for (const r of failed) lines.push(`- **${r.gate.title}**: ${shortStep(r.step)} (\`${r.key}\`)`);
+  }
+  lines.push('', `## Waiting on another step first (${waiting.length})`);
+  if (!waiting.length) lines.push('', 'No engineering step is waiting.');
+  for (const r of waiting) lines.push(`- **${r.gate.title}**: ${shortStep(r.step)} (\`${r.key}\`) — waits for: ${r.on.map(b => `${name(b, r.gate)} [${byLabels[b.step.by] || b.step.by}]`).join('; ')}`);
+  const asks = [...unblock.values()].sort((a, b) => b.count - a.count);
+  if (asks.length) {
+    lines.push('', `## Needed from the owner or outside parties to unblock engineering (${asks.length})`);
+    for (const a of asks) lines.push(`- ${name(a)} [${byLabels[a.step.by] || a.step.by}] (\`${a.key}\`) — holds ${a.count} engineering ${a.count === 1 ? 'step' : 'steps'}`);
+  }
+  lines.push('', 'Mark a step done in wallet-src/launch-checklist.json only with real evidence (a passing automated test or a shared test report).');
+  return `${lines.join('\n')}\n`;
+}

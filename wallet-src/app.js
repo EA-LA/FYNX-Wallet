@@ -9,7 +9,7 @@ import { networkFor } from '../firebase-wallet/functions/networks.js';
 import QRCode from 'qrcode';
 import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
-import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, launchOrder, waitingOn, stepIndex, shortStep, reportMarkdown, parseReport, mergeRecords, browserSummary } from './launch-tracker.js';
+import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, launchOrder, waitingOn, stepIndex, shortStep, gateBlockers, engineeringBrief, reportMarkdown, parseReport, mergeRecords, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
@@ -1333,6 +1333,53 @@ function renderLaunchOrder() {
     else d.append(el('p', 'muted', part === 'waiting' ? 'Nothing is waiting: every open step can start now.' : 'Nothing in this group can start right now.'));
     box.append(d);
   }
+  box.append(engineeringBox(o, wasOpen.has('eng-preview')));
+}
+// "What engineering can start now": a short list to paste to the engineer or Claude (checklist text and results only, no notes).
+function engineeringBox(o, previewOpen = false) {
+  const eng = [...o.ready, ...o.waiting].filter(r => r.step.by === 'engineering');
+  const ready = o.ready.filter(r => r.step.by === 'engineering').length;
+  const wrap = el('div', 'lo-eng'); wrap.id = 'lo-eng';
+  wrap.append(el('h4', '', 'Hand off to engineering'), el('p', 'hint', eng.length
+    ? `${ready} engineering ${ready === 1 ? 'step can' : 'steps can'} start now and ${eng.length - ready} ${eng.length - ready === 1 ? 'is' : 'are'} waiting. Copy the list and paste it into a message to your engineer or Claude: it says what to build first, what is still waiting, and what only you (or an outside party) can do to unblock it. Notes are left out.`
+    : 'Every engineering step is done or recorded.'));
+  if (!eng.length) return wrap;
+  const status = el('p', 'status'); status.id = 'lo-eng-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+  const brief = () => engineeringBrief(launchPlan, launchRecords);
+  const actions = el('div', 'actions');
+  const copy = el('button', 'button secondary', 'Copy what engineering can start now'); copy.type = 'button'; copy.id = 'lo-eng-copy';
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(brief()); status.textContent = 'Copied. Paste it into a message to your engineer or Claude.'; }
+    catch { status.textContent = 'Copying was blocked by the browser. Use Download instead.'; }
+  });
+  const dl = el('button', 'text-button', 'Download'); dl.type = 'button'; dl.id = 'lo-eng-download';
+  dl.addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([brief()], { type: 'text/markdown;charset=utf-8' })), a = document.createElement('a');
+    a.href = url; a.download = `fynx-engineering-next-${new Date().toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = 'Engineering list downloaded.';
+  });
+  actions.append(copy, dl);
+  const preview = el('details', 'lo-part lo-eng-preview'); preview.dataset.part = 'eng-preview';
+  preview.append(el('summary', '', 'Preview the list'));
+  const pre = el('pre', 'lo-eng-pre'); preview.addEventListener('toggle', () => { if (preview.open) pre.textContent = brief(); });
+  preview.append(pre);
+  if (previewOpen) { preview.open = true; pre.textContent = brief(); }
+  wrap.append(actions, preview, status);
+  return wrap;
+}
+// Gate summary line: which open steps the gate's waiting steps still wait for.
+function gateBlockedLine(item) {
+  const { waiting, blockers } = gateBlockers(launchPlan, launchRecords, item.id, launchIndex);
+  if (!waiting) return null;
+  const line = el('p', 'lo-waits launch-blocked');
+  line.append(el('strong', '', `Blocked by (${waiting} ${waiting === 1 ? 'step waits' : 'steps wait'}): `));
+  blockers.forEach((b, i) => {
+    const link = el('button', 'text-button lo-dep', `${shortStep(b.step)}${b.gate.id === item.id ? '' : ` (${b.gate.title})`} · ${byLabels[b.step.by]}${b.count > 1 ? ` · holds ${b.count}` : ''}`); link.type = 'button';
+    link.addEventListener('click', () => openStep(b.key));
+    if (i) line.append(document.createTextNode(' · '));
+    line.append(link);
+  });
+  return line;
 }
 function renderLaunchFilters() {
   const nav = $('#launch-filters'); nav.replaceChildren();
@@ -1408,14 +1455,15 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   const list = $('#launch-checklist'); list.replaceChildren();
   for (const item of launchPlan.items) {
     if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;
-    const p = gateProgress(item, launchRecords);
+    const p = gateProgress(item, launchRecords), blocked = gateBlockers(launchPlan, launchRecords, item.id, launchIndex);
     const details = el('details', `launch-item group-${groupOf(item.status)}`); details.id = `gate-${item.id}`; details.dataset.gate = item.id; details.open = open.has(item.id);
     const summary = el('summary'), title = el('strong', '', item.title), state = el('span', 'launch-state', statusLabels[item.status]);
-    const meter = el('span', 'launch-meter'); meter.append(progressBar(p.done, p.total, `${p.done} of ${p.total} steps done`), el('span', '', `${p.done}/${p.total}${p.failed ? ` · ${p.failed} failed` : ''}`));
+    const meter = el('span', 'launch-meter'); meter.append(progressBar(p.done, p.total, `${p.done} of ${p.total} steps done`), el('span', '', `${p.done}/${p.total}${p.failed ? ` · ${p.failed} failed` : ''}${blocked.waiting ? ` · ${blocked.waiting} waiting` : ''}`));
     summary.append(title, state, meter); details.append(summary);
     for (const [label, text] of [['Current', item.current], ['To finish', item.next], ['Responsible', item.responsibility]]) {
       const line = el('p'), lead = el('strong', '', `${label}: `); line.append(lead, document.createTextNode(text)); details.append(line);
     }
+    const blockedLine = gateBlockedLine(item); if (blockedLine) details.append(blockedLine);
     const steps = el('ol', 'launch-steps'); for (const step of item.steps || []) steps.append(stepRow(item, step));
     details.append(el('h3', 'launch-steps-h', 'Steps'), steps);
     const link = el('a', '', 'Evidence and context ↗'); link.href = `https://github.com/EA-LA/FYNX-Wallet/blob/main/${item.evidence}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
