@@ -9,7 +9,7 @@ import { networkFor } from '../firebase-wallet/functions/networks.js';
 import QRCode from 'qrcode';
 import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
-import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, reportMarkdown, parseReport, mergeRecords, browserSummary } from './launch-tracker.js';
+import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, launchOrder, waitingOn, stepIndex, shortStep, reportMarkdown, parseReport, mergeRecords, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
@@ -1271,6 +1271,69 @@ function renderLaunchOverview() {
   } else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
   box.append(wrap);
 }
+// Launch order: what can be done now, what frees the most other work, and what still waits on another step.
+const launchIndex = stepIndex(launchPlan);
+function openStep(key) {
+  const entry = launchIndex.get(key); if (!entry) return;
+  openGate(entry.gate.id, false);
+  const row = document.querySelector(`#launch-checklist [data-step="${CSS.escape(key)}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  row.classList.add('is-highlight'); setTimeout(() => row.classList.remove('is-highlight'), 2400);
+  (row.querySelector('.launch-result') || row.querySelector('.launch-step-text'))?.focus?.({ preventScroll: true });
+}
+function orderRow(row, { showWaits = false, showFrees = true } = {}) {
+  const li = el('li', `lo-row${row.failed ? ' is-failed' : ''}`);
+  const b = el('button', 'text-button lo-link'); b.type = 'button';
+  b.append(el('span', 'lo-meta', `${byLabels[row.step.by]} · ${row.gate.title}${row.failed ? ' · failed, retest' : ''}`), el('span', 'lo-text', shortStep(row.step)));
+  b.addEventListener('click', () => openStep(row.key));
+  li.append(b);
+  if (showFrees && row.unblocks) li.append(el('span', 'lo-frees', `frees ${row.unblocks} ${row.unblocks === 1 ? 'step' : 'steps'}`));
+  if (showWaits && row.on.length) {
+    const w = el('p', 'lo-waits'); w.append(el('span', '', 'Waits for: '));
+    row.on.forEach(({ gate, step }, i) => {
+      const k = stepKey(gate.id, step.id), link = el('button', 'text-button lo-dep', `${shortStep(step)}${gate.id === row.gate.id ? '' : ` (${gate.title})`}`); link.type = 'button';
+      link.addEventListener('click', () => openStep(k));
+      if (i) w.append(document.createTextNode(' · '));
+      w.append(link);
+    });
+    li.append(w);
+  }
+  return li;
+}
+function renderLaunchOrder() {
+  const box = $('#launch-order'); if (!box) return;
+  const wasOpen = new Set([...box.querySelectorAll('details[open]')].map(d => d.dataset.part));
+  const o = launchOrder(launchPlan, launchRecords); box.replaceChildren();
+  const head = el('div', 'lo-head');
+  head.append(el('h3', '', 'What can move now'), el('p', 'hint', 'Some steps only make sense after others (a passkey has to be added before you can sign in with it; counsel has to be hired before they can review). This is a suggested order: you can still record any result at any time.'));
+  box.append(head);
+  const stats = el('ul', 'lo-stats');
+  for (const [part, n, label] of [['you', o.readyYou.length, 'ready for you now'], ['others', o.readyOthers.length, 'ready for engineering or outside parties'], ['waiting', o.waiting.length, 'waiting on another step']]) {
+    const li = el('li'), b = el('button', `lo-stat lo-${part}`); b.type = 'button';
+    b.append(el('strong', '', String(n)), el('span', '', label));
+    b.addEventListener('click', () => { const d = box.querySelector(`details[data-part="${part}"]`); if (d) { d.open = true; d.querySelector('summary').focus(); d.scrollIntoView({ block: 'nearest' }); } });
+    li.append(b); stats.append(li);
+  }
+  box.append(stats);
+  if (!o.ready.length && !o.waiting.length) { box.append(el('p', 'muted', 'Every step is done or recorded.')); return; }
+  const top = o.top.slice(0, 3);
+  if (top.length) {
+    const t = el('div', 'lo-top'); t.append(el('h4', '', 'Do these first: they free the most other steps'));
+    const ol = el('ol', 'lo-list'); for (const row of top) ol.append(orderRow(row)); t.append(ol); box.append(t);
+  }
+  for (const [part, rows, title, opts] of [
+    ['you', o.readyYou, 'Ready for you now', {}],
+    ['others', o.readyOthers, 'Ready for engineering or outside parties', {}],
+    ['waiting', o.waiting, 'Waiting on another step', { showWaits: true, showFrees: false }],
+  ]) {
+    const d = el('details', 'lo-part'); d.dataset.part = part; d.open = wasOpen.has(part);
+    d.append(el('summary', '', `${title} (${rows.length})`));
+    if (rows.length) { const ol = el('ol', 'lo-list'); for (const row of rows) ol.append(orderRow(row, opts)); d.append(ol); }
+    else d.append(el('p', 'muted', part === 'waiting' ? 'Nothing is waiting: every open step can start now.' : 'Nothing in this group can start right now.'));
+    box.append(d);
+  }
+}
 function renderLaunchFilters() {
   const nav = $('#launch-filters'); nav.replaceChildren();
   for (const key of Object.keys(groupLabels)) {
@@ -1290,8 +1353,19 @@ function stepRow(gate, step) {
   const li = el('li', `launch-step is-${state}`); li.dataset.step = key;
   const top = el('div', 'launch-step-top');
   top.append(el('span', `launch-by by-${step.by}`, byLabels[step.by]), el('p', 'launch-step-text', step.text));
-  const mark = el('span', 'launch-mark', state === 'done' ? (step.done ? 'Done' : resultLabels[rec?.result] || 'Done') : state === 'failed' ? 'Failed' : step.by === 'you' ? 'To do' : 'Open');
+  const waits = state === 'done' ? [] : waitingOn(launchPlan, launchRecords, key, launchIndex);
+  const mark = el('span', 'launch-mark', state === 'done' ? (step.done ? 'Done' : resultLabels[rec?.result] || 'Done') : state === 'failed' ? 'Failed' : waits.length ? 'Waiting' : step.by === 'you' ? 'To do' : 'Open');
   top.append(mark); li.append(top);
+  if (waits.length) {
+    const w = el('p', 'lo-waits launch-waits'); w.append(el('span', '', 'Best done after: '));
+    waits.forEach(({ gate: g, step: s }, i) => {
+      const k = stepKey(g.id, s.id), link = el('button', 'text-button lo-dep', `${shortStep(s)}${g.id === gate.id ? '' : ` (${g.title})`}`); link.type = 'button';
+      link.addEventListener('click', () => openStep(k));
+      if (i) w.append(document.createTextNode(' · '));
+      w.append(link);
+    });
+    li.append(w);
+  }
   if (step.by !== 'you' || step.done) return li;
   const controls = el('div', 'launch-step-controls');
   const group = el('div', 'launch-results'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Result: ${step.text}`);
@@ -1330,7 +1404,7 @@ function stepRow(gate, step) {
 function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   const open = new Set([...document.querySelectorAll('#launch-checklist details[open]')].map(d => d.dataset.gate));
   if (keepOpen) open.add(keepOpen);
-  renderLaunchOverview(); renderLaunchFilters();
+  renderLaunchOverview(); renderLaunchOrder(); renderLaunchFilters();
   const list = $('#launch-checklist'); list.replaceChildren();
   for (const item of launchPlan.items) {
     if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;

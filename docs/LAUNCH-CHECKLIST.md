@@ -1,6 +1,6 @@
 # FYNX Wallet launch checklist
 
-Updated 2026-11-07. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
+Updated 2026-11-08. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
 
 FYNX is its own product. Owner crypto tools support Ethereum Sepolia and Base Sepolia test transactions, plus read-only Base mainnet. Public access stays on the waitlist. No MoonPay integration is planned.
 
@@ -38,7 +38,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 - [x] Engineering: Public website and waitlist published from GitHub Pages.
 - [x] Engineering: Registrations saved with consent, notice version and a 365-day expiry.
 - [ ] You: On your phone, open the public website, join the waitlist with a test address ending in @example.com and confirm the success message.
-- [ ] You: In the Waitlist tab, find that test address, check its consent details, then remove it.
+- [ ] You: In the Waitlist tab, find that test address, check its consent details, then remove it. _(after: On your phone, open the public website, join the waitlist with a test address ending in…)_
 
 ## Account login and recovery
 
@@ -54,9 +54,9 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 - [ ] You: Sign in with Google in a normal (not private) desktop browser. Note the browser and version.
 - [ ] You: Use “Set or reset an email password”, open the email, set a password, then sign in with email and password.
 - [ ] You: Account security → Add a passkey on this computer and confirm it appears in the list.
-- [ ] You: Sign out, then sign back in with “Use a passkey”.
+- [ ] You: Sign out, then sign back in with “Use a passkey”. _(after: Account security → Add a passkey on this computer and confirm it appears in the list)_
 - [ ] You: Add a passkey on your iPhone or iPad in Safari and sign in with it.
-- [ ] You: Remove one passkey and confirm it can no longer be used to sign in.
+- [ ] You: Remove one passkey and confirm it can no longer be used to sign in. _(after: Account security → Add a passkey on this computer and confirm it appears in the list)_
 - [ ] You: Leave the workspace untouched for 15 minutes and confirm it signs you out.
 - [ ] You: Try to sign in with a Google account that is not the owner and confirm access is refused.
 
@@ -71,9 +71,9 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 **Steps (0 of 4 recorded as done):**
 
 - [ ] Engineering: Per-customer profiles and wallet ownership records.
-- [ ] Engineering: Cross-account isolation tests: one customer can never read or act on another’s data.
+- [ ] Engineering: Cross-account isolation tests: one customer can never read or act on another’s data. _(after: Per-customer profiles and wallet ownership records)_
 - [ ] Engineering: Session revocation, rate limits and abuse controls for public sign-up.
-- [ ] You: Approve opening registration only after the security, legal and pilot gates pass.
+- [ ] You: Approve opening registration only after the security, legal and pilot gates pass. _(after: Cross-account isolation tests: one customer can never read or act on another’s data; Session revocation, rate limits and abuse controls for public sign-up; Production security and independent audit → Independent review completed, issues fixed and retested; U.S. launch permissions and consumer protections → Complete the registrations and contracts counsel requires; Controlled public launch → Give final written approval to remove the waitlist for the pilot group)_
 
 ## Wallet creation and recovery
 
@@ -88,7 +88,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 - [x] Engineering: Version one connects an existing wallet; FYNX never creates, stores or asks for recovery words.
 - [ ] You: Decide: is connecting your own wallet (for example MetaMask or Ledger) enough for launch, or must FYNX create wallets inside the app? Write your decision in the note.
 - [ ] You: Restore a test wallet from its recovery phrase in that wallet’s own app (never on FYNX) and confirm the same address appears in Crypto tools.
-- [ ] Outside party: Only if FYNX must create wallets: independent review of key generation, encrypted storage, backup, export and recovery before any build.
+- [ ] Outside party: Only if FYNX must create wallets: independent review of key generation, encrypted storage, backup, export and recovery before any build. _(after: Decide: is connecting your own wallet (for example MetaMask or Ledger) enough for launch,…)_
 
 ## Send, receive and signing
 
@@ -104,12 +104,12 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 - [x] Engineering: Sending on Base mainnet is blocked; only test networks can sign.
 - [ ] You: In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed in Base’s documentation.
 - [ ] You: Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve. Confirm the wallet shows as verified.
-- [ ] You: Repeat, but reject the ownership signature in the wallet. Confirm the page says nothing was approved.
+- [ ] You: Repeat, but reject the ownership signature in the wallet. Confirm the page says nothing was approved. _(after: Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve)_
 - [ ] You: Scan the Receive QR code with a phone wallet and confirm the address and network match exactly.
-- [ ] You: Send 0.001 test ETH to a second address you control. Note the transaction ID and confirm the recipient balance on the Base Sepolia block explorer.
-- [ ] You: Send 1 test USDC the same way (test USDC comes from Circle’s testnet faucet).
-- [ ] You: Start a transfer and reject it in the wallet. Confirm nothing was sent.
-- [ ] You: Repeat one transfer with a Ledger, approving on the device screen.
+- [ ] You: Send 0.001 test ETH to a second address you control. Note the transaction ID and confirm the recipient balance on the Base Sepolia block explorer. _(after: In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed…; Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve)_
+- [ ] You: Send 1 test USDC the same way (test USDC comes from Circle’s testnet faucet). _(after: Send 0.001 test ETH to a second address you control)_
+- [ ] You: Start a transfer and reject it in the wallet. Confirm nothing was sent. _(after: Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve)_
+- [ ] You: Repeat one transfer with a Ledger, approving on the device screen. _(after: Send 0.001 test ETH to a second address you control)_
 - [ ] You: Switch to Base mainnet and confirm sending and swapping stay disabled.
 
 ## Live assets, balances and transaction history
@@ -124,8 +124,8 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 - [x] Engineering: Live ETH and USDC balances on Ethereum Sepolia, Base Sepolia and Base (read-only).
 - [x] Engineering: Session transaction list and transaction lookup.
-- [ ] You: Compare the balances shown in Crypto tools with the block explorer on both test networks.
-- [ ] You: Paste a transaction ID into “Track confirmation” and confirm the status matches the explorer.
+- [ ] You: Compare the balances shown in Crypto tools with the block explorer on both test networks. _(after: Send, receive and signing → In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed…)_
+- [ ] You: Paste a transaction ID into “Track confirmation” and confirm the status matches the explorer. _(after: Send, receive and signing → Send 0.001 test ETH to a second address you control)_
 - [ ] Engineering: Complete transaction history from an indexing provider.
 - [ ] Engineering: Production network connection with a backup provider if the first fails.
 - [x] Engineering: Handle replaced, dropped and reorganised transactions: Track shows confirmations and explains each case (read-only checks, tested in tests/tx-tracker.test.mjs).
@@ -143,12 +143,12 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 - [x] Engineering: Transak sandbox checkout and order check built; stays off until credentials are added.
 - [ ] You: Create a Transak partner account and get its staging (test) API key and access token. Never paste them into chat or GitHub.
-- [ ] Outside party: Transak approves the backend’s fixed IP address (needs a static outbound address set up first).
-- [ ] You: Put the staging key in Google Cloud Secret Manager (FYNX_TRANSAK_SANDBOX), following docs/PROVIDER-SETUP.md.
-- [ ] Engineering: Redeploy only the owner function so it picks up the new secret.
-- [ ] You: Crypto tools → Check integration status, then create a sandbox Buy and a Sell checkout, and verify each order ID.
-- [ ] You: Test a cancelled and a failed sandbox order and confirm they never show as paid.
-- [ ] Outside party: Provider business approval, production contract and legal review before real payments.
+- [ ] Outside party: Transak approves the backend’s fixed IP address (needs a static outbound address set up first). _(after: Create a Transak partner account and get its staging (test) API key and access token)_
+- [ ] You: Put the staging key in Google Cloud Secret Manager (FYNX_TRANSAK_SANDBOX), following docs/PROVIDER-SETUP.md. _(after: Create a Transak partner account and get its staging (test) API key and access token)_
+- [ ] Engineering: Redeploy only the owner function so it picks up the new secret. _(after: Put the staging key in Google Cloud Secret Manager (FYNX_TRANSAK_SANDBOX), following…)_
+- [ ] You: Crypto tools → Check integration status, then create a sandbox Buy and a Sell checkout, and verify each order ID. _(after: Redeploy only the owner function so it picks up the new secret; Transak approves the backend’s fixed IP address (needs a static outbound address set up…)_
+- [ ] You: Test a cancelled and a failed sandbox order and confirm they never show as paid. _(after: Crypto tools → Check integration status, then create a sandbox Buy and a Sell checkout,…)_
+- [ ] Outside party: Provider business approval, production contract and legal review before real payments. _(after: Crypto tools → Check integration status, then create a sandbox Buy and a Sell checkout,…; U.S. launch permissions and consumer protections → Counsel reviews federal and state licensing, anti-money-laundering, sanctions, age and…)_
 
 ## Swap assets safely
 
@@ -161,11 +161,11 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 **Steps (1 of 7 recorded as done):**
 
 - [x] Engineering: ETH ↔ USDC swaps with slippage, price-impact, expiry and minimum-received limits passed on an isolated Base Sepolia copy.
-- [ ] You: Crypto tools → Base Sepolia → get a quote for 0.001 ETH → USDC and check the minimum received.
-- [ ] You: Complete that swap in your wallet and confirm both balances on the explorer.
-- [ ] You: Swap a small amount of USDC back to ETH: approve the exact amount, request a fresh quote, swap.
-- [ ] You: Use “Revoke swap allowance” and confirm the allowance is zero.
-- [ ] You: Repeat one swap approving on a Ledger.
+- [ ] You: Crypto tools → Base Sepolia → get a quote for 0.001 ETH → USDC and check the minimum received. _(after: Send, receive and signing → In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed…; Send, receive and signing → Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve)_
+- [ ] You: Complete that swap in your wallet and confirm both balances on the explorer. _(after: Crypto tools → Base Sepolia → get a quote for 0.001 ETH → USDC and check the minimum…)_
+- [ ] You: Swap a small amount of USDC back to ETH: approve the exact amount, request a fresh quote, swap. _(after: Complete that swap in your wallet and confirm both balances on the explorer)_
+- [ ] You: Use “Revoke swap allowance” and confirm the allowance is zero. _(after: Swap a small amount of USDC back to ETH: approve the exact amount, request a fresh quote,…)_
+- [ ] You: Repeat one swap approving on a Ledger. _(after: Complete that swap in your wallet and confirm both balances on the explorer)_
 - [ ] Outside party: Independent review of the pinned contracts, pricing risks and fee handling before real funds.
 
 ## Production security and independent audit
@@ -180,9 +180,9 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 - [x] Engineering: Owner-only authorization, App Check, replay protection, dependency checks and an internal review.
 - [ ] You: Choose a dedicated web address and a separate Firebase project for the production wallet.
-- [ ] Engineering: Security headers, secrets and access permissions on that dedicated setup; retest App Check in normal browsers.
+- [ ] Engineering: Security headers, secrets and access permissions on that dedicated setup; retest App Check in normal browsers. _(after: Choose a dedicated web address and a separate Firebase project for the production wallet)_
 - [ ] You: Choose and hire an independent security reviewer for signing and sign-in.
-- [ ] Outside party: Independent review completed, issues fixed and retested.
+- [ ] Outside party: Independent review completed, issues fixed and retested. _(after: Choose and hire an independent security reviewer for signing and sign-in)_
 
 ## Publish only verified releases
 
@@ -211,10 +211,10 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 - [x] Engineering: Audit retention, rate limits, connection checks and a written incident procedure.
 - [ ] You: Name who reads fynxteam5@gmail.com every day, and a backup person.
 - [ ] You: Choose where alerts go (email or phone) for failures, sign-in problems and billing.
-- [ ] Engineering: Set up those alerts in Google Cloud and send a test alert.
+- [ ] Engineering: Set up those alerts in Google Cloud and send a test alert. _(after: Choose where alerts go (email or phone) for failures, sign-in problems and billing)_
 - [ ] You: Choose how long backups are kept and how quickly the service must be restored after an outage.
-- [ ] Engineering: Restore a backup into a separate test project and record the result.
-- [ ] You: Walk through the incident procedure once with your team (a 30-minute practice run).
+- [ ] Engineering: Restore a backup into a separate test project and record the result. _(after: Choose how long backups are kept and how quickly the service must be restored after an…)_
+- [ ] You: Walk through the incident procedure once with your team (a 30-minute practice run). _(after: Name who reads fynxteam5@gmail.com every day, and a backup person)_
 
 ## U.S. launch permissions and consumer protections
 
@@ -229,9 +229,9 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 - [ ] You: Confirm FYNX finance world inc.’s state of incorporation and registration details.
 - [ ] You: Confirm the model: customers keep their own keys and a licensed provider handles card and bank payments.
 - [ ] You: Hire qualified U.S. counsel experienced with crypto and payments.
-- [ ] Outside party: Counsel reviews federal and state licensing, anti-money-laundering, sanctions, age and eligibility, privacy and complaints duties.
-- [ ] Outside party: Customer terms, privacy notice and risk disclosures drafted and approved.
-- [ ] You: Complete the registrations and contracts counsel requires.
+- [ ] Outside party: Counsel reviews federal and state licensing, anti-money-laundering, sanctions, age and eligibility, privacy and complaints duties. _(after: Hire qualified U.S. counsel experienced with crypto and payments; Confirm FYNX finance world inc.’s state of incorporation and registration details; Confirm the model: customers keep their own keys and a licensed provider handles card and…)_
+- [ ] Outside party: Customer terms, privacy notice and risk disclosures drafted and approved. _(after: Counsel reviews federal and state licensing, anti-money-laundering, sanctions, age and…)_
+- [ ] You: Complete the registrations and contracts counsel requires. _(after: Counsel reviews federal and state licensing, anti-money-laundering, sanctions, age and…)_
 
 ## International availability
 
@@ -244,8 +244,8 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 **Steps (0 of 3 recorded as done):**
 
 - [ ] You: Pick the first country after the U.S.
-- [ ] Outside party: Counsel and payment provider confirm what is allowed and supported in that country.
-- [ ] Engineering: An approved-country list that blocks sign-up from anywhere not approved.
+- [ ] Outside party: Counsel and payment provider confirm what is allowed and supported in that country. _(after: Pick the first country after the U.S; U.S. launch permissions and consumer protections → Hire qualified U.S. counsel experienced with crypto and payments)_
+- [ ] Engineering: An approved-country list that blocks sign-up from anywhere not approved. _(after: Counsel and payment provider confirm what is allowed and supported in that country)_
 
 ## Controlled public launch
 
@@ -260,6 +260,6 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 - [ ] You: Decide the pilot: how many people, which states, and the maximum amounts.
 - [ ] You: Arrange who answers support during the pilot, and how fast.
 - [ ] Engineering: A tested rollback plan and reconciliation reports for the pilot.
-- [ ] You: Give final written approval to remove the waitlist for the pilot group.
+- [ ] You: Give final written approval to remove the waitlist for the pilot group. _(after: Decide the pilot: how many people, which states, and the maximum amounts; Arrange who answers support during the pilot, and how fast; A tested rollback plan and reconciliation reports for the pilot; Production security and independent audit → Independent review completed, issues fixed and retested; U.S. launch permissions and consumer protections → Customer terms, privacy notice and risk disclosures drafted and approved; U.S. launch permissions and consumer protections → Complete the registrations and contracts counsel requires)_
 
 This file is generated from `wallet-src/launch-checklist.json`; update that source and run `npm run build`. The owner dashboard uses the same checklist.

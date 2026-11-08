@@ -72,15 +72,16 @@ export function overview(plan, records) {
   return { gates: plan.items.length, counts, total, done, yours, yoursDone, failed, percent: total ? Math.round(done / total * 100) : 0 };
 }
 
-// The next few owner steps, failed ones first, then in checklist order.
+// The next few owner steps: failed ones first, then steps that are ready now (nothing they wait for is
+// still open), in checklist order. Steps still waiting on other work only fill the list when nothing else is left.
 export function nextActions(plan, records, limit = 3) {
-  const open = [];
+  const open = [], index = stepIndex(plan);
   for (const gate of plan.items) for (const step of gate.steps || []) {
     if (step.by !== 'you') continue;
     const state = stepState(gate, step, records);
-    if (state !== 'done') open.push({ gate, step, failed: state === 'failed' });
+    if (state !== 'done') open.push({ gate, step, failed: state === 'failed', waiting: waitingOn(plan, records, stepKey(gate.id, step.id), index).length > 0 });
   }
-  return [...open.filter(o => o.failed), ...open.filter(o => !o.failed)].slice(0, limit);
+  return [...open.filter(o => o.failed), ...open.filter(o => !o.failed && !o.waiting), ...open.filter(o => !o.failed && o.waiting)].slice(0, limit);
 }
 
 const mdLine = s => String(s).replace(/\s+/g, ' ').replace(/([\\`*_[\]<>|])/g, '\\$1').trim();
@@ -161,4 +162,84 @@ export function browserSummary(ua = '') {
   const browser = /Edg\//.test(s) ? 'Edge' : /Firefox\//.test(s) ? 'Firefox' : /CriOS|Chrome\//.test(s) ? 'Chrome' : /Safari\//.test(s) ? 'Safari' : 'Browser';
   const os = /iPad/.test(s) ? 'iPad' : /iPhone/.test(s) ? 'iPhone' : /Android/.test(s) ? 'Android' : /Mac OS X|Macintosh/.test(s) ? 'Mac' : /Windows/.test(s) ? 'Windows' : /Linux/.test(s) ? 'Linux' : 'unknown device';
   return `${browser} on ${os}`;
+}
+
+// Launch order: a step may list `after` (other steps, as "gate/step") that should be finished first.
+// It is a suggested order, not a lock: results can still be recorded for a waiting step.
+export function stepIndex(plan) {
+  const index = new Map();
+  for (const gate of plan.items) for (const step of gate.steps || []) index.set(stepKey(gate.id, step.id), { gate, step });
+  return index;
+}
+
+// Problems in the `after` lists: unknown or self references, duplicates and loops. Empty when fine.
+export function checkDependencies(plan) {
+  const index = stepIndex(plan), errors = [];
+  for (const [key, { step }] of index) {
+    if (step.after === undefined) continue;
+    if (!Array.isArray(step.after) || !step.after.length) { errors.push(`${key}: "after" must be a non-empty list`); continue; }
+    if (new Set(step.after).size !== step.after.length) errors.push(`${key}: repeats a step in "after"`);
+    for (const ref of step.after) {
+      if (ref === key) errors.push(`${key}: waits for itself`);
+      else if (!index.has(ref)) errors.push(`${key}: waits for unknown step ${ref}`);
+    }
+  }
+  const state = new Map();
+  const visit = (key, path) => {
+    if (state.get(key) === 'done') return;
+    if (state.get(key) === 'active') { errors.push(`loop: ${[...path.slice(path.indexOf(key)), key].join(' → ')}`); return; }
+    state.set(key, 'active');
+    for (const ref of index.get(key)?.step.after || []) if (index.has(ref) && ref !== key) visit(ref, [...path, key]);
+    state.set(key, 'done');
+  };
+  for (const key of index.keys()) visit(key, []);
+  return errors;
+}
+
+// The steps this one still waits for (not done yet; a failed test still counts as not done).
+export function waitingOn(plan, records, key, index = stepIndex(plan)) {
+  const entry = index.get(key);
+  if (!entry) return [];
+  return (entry.step.after || []).map(ref => index.get(ref)).filter(Boolean).filter(({ gate, step }) => stepState(gate, step, records) !== 'done');
+}
+
+// For every open step: is it ready now or waiting, and how many open steps (directly or further down) wait on it.
+export function launchOrder(plan, records) {
+  const index = stepIndex(plan), dependants = new Map();
+  for (const [key, { step }] of index) for (const ref of step.after || []) {
+    if (!dependants.has(ref)) dependants.set(ref, new Set());
+    dependants.get(ref).add(key);
+  }
+  const isOpen = key => { const { gate, step } = index.get(key); return stepState(gate, step, records) !== 'done'; };
+  const unblocks = key => {
+    const seen = new Set(), queue = [...(dependants.get(key) || [])];
+    while (queue.length) { const k = queue.shift(); if (seen.has(k) || k === key) continue; seen.add(k); queue.push(...(dependants.get(k) || [])); }
+    return [...seen].filter(isOpen).length;
+  };
+  const ready = [], waiting = [];
+  let done = 0;
+  for (const [key, { gate, step }] of index) {
+    const state = stepState(gate, step, records);
+    if (state === 'done') { done += 1; continue; }
+    const on = waitingOn(plan, records, key, index);
+    const row = { key, gate, step, failed: state === 'failed', unblocks: unblocks(key), on };
+    (on.length ? waiting : ready).push(row);
+  }
+  // Steps that free the most other work, most first; ties keep checklist order.
+  const top = ready.filter(r => r.unblocks > 0).map((r, i) => [r, i]).sort((a, b) => b[0].unblocks - a[0].unblocks || a[1] - b[1]).map(([r]) => r);
+  return {
+    ready, waiting, done, top,
+    readyYou: ready.filter(r => r.step.by === 'you'),
+    readyOthers: ready.filter(r => r.step.by !== 'you'),
+  };
+}
+
+// A short name for a step in "waits for" lines: its first sentence, cut at a word near 90 characters.
+export function shortStep(step) {
+  let s = String(step?.text || '').replace(/\s+/g, ' ').trim();
+  // A sentence ends at . ? or ! followed by a capital letter or the end (so “U.S. counsel” stays whole).
+  const end = s.search(/[.?!](?=\s+[A-Z“"]|$)/);
+  if (end > 0) s = s.slice(0, end);
+  if (s.length > 90) s = `${s.slice(0, 90).replace(/\s+\S*$/, '')}…`;
+  return s;
 }

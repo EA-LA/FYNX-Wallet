@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-07",
+  "updated": "2026-11-08",
   "product": "FYNX Wallet",
   "operator": "FYNX finance world inc.",
   "marketPlan": "United States first; expand internationally only where the final product is permitted and supported.",
@@ -37,6 +37,9 @@
           "id": "find-remove",
           "by": "you",
           "text": "In the Waitlist tab, find that test address, check its consent details, then remove it.",
+          "after": [
+            "website/join-phone"
+          ],
           "done": false,
           "tab": "registrations"
         }
@@ -80,6 +83,9 @@
           "id": "passkey-signin",
           "by": "you",
           "text": "Sign out, then sign back in with “Use a passkey”.",
+          "after": [
+            "identity/passkey-add"
+          ],
           "done": false
         },
         {
@@ -93,6 +99,9 @@
           "id": "passkey-remove",
           "by": "you",
           "text": "Remove one passkey and confirm it can no longer be used to sign in.",
+          "after": [
+            "identity/passkey-add"
+          ],
           "done": false,
           "tab": "security"
         },
@@ -129,6 +138,9 @@
           "id": "isolation",
           "by": "engineering",
           "text": "Cross-account isolation tests: one customer can never read or act on another’s data.",
+          "after": [
+            "public-accounts/profiles"
+          ],
           "done": false
         },
         {
@@ -141,6 +153,13 @@
           "id": "approve-open",
           "by": "you",
           "text": "Approve opening registration only after the security, legal and pilot gates pass.",
+          "after": [
+            "public-accounts/isolation",
+            "public-accounts/abuse",
+            "production-security/audit",
+            "legal/registrations",
+            "pilot/approve"
+          ],
           "done": false
         }
       ]
@@ -177,6 +196,9 @@
           "id": "embedded-review",
           "by": "outside",
           "text": "Only if FYNX must create wallets: independent review of key generation, encrypted storage, backup, export and recovery before any build.",
+          "after": [
+            "wallet-recovery/decide"
+          ],
           "done": false
         }
       ]
@@ -219,6 +241,9 @@
           "id": "reject-sign",
           "by": "you",
           "text": "Repeat, but reject the ownership signature in the wallet. Confirm the page says nothing was approved.",
+          "after": [
+            "signing/verify-wallet"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -233,6 +258,10 @@
           "id": "send-eth",
           "by": "you",
           "text": "Send 0.001 test ETH to a second address you control. Note the transaction ID and confirm the recipient balance on the Base Sepolia block explorer.",
+          "after": [
+            "signing/test-funds",
+            "signing/verify-wallet"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -240,6 +269,9 @@
           "id": "send-usdc",
           "by": "you",
           "text": "Send 1 test USDC the same way (test USDC comes from Circle’s testnet faucet).",
+          "after": [
+            "signing/send-eth"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -247,6 +279,9 @@
           "id": "reject-send",
           "by": "you",
           "text": "Start a transfer and reject it in the wallet. Confirm nothing was sent.",
+          "after": [
+            "signing/verify-wallet"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -254,6 +289,9 @@
           "id": "ledger",
           "by": "you",
           "text": "Repeat one transfer with a Ledger, approving on the device screen.",
+          "after": [
+            "signing/send-eth"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -291,6 +329,9 @@
           "id": "compare",
           "by": "you",
           "text": "Compare the balances shown in Crypto tools with the block explorer on both test networks.",
+          "after": [
+            "signing/test-funds"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -298,6 +339,9 @@
           "id": "lookup",
           "by": "you",
           "text": "Paste a transaction ID into “Track confirmation” and confirm the status matches the explorer.",
+          "after": [
+            "signing/send-eth"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -352,24 +396,37 @@
           "id": "allowlist",
           "by": "outside",
           "text": "Transak approves the backend’s fixed IP address (needs a static outbound address set up first).",
+          "after": [
+            "fiat/partner"
+          ],
           "done": false
         },
         {
           "id": "secret",
           "by": "you",
           "text": "Put the staging key in Google Cloud Secret Manager (FYNX_TRANSAK_SANDBOX), following docs/PROVIDER-SETUP.md.",
+          "after": [
+            "fiat/partner"
+          ],
           "done": false
         },
         {
           "id": "redeploy",
           "by": "engineering",
           "text": "Redeploy only the owner function so it picks up the new secret.",
+          "after": [
+            "fiat/secret"
+          ],
           "done": false
         },
         {
           "id": "sandbox-test",
           "by": "you",
           "text": "Crypto tools → Check integration status, then create a sandbox Buy and a Sell checkout, and verify each order ID.",
+          "after": [
+            "fiat/redeploy",
+            "fiat/allowlist"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -377,6 +434,9 @@
           "id": "failures",
           "by": "you",
           "text": "Test a cancelled and a failed sandbox order and confirm they never show as paid.",
+          "after": [
+            "fiat/sandbox-test"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -384,6 +444,10 @@
           "id": "approval",
           "by": "outside",
           "text": "Provider business approval, production contract and legal review before real payments.",
+          "after": [
+            "fiat/sandbox-test",
+            "legal/analysis"
+          ],
           "done": false
         }
       ]
@@ -407,6 +471,10 @@
           "id": "quote",
           "by": "you",
           "text": "Crypto tools → Base Sepolia → get a quote for 0.001 ETH → USDC and check the minimum received.",
+          "after": [
+            "signing/test-funds",
+            "signing/verify-wallet"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -414,6 +482,9 @@
           "id": "swap-eth",
           "by": "you",
           "text": "Complete that swap in your wallet and confirm both balances on the explorer.",
+          "after": [
+            "swaps/quote"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -421,6 +492,9 @@
           "id": "swap-usdc",
           "by": "you",
           "text": "Swap a small amount of USDC back to ETH: approve the exact amount, request a fresh quote, swap.",
+          "after": [
+            "swaps/swap-eth"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -428,6 +502,9 @@
           "id": "revoke",
           "by": "you",
           "text": "Use “Revoke swap allowance” and confirm the allowance is zero.",
+          "after": [
+            "swaps/swap-usdc"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -435,6 +512,9 @@
           "id": "ledger",
           "by": "you",
           "text": "Repeat one swap approving on a Ledger.",
+          "after": [
+            "swaps/swap-eth"
+          ],
           "done": false,
           "tab": "wallet"
         },
@@ -471,6 +551,9 @@
           "id": "headers",
           "by": "engineering",
           "text": "Security headers, secrets and access permissions on that dedicated setup; retest App Check in normal browsers.",
+          "after": [
+            "production-security/domain"
+          ],
           "done": false
         },
         {
@@ -483,6 +566,9 @@
           "id": "audit",
           "by": "outside",
           "text": "Independent review completed, issues fixed and retested.",
+          "after": [
+            "production-security/auditor"
+          ],
           "done": false
         }
       ]
@@ -547,6 +633,9 @@
           "id": "alerts",
           "by": "engineering",
           "text": "Set up those alerts in Google Cloud and send a test alert.",
+          "after": [
+            "operations/alert-dest"
+          ],
           "done": false
         },
         {
@@ -559,12 +648,18 @@
           "id": "restore",
           "by": "engineering",
           "text": "Restore a backup into a separate test project and record the result.",
+          "after": [
+            "operations/backup"
+          ],
           "done": false
         },
         {
           "id": "drill",
           "by": "you",
           "text": "Walk through the incident procedure once with your team (a 30-minute practice run).",
+          "after": [
+            "operations/inbox"
+          ],
           "done": false
         }
       ]
@@ -600,18 +695,29 @@
           "id": "analysis",
           "by": "outside",
           "text": "Counsel reviews federal and state licensing, anti-money-laundering, sanctions, age and eligibility, privacy and complaints duties.",
+          "after": [
+            "legal/counsel",
+            "legal/entity",
+            "legal/model"
+          ],
           "done": false
         },
         {
           "id": "terms",
           "by": "outside",
           "text": "Customer terms, privacy notice and risk disclosures drafted and approved.",
+          "after": [
+            "legal/analysis"
+          ],
           "done": false
         },
         {
           "id": "registrations",
           "by": "you",
           "text": "Complete the registrations and contracts counsel requires.",
+          "after": [
+            "legal/analysis"
+          ],
           "done": false
         }
       ]
@@ -635,12 +741,19 @@
           "id": "country-review",
           "by": "outside",
           "text": "Counsel and payment provider confirm what is allowed and supported in that country.",
+          "after": [
+            "international/first-country",
+            "legal/counsel"
+          ],
           "done": false
         },
         {
           "id": "country-policy",
           "by": "engineering",
           "text": "An approved-country list that blocks sign-up from anywhere not approved.",
+          "after": [
+            "international/country-review"
+          ],
           "done": false
         }
       ]
@@ -676,6 +789,14 @@
           "id": "approve",
           "by": "you",
           "text": "Give final written approval to remove the waitlist for the pilot group.",
+          "after": [
+            "pilot/limits",
+            "pilot/support",
+            "pilot/rollback",
+            "production-security/audit",
+            "legal/terms",
+            "legal/registrations"
+          ],
           "done": false
         }
       ]

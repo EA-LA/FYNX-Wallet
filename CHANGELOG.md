@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-08 14:40 UTC — [autopilot] Owner workspace: Launch readiness shows what can move now and what is waiting
+
+- Launch readiness has a new "What can move now" panel under the progress overview: how many steps are ready for you right now, how many are ready for engineering or outside parties, and how many are waiting on another step.
+- "Do these first" picks the three steps that free the most other work (for example: verifying your test wallet frees 11 later steps; hiring U.S. counsel frees 8).
+- Each list opens the exact step in the checklist below, highlighted, so you can record the result straight away.
+- Steps that only make sense after another one (sign in with a passkey after adding one; the Transak sandbox test after the key and redeploy; counsel's review after hiring counsel; pilot approval after the audit and legal work) now say "Waiting" and show "Best done after: …" with a link to that step. It is a suggested order: you can still record any result.
+- "Your next steps" now skips steps that are still waiting on something else, so it always suggests something you can actually do today.
+- The full checklist document on GitHub lists the same order next to each step.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab).
+
 ## 2026-11-08 10:17 UTC — [autopilot] Owner workspace: reconciliation re-loads the history by itself; privacy request deletions follow you between devices
 
 - Crypto tools → Portfolio & history → Reconciliation: when a transfer you sent is confirmed on the network but the history provider has not listed it yet, the workspace now loads the history again by itself after about 45 seconds (at most twice) and tells you when. No more pressing "Load history" over and over during a pilot check. "Don't reload automatically" turns it off. It only reads; it waits while the tab is in the background and stops when you sign out.
