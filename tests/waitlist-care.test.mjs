@@ -99,3 +99,32 @@ test('owner page has the address check, the reply panel and the waitlist launch 
   for (const part of ['closePrivacyReply(false)', "removedTest = null", "$('#wl-check').value = 'all'", 'waitlistFlags = new Map()']) assert.ok(clear.includes(part), part);
   assert.ok(!/api\(\{ action: 'waitlist-remove'[^}]*\}\)[\s\S]{0,40}for \(/.test(src), 'no bulk removal loop');
 });
+
+test('find-and-remove re-check: gone only when the exact search finds nothing for that address', async () => {
+  const { removalRecheck, findRemoveResult, findRemoveNote, testSignupCheck } = await import('../wallet-src/waitlist-care.js');
+  const rec = { id: 'abc', email: 'Owner.Test+1@example.com', createdAt: '2026-11-07T10:00:00.000Z', consent: true, noticeVersion: '2026-05', source: 'website', status: 'active', expiresAt: '2027-11-07T10:00:00.000Z' };
+  const now = Date.UTC(2026, 10, 8, 10);
+  assert.deepEqual(removalRecheck(rec, { total: 0, records: [] }, { now }), { gone: true, found: 0, at: now });
+  assert.equal(removalRecheck(rec, { total: 1, records: [{ id: 'abc', email: rec.email }] }).gone, false);
+  assert.equal(removalRecheck(rec, { total: 1, records: [{ id: 'zzz', email: 'owner.test+1@EXAMPLE.com' }] }).found, 1, 'same address, any case');
+  assert.equal(removalRecheck(rec, { total: 2, records: [] }).gone, false, 'a total without rows is not taken as gone');
+  assert.equal(removalRecheck(rec, null).gone, true);
+  const check = testSignupCheck(rec, { now });
+  assert.equal(findRemoveResult(check, null), check.ok ? 'pass' : 'fail');
+  assert.equal(findRemoveResult({ ok: true }, { gone: true }), 'pass');
+  assert.equal(findRemoveResult({ ok: true }, { gone: false, found: 1 }), 'fail');
+  assert.equal(findRemoveResult({ ok: false }, { gone: true }), 'fail');
+  const note = findRemoveNote(rec, { passed: 6, total: 6 }, { now, recheck: { gone: true } });
+  assert.match(note, /exact search afterwards found nothing\.$/);
+  assert.doesNotMatch(note, /Owner\.Test|owner\.test/i, 'the note keeps the domain only');
+  assert.match(findRemoveNote(rec, { passed: 6, total: 6 }, { now, recheck: { gone: false, found: 1 } }), /still found 1\.$/);
+});
+
+test('workspace wiring: the removal offer re-checks with the read-only exact search before recording', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(new URL('../wallet-src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /api\(\{ action: 'waitlist', email: record\.email \}\)/);
+  assert.match(app, /removalRecheck\(record, data\)/);
+  assert.match(app, /findRemoveNote\(record, check, \{ now: removedTest\.at, recheck \}\)/);
+  assert.doesNotMatch(app.slice(app.indexOf("'Check it is gone'"), app.indexOf("'Check it is gone'") + 900), /waitlist-remove/, 'the re-check never removes anything');
+});

@@ -45,6 +45,8 @@ Use **Crypto tools → Portfolio & history** (read-only; nothing is signed or se
 
 Every transaction you submit from the owner workspace is remembered in that browser (public transaction ID, network, wallet, label and time; nothing else), so a reconciliation on a later day still knows it came from FYNX. Outgoing transfers that were not submitted from FYNX on that browser are listed under "Outgoing transfers to check": open each on the explorer and, if it was yours, choose how it was sent (earlier FYNX session, another device, another wallet app, between your own wallets) and press "Mark as mine". The reason appears in the saved report. If you do not recognise a transfer, do not mark it: follow the rollback steps above. A marked transfer above the limit is still flagged. "Forget remembered transfers" clears the list in that browser. If a waiting transaction settles in Track while a history is loaded, the reconciliation updates and asks you to load the history again.
 
+Using more than one device? The remembered transactions and your "Mark as mine" reasons travel in the Launch readiness test report (section "Pilot transfer register": public transaction IDs, network, time and the FYNX label or reason; no wallet addresses). On the other device, paste the report under **Bring in results from another device**; new entries are added and, when both devices marked the same transfer differently, the later mark wins. "Undo" and "Forget remembered transfers" do not travel: do them on each device.
+
 ## Practise it
 
 Before the pilot, practise the rollback once:

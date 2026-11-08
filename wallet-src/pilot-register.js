@@ -75,3 +75,69 @@ export function settledChange(before, after, chainId) {
   const settled = s => ['confirmed', 'failed', 'replaced', 'dropped'].includes(s);
   return Number(after?.network?.id) === Number(chainId) && !settled(before) && settled(after?.status);
 }
+
+// Travel between devices inside the Launch readiness test report ("Pilot transfer register" section).
+// One line per remembered transaction: kind, network, when (UTC minute), the public transaction ID and the
+// FYNX label or the fixed reason. Wallet addresses stay on the device. Forgetting or undoing a mark does not
+// travel: do it on each device.
+export const REGISTER_SECTION = 'Pilot transfer register';
+const NETWORKS = { 1: 'Ethereum', 11155111: 'Ethereum Sepolia', 8453: 'Base', 84532: 'Base Sepolia' };
+export const networkName = id => NETWORKS[id] || `Chain ${id}`;
+const stampUtc = ms => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+const minute = ms => Math.floor((ms || 0) / 60000) * 60000;
+const reasonByLabel = label => Object.keys(REASONS).find(k => REASONS[k] === label);
+const REGISTER_LINE = /^\s*[-*]\s+(From FYNX|Marked as mine) · [A-Za-z0-9 ]{1,30} \(chain (\d{1,12})\) · (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC · (0x[0-9a-fA-F]{64}) · (.{1,80}?)\s*$/u;
+
+// True only for a line in exactly this section's format (used so a transaction ID is not mistaken for a key).
+export function isRegisterLine(line) {
+  const m = String(line || '').match(REGISTER_LINE);
+  if (!m) return false;
+  return m[1] === 'From FYNX' ? LABEL.test(m[6]) : Boolean(reasonByLabel(m[6]));
+}
+
+export function registerReportLines(register) {
+  const entries = cleanRegister(register).entries;
+  if (!entries.length) return [];
+  const lines = [`## ${REGISTER_SECTION}`, '', 'Public transaction IDs remembered for the pilot reconciliation (no wallet addresses or notes), so they can be brought into another browser.', ''];
+  for (const e of entries) {
+    const what = e.kind === 'page' ? `From FYNX · ${networkName(e.chainId)} (chain ${e.chainId}) · ${stampUtc(e.at)} UTC · ${e.hash} · ${e.label}` : `Marked as mine · ${networkName(e.chainId)} (chain ${e.chainId}) · ${stampUtc(e.at)} UTC · ${e.hash} · ${REASONS[e.reason]}`;
+    lines.push(`- ${what}`);
+  }
+  lines.push('');
+  return lines;
+}
+
+export function parseRegisterReport(text) {
+  const entries = [];
+  let inSection = false, unknown = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 5000)) {
+    if (/^##\s/.test(line)) { inSection = line.replace(/^##\s+/, '').trim() === REGISTER_SECTION; continue; }
+    if (!inSection || !/^\s*[-*]\s/.test(line)) continue;
+    const m = line.match(REGISTER_LINE);
+    if (!m || !isRegisterLine(line)) { unknown += 1; continue; }
+    const at = Date.parse(`${m[3]}T${m[4]}:00Z`);
+    const kind = m[1] === 'From FYNX' ? 'page' : 'marked';
+    const entry = kind === 'page' ? { hash: m[5], chainId: Number(m[2]), kind, label: m[6], at } : { hash: m[5], chainId: Number(m[2]), kind, reason: reasonByLabel(m[6]), at };
+    if (!cleanEntry(entry)) { unknown += 1; continue; }
+    entries.push(entry);
+  }
+  return { register: cleanRegister({ entries }), unknown };
+}
+
+// New entries are added. A transaction submitted from FYNX that both browsers know stays as this browser
+// has it (with its wallet address). A mark both have with a different reason: the one marked later wins.
+export function mergeRegisters(local, incoming) {
+  const mine = cleanRegister(local), byKey = new Map(mine.entries.map(e => [keyOf(e), e]));
+  const changes = { added: [], updated: [], same: [], kept: [] };
+  for (const inc of cleanRegister(incoming).entries) {
+    const k = keyOf(inc), have = byKey.get(k);
+    if (!have) { byKey.set(k, inc); changes.added.push(inc); continue; }
+    if (inc.kind === 'page' || have.reason === inc.reason) { changes.same.push(inc); continue; }
+    if (minute(inc.at) > minute(have.at)) { byKey.set(k, { ...have, reason: inc.reason, at: inc.at }); changes.updated.push(inc); } else changes.kept.push(inc);
+  }
+  // Only the newest MAX_ENTRIES are kept, as in this browser; anything older that fell off is counted.
+  const register = cleanRegister({ entries: [...byKey.values()] }), kept = new Set(register.entries.map(keyOf));
+  const dropped = changes.added.filter(e => !kept.has(keyOf(e))).length;
+  changes.added = changes.added.filter(e => kept.has(keyOf(e)));
+  return { register, ...changes, dropped };
+}

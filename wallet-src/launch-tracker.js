@@ -1,5 +1,7 @@
 // Launch readiness tracker: pure helpers shared by the owner workspace and tests.
 // Owner test results are kept only in this browser (step id → result, short note, time). Nothing here is sent anywhere.
+import { isRegisterLine } from './pilot-register.js';
+
 export const TRACKER_KEY = 'fynx-owner-launch-tests-v1';
 export const RESULTS = ['pass', 'fail', 'skip'];
 export const resultLabels = { pass: 'Passed', fail: 'Failed', skip: 'Not applicable' };
@@ -123,7 +125,9 @@ export function parseReport(text, plan) {
     if (/^#\s+.*launch test report/i.test(line)) product = true;
     const h = line.match(/^##\s+(.+)$/); if (h) { gateTitle = squash(unescapeMd(h[1])); continue; }
     const m = line.match(LINE);
-    if (!m) { if (line.trim() && !/^Recorded by the owner in the FYNX workspace\./.test(line.trim())) other.push(line.trim()); continue; }
+    // Pilot transfer register lines carry public transaction IDs (64 hex digits) in a fixed format; they are
+    // checked by their own strict parser, so they are not mistaken for a private key here.
+    if (!m) { if (line.trim() && !/^Recorded by the owner in the FYNX workspace\./.test(line.trim()) && !isRegisterLine(line)) other.push(line.trim()); continue; }
     const rest = squash(unescapeMd(m[4]));
     const pool = steps.filter(s => s.gate.title === gateTitle);
     const hit = [...(pool.length ? pool : []), ...steps].find(s => rest === s.text || rest.startsWith(`${s.text} Note: `));

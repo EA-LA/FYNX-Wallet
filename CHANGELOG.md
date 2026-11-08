@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-08 06:16 UTC — [autopilot] Owner workspace: pilot transfers follow you between devices; waitlist removal is double-checked
+
+- Launch readiness → "Copy test report" now also carries the pilot transfer list from Crypto tools → Reconciliation: the transactions you sent from FYNX and the outside transfers you marked as yours. Paste the report on your other device under "Bring in results from another device" and its reconciliation knows them too, so a check on your computer no longer flags transfers you sent or explained on your phone. Only public transaction IDs travel; wallet addresses stay on each device.
+- The import preview shows each transfer that will be added (network, time, FYNX label or your reason) before you press Add. If both devices marked the same transfer differently, the later one wins.
+- Waitlist tab: after you remove a test address, a new "Check it is gone" button runs the same exact search you use for real requests and shows a clear "gone" or "still found". If it is still there, the launch test is recorded as Failed; the saved note says what the check found (no email address).
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness → Bring in results from another device; Waitlist tab after removing a test address).
+
 ## 2026-11-08 02:20 UTC — [autopilot] Owner workspace: reconciliation remembers your FYNX transfers and lets you sign off the rest
 
 - Crypto tools → Portfolio & history → Reconciliation now remembers, in this browser, every transaction you send from the workspace. A check on a later day no longer calls your own earlier FYNX transfers "not from this page".

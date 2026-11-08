@@ -134,10 +134,25 @@ function relative(time, now) {
 }
 
 // Short note for the "find and remove" launch test (domain only, never the full address).
-export function findRemoveNote(record, check, { now = Date.now() } = {}) {
+export function findRemoveNote(record, check, { now = Date.now(), recheck = null } = {}) {
   const domain = split(record?.email).domain || 'unknown domain';
-  return `Found and removed a test address at ${domain} on ${new Date(now).toISOString().slice(0, 10)}; sign-up checks ${check.passed}/${check.total} passed${record?.noticeVersion ? `, notice ${record.noticeVersion}` : ''}.`;
+  const after = recheck ? (recheck.gone ? '; an exact search afterwards found nothing' : `; an exact search afterwards still found ${recheck.found}`) : '';
+  return `Found and removed a test address at ${domain} on ${new Date(now).toISOString().slice(0, 10)}; sign-up checks ${check.passed}/${check.total} passed${record?.noticeVersion ? `, notice ${record.noticeVersion}` : ''}${after}.`;
 }
+
+// After Remove: read the exact-search answer for the removed address. Gone only when the search
+// returned nothing at all for it; any record with the same id or address means it is still there.
+export function removalRecheck(record, data, { now = Date.now() } = {}) {
+  const email = String(record?.email || '').trim().toLowerCase();
+  const rows = Array.isArray(data?.records) ? data.records : [];
+  const still = rows.filter(r => r && (r.id === record?.id || String(r.email || '').trim().toLowerCase() === email));
+  const total = Number.isFinite(data?.total) ? data.total : rows.length;
+  const found = Math.max(still.length, rows.length ? 0 : total);
+  return { gone: found === 0, found, at: now };
+}
+// The launch result the one-press record should give: removal must pass both the sign-up checks and, when
+// re-checked, the exact search.
+export const findRemoveResult = (check, recheck) => (check?.ok && (!recheck || recheck.gone) ? 'pass' : 'fail');
 
 const fullDate = value => { const t = timeOf(value); return t === null ? 'not recorded' : `${new Date(t).toISOString().slice(0, 16).replace('T', ' ')} UTC`; };
 const dayOnly = value => { const t = timeOf(value); return t === null ? 'not recorded' : new Date(t).toISOString().slice(0, 10); };

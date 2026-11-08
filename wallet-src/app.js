@@ -18,11 +18,11 @@ import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE } from './reconcile.js';
-import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange } from './pilot-register.js';
+import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
-import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
+import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
 const setText = (id, text) => { $(id).textContent = text; };
@@ -459,7 +459,7 @@ function renderReconcileLists(result) {
   }
   show('#rc-outside', result.outside.length > 0); show('#rc-marked', result.explained.length > 0);
   const sum = registerSummary(pilotRegister);
-  setText('#rc-register', sum.page || sum.marked ? `Remembered in this browser since ${new Date(sum.since).toLocaleDateString()}: ${sum.page} transaction${sum.page === 1 ? '' : 's'} submitted from FYNX and ${sum.marked} marked as yours (public transaction IDs only).` : 'Transactions you submit from this page are remembered in this browser, so a later reconciliation knows they came from FYNX.');
+  setText('#rc-register', sum.page || sum.marked ? `Remembered in this browser since ${new Date(sum.since).toLocaleDateString()}: ${sum.page} transaction${sum.page === 1 ? '' : 's'} submitted from FYNX and ${sum.marked} marked as yours (public transaction IDs only). They travel to your other devices in the Launch readiness test report.` : 'Transactions you submit from this page are remembered in this browser, so a later reconciliation knows they came from FYNX.');
   $('#rc-forget').hidden = !(sum.page || sum.marked);
 }
 function renderReconcile() {
@@ -873,7 +873,7 @@ function renderRegistrations() {
       if (test) removedTest = { record: { ...record }, check: testSignupCheck(record, { now: removedAt }), at: removedAt };
       waitlistRecords.delete(record.id); waitlistTotal = Math.max(0, waitlistTotal - 1); renderRegistrations();
       setText('#workspace-status', test ? 'Test registration removed. You can record the waitlist launch test below.' : 'Registration removed from the active waitlist. A deletion confirmation draft is ready below.');
-      if (test) document.querySelector('#wl-test-offer button')?.focus({ preventScroll: false });
+      if (test) document.querySelector('#wl-recheck')?.focus({ preventScroll: false });
       else openPrivacyReply('deleted', record, removedAt);
     }));
     td.dataset.label = 'Action'; td.append(remove); tr.append(td); body.append(tr);
@@ -1124,10 +1124,23 @@ function renderTestSignupCheck(gate, steps) {
   if (removedTest && findStep && !findStep.fixed && findStep.result !== 'pass') {
     const offer = el('div', 'wl-tc wl-test-offer'); offer.id = 'wl-test-offer';
     const { record, check } = removedTest;
+    const { recheck } = removedTest, result = findRemoveResult(check, recheck);
     offer.append(el('p', '', `You removed the test address ${record.email} after ${check.passed} of ${check.total} sign-up checks passed.`));
-    const b = el('button', 'button secondary', check.ok ? 'Record “find and remove” as Passed' : 'Record “find and remove” as Failed'); b.type = 'button';
-    b.addEventListener('click', () => { recordWaitlistStep(gate, findStep.step, { result: check.ok ? 'pass' : 'fail', note: findRemoveNote(record, check, { now: removedTest.at }) }, `[data-result="${check.ok ? 'pass' : 'fail'}"]`); removedTest = null; renderWaitlistTests(); });
-    offer.append(b); wrap.append(offer);
+    if (recheck) offer.append(el('p', `wl-recheck ${recheck.gone ? 'is-ok' : 'is-flag'}`, recheck.gone ? `✓ Checked at ${new Date(recheck.at).toLocaleTimeString()}: an exact search for this address now finds nothing. It is gone from the active waitlist.` : `! Checked at ${new Date(recheck.at).toLocaleTimeString()}: an exact search still finds ${recheck.found} registration${recheck.found === 1 ? '' : 's'} for this address. Removal did not work; record it as Failed and tell your developer.`));
+    else offer.append(el('p', 'hint', 'Before recording, check it is really gone: this runs the same exact search you would use for a real request (read-only).'));
+    const actions = el('div', 'actions');
+    const again = el('button', recheck ? 'text-button' : 'button', recheck ? 'Check again' : 'Check it is gone'); again.type = 'button'; again.id = 'wl-recheck';
+    again.addEventListener('click', () => run(again, async () => {
+      const current = generation, data = await api({ action: 'waitlist', email: record.email });
+      if (current !== generation || !removedTest || removedTest.record.id !== record.id) return;
+      removedTest = { ...removedTest, recheck: removalRecheck(record, data) };
+      renderWaitlistTests();
+      setText('#workspace-status', removedTest.recheck.gone ? 'Exact search finds nothing: the test address is gone.' : 'Exact search still finds this test address.');
+      document.querySelector('#wl-test-offer .button')?.focus();
+    }));
+    const b = el('button', recheck ? 'button' : 'button secondary', result === 'pass' ? 'Record “find and remove” as Passed' : 'Record “find and remove” as Failed'); b.type = 'button';
+    b.addEventListener('click', () => { recordWaitlistStep(gate, findStep.step, { result, note: findRemoveNote(record, check, { now: removedTest.at, recheck }) }, `[data-result="${result}"]`); removedTest = null; renderWaitlistTests(); });
+    actions.append(recheck ? b : again, recheck ? again : b); offer.append(actions); wrap.append(offer);
   }
   show('#wl-testcheck', wrap.childElementCount > 0);
 }
@@ -1297,7 +1310,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill)] });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister)] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -1356,11 +1369,12 @@ function previewReport(text) {
   if (parsed.secret) { clearReportImport(); setText('#import-status', 'This text looks like it contains a recovery phrase or key, so it was cleared and not read. Never paste those into any website.'); return; }
   const dec = parseDecisions(text), decCount = Object.keys(dec.answers).length;
   const prIn = parsePrivacyReport(text), prCount = prIn.log.entries.length, drIn = parseDrillReport(text), drCount = drIn.runs.length;
-  if (!count && !decCount && !prCount && !drCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const rgIn = parseRegisterReport(text), rgCount = rgIn.register.entries.length;
+  if (!count && !decCount && !prCount && !drCount && !rgCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
-  const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs);
-  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm };
+  const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -1417,15 +1431,30 @@ function previewReport(text) {
     }
     if (rl.children.length) box.append(rl);
   }
+  if (rgCount) {
+    const rsum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', rgm.added.length, 'new here'], ['is-update', rgm.updated.length, 'marked later than this browser'], ['is-same', rgm.same.length, 'already here'], ['is-kept', rgm.kept.length, 'kept: this browser marked it later'], ['is-kept', rgm.dropped, 'older than the newest 300 kept, left out']]) if (n) rsum.append(guideEl('li', cls, `${n} ${label}`));
+    if (rgIn.unknown) rsum.append(guideEl('li', 'is-kept', `${rgIn.unknown} line${rgIn.unknown === 1 ? '' : 's'} not understood`));
+    box.append(guideEl('h4', '', `${rgCount} remembered pilot transfer${rgCount === 1 ? '' : 's'} found in the report`), rsum);
+    const gl = guideEl('ul', 'launch-import-list'), shown = [...rgm.added.map(e => ['added', e]), ...rgm.updated.map(e => ['updated', e])];
+    for (const [kind, e] of shown.slice(0, 20)) {
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', e.kind === 'page' ? `From FYNX: ${e.label}` : `Marked as mine: ${reasonLabel(e.reason)}`), guideEl('small', '', `${e.hash.slice(0, 10)}…${e.hash.slice(-6)} · ${registerNetwork(e.chainId)} · ${new Date(e.at).toLocaleString()}`));
+      li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); gl.append(li);
+    }
+    if (shown.length > 20) gl.append(guideEl('li', 'hint', `and ${shown.length - 20} more`));
+    if (gl.children.length) box.append(gl);
+    box.append(guideEl('p', 'hint', 'Only public transaction IDs travel; wallet addresses stay on each device. “Undo” on a mark and “Forget remembered transfers” do not travel: do them on each device.'));
+  }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, changes = results + decisions + requests + runs + ticks;
+  const requests = pm.added.length + pm.updated.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, changes = results + decisions + requests + runs + ticks + transfers;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(requests, 'privacy request'), n(runs, 'practice run'), n(ticks, 'follow-up tick')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(requests, 'privacy request'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d, privacy: pmi, drill: dri } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
@@ -1433,8 +1462,9 @@ function previewReport(text) {
     }
     if (requests) { privacyLog = pmi.log; savePrivacyLog(); renderPrivacyLog(); }
     if (runs || ticks) { drill = dri.drill; saveDrill(); }
+    if (transfers) { pilotRegister = rgi.register; savePilotRegister(); renderReconcile(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });
