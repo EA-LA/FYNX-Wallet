@@ -239,7 +239,7 @@ export function shortStep(step) {
   let s = String(step?.text || '').replace(/\s+/g, ' ').trim();
   // A sentence ends at . ? or ! followed by a capital letter or the end (so “U.S. counsel” stays whole).
   const end = s.search(/[.?!](?=\s+[A-Z“"]|$)/);
-  if (end > 0) s = s.slice(0, end);
+  if (end > 0) s = s.slice(0, end) + (/\b[A-Z]\.[A-Z]$/.test(s.slice(0, end)) ? '.' : '');
   if (s.length > 90) s = `${s.slice(0, 90).replace(/\s+\S*$/, '')}…`;
   return s;
 }

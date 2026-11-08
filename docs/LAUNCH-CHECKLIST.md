@@ -244,7 +244,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 **Steps (0 of 3 recorded as done):**
 
 - [ ] You: Pick the first country after the U.S.
-- [ ] Outside party: Counsel and payment provider confirm what is allowed and supported in that country. _(after: Pick the first country after the U.S; U.S. launch permissions and consumer protections → Hire qualified U.S. counsel experienced with crypto and payments)_
+- [ ] Outside party: Counsel and payment provider confirm what is allowed and supported in that country. _(after: Pick the first country after the U.S.; U.S. launch permissions and consumer protections → Hire qualified U.S. counsel experienced with crypto and payments)_
 - [ ] Engineering: An approved-country list that blocks sign-up from anywhere not approved. _(after: Counsel and payment provider confirm what is allowed and supported in that country)_
 
 ## Controlled public launch

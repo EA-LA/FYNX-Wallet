@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-08 22:16 UTC — [autopilot] Owner workspace: ready-to-send lists for your lawyer, payment provider, security reviewer and price provider
+
+- Launch readiness → "What can move now" has a new "Hand off to outside parties" box. Pick who you are writing to (Lawyer, Payment provider (Transak), Independent security reviewer, Market-data provider). Each card says how many requests you can send them now and how many are still waiting.
+- For the one you pick you see every launch step that party owns: "Ask now", "Not yet" (with links to the exact steps that must be finished first, and whose they are) or "Done" / "Not needed". If you decided customers connect their own wallet, the wallet-creation review is shown as not needed.
+- "Copy the list" (or Download) gives you an email-ready list: who they are (from your decision worksheet, e.g. your law firm and whether it is engaged), the numbered questions they need to answer, what to ask them to send back as proof, and the documents to send them. Your notes are never included, and the list reminds you never to send keys or passwords.
+- Fixed: step names ending in "U.S." lost their final dot in the "waits for" lines and in the full checklist.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab).
+
 ## 2026-11-08 18:20 UTC — [autopilot] Owner workspace: hand-off list for engineering and "blocked by" on every gate
 
 - Launch readiness → "What can move now" has a new "Hand off to engineering" box. One press copies (or downloads) a short list for your engineer or Claude: the engineering steps that can start today (the ones that unlock the most later work first), the ones still waiting and on what, any of your tests that failed, and the decisions only you (or an outside party) can make to unblock engineering. "Preview the list" shows it before you copy. Your notes are never included.

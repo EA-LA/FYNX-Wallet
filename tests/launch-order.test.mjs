@@ -109,6 +109,7 @@ test('short step names keep the first sentence and cut long ones at a word', () 
   const long = shortStep({ text: 'word '.repeat(40) });
   assert.ok(long.length <= 91 && long.endsWith('…'));
   assert.equal(shortStep({ text: 'Hire qualified U.S. counsel experienced with crypto and payments.' }), 'Hire qualified U.S. counsel experienced with crypto and payments');
+  assert.equal(shortStep({ text: 'Pick the first country after the U.S.' }), 'Pick the first country after the U.S.', 'an abbreviation at the end keeps its dot');
   assert.equal(shortStep({ text: 'Is it enough? Write it down.' }), 'Is it enough');
   assert.equal(shortStep({}), '');
 });

@@ -13,6 +13,7 @@ import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, group
 import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
+import { PARTIES, partyStatus, partyLine, outsideBrief, handoffStateText } from './outside-handoff.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
@@ -1334,6 +1335,7 @@ function renderLaunchOrder() {
     box.append(d);
   }
   box.append(engineeringBox(o, wasOpen.has('eng-preview')));
+  box.append(outsideBox(wasOpen.has('out-preview')));
 }
 // "What engineering can start now": a short list to paste to the engineer or Claude (checklist text and results only, no notes).
 function engineeringBox(o, previewOpen = false) {
@@ -1360,6 +1362,67 @@ function engineeringBox(o, previewOpen = false) {
   });
   actions.append(copy, dl);
   const preview = el('details', 'lo-part lo-eng-preview'); preview.dataset.part = 'eng-preview';
+  preview.append(el('summary', '', 'Preview the list'));
+  const pre = el('pre', 'lo-eng-pre'); preview.addEventListener('toggle', () => { if (preview.open) pre.textContent = brief(); });
+  preview.append(pre);
+  if (previewOpen) { preview.open = true; pre.textContent = brief(); }
+  wrap.append(actions, preview, status);
+  return wrap;
+}
+// "Hand off to outside parties": per party (lawyer, payment provider, security reviewer, market data),
+// what can be asked now, what waits and on what, the questions to answer and the evidence to ask back.
+let outsideParty = PARTIES[0].id;
+function outsideBox(previewOpen = false) {
+  const all = partyStatus(launchPlan, launchRecords, decisionAnswers);
+  const s = all.find(x => x.party.id === outsideParty) || all[0];
+  const wrap = el('div', 'lo-eng lo-out'); wrap.id = 'lo-out';
+  wrap.append(el('h4', '', 'Hand off to outside parties'), el('p', 'hint', 'Pick who you are writing to. The list says what you can ask them now, what has to happen first, the questions they need to answer and what to ask them to send back. It uses your decision answers; notes are left out. Questions, not legal or security advice.'));
+  const pick = el('div', 'lo-out-pick'); pick.setAttribute('role', 'group'); pick.setAttribute('aria-label', 'Outside party');
+  for (const x of all) {
+    const b = el('button', `lo-out-party${x.party.id === s.party.id ? ' is-on' : ''}`); b.type = 'button'; b.dataset.party = x.party.id;
+    b.setAttribute('aria-pressed', String(x.party.id === s.party.id));
+    b.append(el('strong', '', x.party.name), el('span', '', partyLine(x)));
+    b.addEventListener('click', () => { outsideParty = x.party.id; const next = outsideBox(); wrap.replaceWith(next); next.querySelector(`[data-party="${CSS.escape(x.party.id)}"]`)?.focus(); });
+    pick.append(b);
+  }
+  wrap.append(pick);
+  wrap.append(el('p', 'lo-out-who', `Who: ${s.contact.text}`));
+  const ol = el('ul', 'lo-out-steps');
+  for (const r of s.rows) {
+    const li = el('li', `lo-out-step is-${r.state}`);
+    const b = el('button', 'text-button lo-link'); b.type = 'button';
+    b.append(el('span', 'lo-meta', `${handoffStateText[r.state]} · ${r.gate.title}`), el('span', 'lo-text', shortStep(r.step)));
+    b.addEventListener('click', () => openStep(r.key));
+    li.append(b);
+    if (r.state === 'waiting') {
+      const w = el('p', 'lo-waits'); w.append(el('span', '', 'First: '));
+      r.on.forEach(({ gate, step }, i) => {
+        const k = stepKey(gate.id, step.id), link = el('button', 'text-button lo-dep', `${shortStep(step)} (${byLabels[step.by]})`); link.type = 'button';
+        link.addEventListener('click', () => openStep(k));
+        if (i) w.append(document.createTextNode(' · '));
+        w.append(link);
+      });
+      li.append(w);
+    } else if (r.state === 'not-needed') li.append(el('p', 'lo-waits', r.spec.onlyIf.reason));
+    ol.append(li);
+  }
+  wrap.append(ol);
+  const status = el('p', 'status'); status.id = 'lo-out-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+  const brief = () => outsideBrief(launchPlan, launchRecords, s.party.id, decisionAnswers);
+  const actions = el('div', 'actions');
+  const copy = el('button', 'button secondary', `Copy the list for the ${s.party.short}`); copy.type = 'button'; copy.id = 'lo-out-copy';
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(brief()); status.textContent = `Copied. Paste it into an email to the ${s.party.short}.`; }
+    catch { status.textContent = 'Copying was blocked by the browser. Use Download instead.'; }
+  });
+  const dl = el('button', 'text-button', 'Download'); dl.type = 'button'; dl.id = 'lo-out-download';
+  dl.addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([brief()], { type: 'text/markdown;charset=utf-8' })), a = document.createElement('a');
+    a.href = url; a.download = `fynx-handoff-${s.party.id}-${new Date().toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = `List for the ${s.party.short} downloaded.`;
+  });
+  actions.append(copy, dl);
+  const preview = el('details', 'lo-part lo-eng-preview'); preview.dataset.part = 'out-preview';
   preview.append(el('summary', '', 'Preview the list'));
   const pre = el('pre', 'lo-eng-pre'); preview.addEventListener('toggle', () => { if (preview.open) pre.textContent = brief(); });
   preview.append(pre);
