@@ -227,6 +227,39 @@ export async function findReplacement(request, known = {}, network = null) {
   }
   return { state: 'found', hash: found.hash.toLowerCase(), block, kind, status, confirmations, target, deep: status !== 'pending' && confirmations >= target, to: call.to, value: call.value, method, detail: replacementText({ kind, status, block, confirmations, target }) };
 }
+// ---- Looking up an ID typed into the Track card (not submitted on this page) ----
+// Whether the replacement of a looked-up transaction can be searched: the network still knows the
+// original (so its wallet and number are known) and the wallet already used that number elsewhere.
+export function canFindReplacement(result) {
+  return result?.status === 'replaced' && ADDRESS.test(result.from || '') && Number.isSafeInteger(result.nonce) && result.nonce >= 0;
+}
+// The facts shown for a looked-up transaction, as [name, value] rows. Public on-chain facts only.
+// origin: 'page' (submitted on this page), 'register' (an earlier FYNX session) or null.
+export function lookupFacts(result, { origin = null } = {}) {
+  if (!result) return [];
+  const rows = [['Status', result.label || STATUS_LABELS[result.status] || result.status]];
+  if (result.from) rows.push(['From', result.from]);
+  if (result.from) rows.push(['To', result.to || 'A new contract']);
+  if (Number.isSafeInteger(result.nonce)) rows.push(['Number (nonce)', String(result.nonce)]);
+  if (Number.isSafeInteger(result.block)) rows.push(['Block', String(result.block)]);
+  if (['confirmed', 'failed'].includes(result.status)) rows.push(['Confirmations', `${Math.min(result.confirmations, 9999)} of ${result.target}${result.deep ? ' (settled)' : ''}`]);
+  if (result.call?.value && result.call.value !== '0' && (result.call.input === '0x' || result.call.input === null)) rows.push(['Sends ETH', `${formatWei(result.call.value)} ETH`]);
+  rows.push(['Sent from FYNX', origin === 'page' ? 'Yes, on this page' : origin === 'register' ? 'Yes, in an earlier session (remembered in this browser)' : 'Not that this browser knows']);
+  return rows;
+}
+// Exact wei → ETH text without floating point (trailing zeros trimmed).
+export function formatWei(wei) {
+  const v = BigInt(wei), unit = 10n ** 18n, whole = v / unit, frac = (v % unit).toString().padStart(18, '0').replace(/0+$/, '');
+  return frac ? `${whole}.${frac}` : whole.toString();
+}
+// What to do next for a looked-up transaction, in one sentence (beside the status detail).
+export function lookupNext(result, { canFind = canFindReplacement(result), replacement = null } = {}) {
+  if (!result) return '';
+  if (replacement?.state === 'found') return replacement.deep ? 'The replacement is settled: nothing more to check.' : 'Check the replacement again in a minute to follow its confirmations.';
+  if (result.status === 'replaced') return canFind ? 'Press “Find the replacement” to see which transaction took its place. FYNX only reads the network.' : 'The network no longer knows this transaction\'s wallet and number, so its replacement cannot be searched here. The wallet\'s activity list shows it.';
+  if (isSettled(result)) return result.status === 'not-found' ? 'If you copied it from a wallet or explorer, check that the selected network matches.' : 'Settled: nothing more to check.';
+  return 'Press “Check again” to follow it. Checking never signs or resends anything.';
+}
 // One plain sentence about a found replacement.
 export function replacementText({ kind, status, block, confirmations, target }) {
   const what = kind === 'cancel' ? 'You cancelled it in the wallet: the replacement sends nothing to anyone and only cost a network fee.'

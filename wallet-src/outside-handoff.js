@@ -5,6 +5,9 @@
 // Built from the checklist text, its results and the owner's decision answers only: notes never
 // travel. Questions are questions, not legal, security or provider advice or conclusions.
 import { stepKey, stepIndex, stepState, waitingOn, shortStep, byLabels } from './launch-tracker.js';
+import { dayNumber } from './privacy-requests.js';
+// Same as CHASE_DAYS in outside-requests.js (that module imports this one, so it is not imported back).
+const ASK_AGAIN_DAYS = 14;
 
 const REPO = 'https://github.com/EA-LA/FYNX-Wallet/blob/main';
 const doc = (title, path) => ({ title, url: path.startsWith('http') ? path : `${REPO}/${path}` });
@@ -232,7 +235,9 @@ export function outsideBrief(plan, records = {}, partyId, answers = {}, { date =
     L.push('', `### ${shortStep(r.step)} (\`${r.key}\`)`, '', `Checklist step: ${clean(r.step.text)}`, '');
     const d = sent[r.key], ev = evidence[r.key];
     if (ev?.state !== 'complete') {
-      if (d?.sent && d.answered) L.push(`Your answer of ${d.answered} is noted, thank you. These are the points still needed to close this step:`, '');
+      const since = d?.answered ? dayNumber(date.toISOString().slice(0, 10)) - dayNumber(d.answered) : 0;
+      if (d?.sent && d.answered && since >= ASK_AGAIN_DAYS) L.push(`Your answer of ${d.answered} is noted, thank you. Reminder: ${since} days later these points are still needed to close this step:`, '');
+      else if (d?.sent && d.answered) L.push(`Your answer of ${d.answered} is noted, thank you. These are the points still needed to close this step:`, '');
       else if (d?.sent) L.push(`Reminder: we first sent this request on ${d.sent}.`, '');
     }
     const lower = i => i.label.charAt(0).toLowerCase() + i.label.slice(1);

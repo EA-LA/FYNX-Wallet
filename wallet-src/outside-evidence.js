@@ -6,7 +6,8 @@
 // Ticking everything does NOT mark a checklist step done: the documents themselves still have to be
 // shared so the step can be checked and recorded in docs/VERIFICATION.md.
 import { PARTIES } from './outside-handoff.js';
-import { requestId, splitId } from './outside-requests.js';
+import { requestId, splitId, CHASE_DAYS } from './outside-requests.js';
+import { dayNumber, dayString } from './privacy-requests.js';
 
 export const EVIDENCE_KEY = 'fynx-owner-outside-evidence-v1';
 export const EVIDENCE_SECTION = 'Outside evidence received';
@@ -146,6 +147,37 @@ export function readyToShare(log, open) {
     out.push({ id, partyId, stepKey, party: PARTIES.find(p => p.id === partyId) });
   }
   return out;
+}
+
+// Answered, but pieces still missing: an answer often comes with only part of the evidence. Counted
+// from the "Answered on" date; after CHASE_DAYS days the missing pieces are worth asking for again.
+// `request`: the request's dates ({ sent, answered }); `entry`: its evidence ticks.
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+export function missingAfterAnswer(id, request, entry, today) {
+  if (!EVIDENCE[id] || !request?.answered) return null;
+  const answered = dayNumber(request.answered), now = dayNumber(today);
+  if (answered === null) return null;
+  const st = evidenceState(id, entry);
+  if (st.state === 'complete') return null;
+  const days = now === null ? 0 : Math.max(0, now - answered), askOn = dayString(answered + CHASE_DAYS), due = days >= CHASE_DAYS;
+  const pieces = plural(st.missing.length, 'piece');
+  const label = due
+    ? `${pieces} still missing ${plural(days, 'day')} after their answer of ${request.answered}: ask again for ${st.missing.length === 1 ? 'it' : 'them'}`
+    : `${pieces} still missing since their answer of ${request.answered} · ask again from ${askOn} if ${st.missing.length === 1 ? 'it has' : 'they have'} not arrived`;
+  return { id, due, days, askOn, answered: request.answered, missing: st.missing, nothingTicked: st.state === 'none', label };
+}
+// Open requests answered CHASE_DAYS or more ago with evidence still missing, longest first, for
+// "Your next steps". `open`: request ids whose checklist step is still open.
+export function missingAttention(requests, evidence, open, today, { limit = 2 } = {}) {
+  const out = [];
+  for (const id of open) {
+    const m = missingAfterAnswer(id, requests?.entries?.[id], evidence?.entries?.[id], today);
+    if (!m?.due) continue;
+    const { partyId, stepKey } = splitId(id);
+    out.push({ ...m, partyId, stepKey, party: PARTIES.find(p => p.id === partyId) });
+  }
+  out.sort((a, b) => b.days - a.days || a.id.localeCompare(b.id));
+  return { count: out.length, next: out.slice(0, Math.max(0, limit)) };
 }
 
 const clean = s => String(s ?? '').replace(/\s+/g, ' ').trim();

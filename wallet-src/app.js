@@ -14,11 +14,11 @@ import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { PARTIES, partyStatus, partyLine, outsideBrief, handoffStateText } from './outside-handoff.js';
-import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem, evidenceState, partyEvidence, partyEvidenceLine, readyToShare, evidenceSummary, evidenceReportLines, parseEvidenceReport, mergeEvidence } from './outside-evidence.js';
+import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem, evidenceState, partyEvidence, partyEvidenceLine, readyToShare, missingAfterAnswer, missingAttention, evidenceSummary, evidenceReportLines, parseEvidenceReport, mergeEvidence } from './outside-evidence.js';
 import { OUTSIDE_KEY, CHASE_DAYS, requestId, cleanRequests, setDate as setRequestDate, requestState as outsideRequestState, partyRequests, partyRequestLine, outsideAttention, requestReportLines, parseRequestReport, mergeRequests } from './outside-requests.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
-import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS } from './tx-tracker.js';
+import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retryText } from './reconcile.js';
 import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
@@ -33,6 +33,7 @@ const show = (id, visible) => { $(id).hidden = !visible; };
 let auth, api, session, connection, challenge, review, pendingHash;
 let swapQuote = null, actionReview = null, checkoutReady = false, checkoutId = null;
 const journal = new Map();
+let lookupEntry = null; // the transaction last looked up by ID in the Track card (see renderLookup)
 const selectedNetwork = () => networkFor(Number($('#network-choice').value));
 let generation = 0, verifiedAddress = null, busy = false, lastActivity = Date.now();
 let dashboardFrame = null, dashboardLoading = false, dashboardTimer;
@@ -144,7 +145,7 @@ function clearWallet() {
   updateWalletControls();
 }
 function clearPrivateWorkspace() {
-  journal.clear(); $('#transaction-journal').replaceChildren(); $('#tx-auto').checked = false; autoLastRun = null; setText('#tx-auto-status', ''); show('#tx-batch', false); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
+  journal.clear(); lookupEntry = null; $('#lookup-result').replaceChildren(); show('#lookup-result', false); $('#transaction-journal').replaceChildren(); $('#tx-auto').checked = false; autoLastRun = null; setText('#tx-auto-status', ''); show('#tx-batch', false); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
@@ -168,7 +169,7 @@ function updateWalletControls() {
   $('#prepare-swap').disabled = busy || !canSend || !swapQuote || !connection?.network.testnet;
   $('#revoke-allowance').disabled = busy || !canSend || !connection?.network.router;
   $('#lookup-transaction').disabled = busy || !verified;
-  for (const b of document.querySelectorAll('#transaction-journal .tx-check, #transaction-journal .tx-find')) b.disabled = busy || !connection?.address;
+  for (const b of document.querySelectorAll('#transaction-journal .tx-check, #transaction-journal .tx-find, #lookup-result .tx-check, #lookup-result .tx-find')) b.disabled = busy || !connection?.address;
   $('#tx-check-all').disabled = busy || autoRunning || !connection?.address || !waitingItems(journal.values(), selectedNetwork().id).length;
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
   $('#network-choice').disabled = busy;
@@ -758,7 +759,7 @@ $('#receive-asset').addEventListener('change', () => run(null, renderReceive));
 $('#network-choice').addEventListener('change', () => {
   connection?.close(); connection = null; clearWallet();
   renderNetworkNote();
-  setText('#lookup-status', ''); renderJournal();
+  setText('#lookup-status', ''); renderJournal(); renderLookup();
 });
 function renderAction(prepared) {
   review = null; show('#transfer-review', false); actionReview = prepared;
@@ -902,10 +903,102 @@ function replacementBox(item) {
   }
   return box;
 }
+// Looking up any transaction ID (also ones not submitted on this page): a result card with the facts,
+// "Check again" while it is unsettled and, when it was replaced, "Find the replacement". Read-only;
+// a replacement found here is not added to the pilot register (it was not submitted from FYNX).
+const lookupOrigin = (hash, chainId) => journal.has(hash) ? 'page' : forNetwork(pilotRegister, chainId).some(e => e.kind === 'page' && e.hash === hash.toLowerCase()) ? 'register' : null;
+async function lookUp(hash, checkSession) {
+  const current = connection;
+  const result = await checkStatus(hash, checkSession);
+  const keep = lookupEntry && lookupEntry.hash.toLowerCase() === hash.toLowerCase() && lookupEntry.network.id === current.network.id ? lookupEntry : null;
+  lookupEntry = { hash, network: current.network, result, checkedAt: Date.now(), replacement: keep?.replacement || null, note: keep?.note || null, findCheckedAt: keep?.findCheckedAt || null };
+  return result;
+}
+async function findLookupReplacement(checkSession) {
+  const entry = lookupEntry, current = connection;
+  if (!entry || !current?.address) throw new Error('Connect your wallet first.');
+  if (entry.network.id !== current.network.id) throw new Error(`Switch to ${entry.network.name} to look this up.`);
+  const epoch = await current.assertCurrent();
+  const candidates = lastHistory && lastHistory.chainId === entry.network.id ? (lastHistory.items || []).filter(i => i && i.direction === 'out' && typeof i.hash === 'string').map(i => i.hash).reverse() : [];
+  const found = await findReplacement(request => current.provider.request(request), { hash: entry.hash, from: entry.result.from, nonce: entry.result.nonce, original: entry.result.call || null, candidates }, current.network);
+  checkSession(); await current.assertCurrent(epoch);
+  if (current !== connection || entry !== lookupEntry) throw new Error('Wallet changed.');
+  entry.findCheckedAt = Date.now();
+  if (found.state === 'found') { entry.replacement = found; entry.note = null; } else entry.note = found.detail;
+  return found;
+}
+function renderLookup() {
+  const box = $('#lookup-result'), entry = lookupEntry;
+  box.replaceChildren();
+  if (!entry || entry.network.id !== selectedNetwork().id) { show('#lookup-result', false); return; }
+  const r = entry.result, origin = lookupOrigin(entry.hash, entry.network.id);
+  const head = guideEl('p', 'lookup-head');
+  head.append(guideEl('strong', '', 'Looked-up transaction'), guideEl('span', `tx-badge is-${r.status}`, r.label));
+  const link = guideEl('a', 'mono', entry.hash); link.href = `${entry.network.explorer}/tx/${entry.hash}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
+  link.setAttribute('aria-label', `Open ${entry.hash} on the explorer`);
+  box.append(head, link, guideEl('p', 'tx-detail', r.detail));
+  if (['confirmed', 'failed'].includes(r.status)) {
+    const meter = guideEl('div', 'tx-meter'), bar = guideEl('span', ''), share = Math.min(100, Math.round(r.confirmations / r.target * 100));
+    meter.setAttribute('role', 'img'); meter.setAttribute('aria-label', `${r.confirmations} of ${r.target} confirmations`);
+    bar.style.width = share + '%'; meter.append(bar); box.append(meter);
+  }
+  const facts = guideEl('dl', 'lookup-facts');
+  for (const [name, value] of lookupFacts(r, { origin })) facts.append(guideEl('dt', '', name), guideEl('dd', /^0x[0-9a-f]{40}$/i.test(value) ? 'mono' : '', value));
+  box.append(facts);
+  const canFind = canFindReplacement(r);
+  if (r.status === 'replaced') {
+    const rep = guideEl('div', 'tx-replacement'), found = entry.replacement;
+    rep.setAttribute('role', 'group'); rep.setAttribute('aria-label', 'Replacement of the looked-up transaction');
+    if (found) {
+      const h = guideEl('p', 'tx-replacement-head');
+      h.append(guideEl('strong', '', 'Replaced by '), guideEl('span', `tx-badge is-${found.status === 'pending' ? 'pending' : found.status}`, `${REPLACEMENT_KINDS[found.kind] || 'Replacement'} · ${found.status === 'confirmed' ? 'Confirmed' : found.status === 'failed' ? 'Failed on-chain' : 'Not confirmed yet'}`));
+      const a = guideEl('a', 'mono', found.hash); a.href = `${entry.network.explorer}/tx/${found.hash}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.setAttribute('aria-label', `Open the replacement ${found.hash} on the explorer`);
+      rep.append(h, a, guideEl('p', 'tx-detail', found.detail));
+    } else if (entry.note) rep.append(guideEl('p', 'tx-detail', entry.note));
+    if (entry.findCheckedAt) rep.append(guideEl('p', 'tx-when', `Looked up ${new Date(entry.findCheckedAt).toLocaleTimeString()}`));
+    if (canFind && (!found || !found.deep)) {
+      const label = found ? 'Check the replacement again' : entry.findCheckedAt ? 'Look again' : 'Find the replacement';
+      const b = guideEl('button', 'text-button tx-find', label); b.type = 'button'; b.id = 'lookup-find'; b.disabled = busy || !connection?.address;
+      b.addEventListener('click', async () => {
+        await run(b, async checkSession => {
+          const f = await findLookupReplacement(checkSession);
+          setText('#lookup-status', f.state === 'found' ? `Replaced by ${f.hash.slice(0, 10)}…. ${f.detail}` : f.detail);
+        }, '#lookup-status');
+        renderLookup(); ($('#lookup-find') || $('#lookup-result a'))?.focus();
+      });
+      rep.append(b);
+    }
+    if (rep.childNodes.length) box.append(rep);
+  }
+  box.append(guideEl('p', 'tx-detail lookup-next', lookupNext(r, { canFind, replacement: entry.replacement })));
+  const meta = [`Checked ${new Date(entry.checkedAt).toLocaleTimeString()} on ${entry.network.name}`];
+  box.append(guideEl('p', 'tx-when', meta.join(' · ')));
+  const actions = guideEl('div', 'lookup-actions');
+  if (!isSettled(r)) {
+    const again = guideEl('button', 'text-button tx-check', 'Check again'); again.type = 'button'; again.id = 'lookup-again'; again.disabled = busy || !connection?.address;
+    again.addEventListener('click', async () => {
+      await run(again, async checkSession => { const res = await lookUp(entry.hash, checkSession); setText('#lookup-status', `${res.label}. ${res.detail}`); }, '#lookup-status');
+      renderLookup(); ($('#lookup-again') || $('#lookup-result a'))?.focus();
+    });
+    actions.append(again);
+  }
+  const clear = guideEl('button', 'text-button', 'Clear'); clear.type = 'button';
+  clear.addEventListener('click', () => { lookupEntry = null; renderLookup(); setText('#lookup-status', ''); $('#lookup-hash').focus(); });
+  actions.append(clear); box.append(actions);
+  show('#lookup-result', true);
+}
 $('#lookup-form').addEventListener('submit', event => { event.preventDefault(); run($('#lookup-transaction'), async checkSession => {
-  const hash = $('#lookup-hash').value.trim(), result = await checkStatus(hash, checkSession);
-  setText('#lookup-status', `${result.label}. ${result.detail}${result.from ? ` From ${result.from} to ${result.to || 'a new contract'}.` : ''}`);
-}, '#lookup-status'); });
+  const hash = $('#lookup-hash').value.trim();
+  if (journal.has(hash)) {
+    // Submitted on this page: the Track row already shows everything (and finds a replacement by itself).
+    const result = await checkStatus(hash, checkSession);
+    setText('#lookup-status', `${journal.get(hash).label}: ${result.label}. ${result.detail} It is in the list above.`);
+    return;
+  }
+  const result = await lookUp(hash, checkSession);
+  setText('#lookup-status', `${result.label}. ${result.detail}`);
+}, '#lookup-status').then(renderLookup); });
 $('#provider-status').addEventListener('click', event => run(event.currentTarget, async () => {
   const result = await api({ action: 'provider-status' }); checkoutReady = result.sandboxReady === true;
   setText('#provider-message', result.message);
@@ -1320,9 +1413,9 @@ function renderLaunchOverview() {
   const mine = el('li'); mine.append(el('div', 'launch-stat stat-mine', ''));
   mine.firstChild.append(el('strong', '', `${o.yoursDone}/${o.yours}`), el('span', '', `your tests and decisions done${o.failed ? ` · ${o.failed} failed` : ''}`));
   stats.append(mine); box.append(stats);
-  const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), share = outsideShare().slice(0, 2);
-  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length || privacy.next.length || chase.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
-  if (next.length || privacy.next.length || chase.next.length || share.length) {
+  const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), askAgain = outsideAskAgain(), share = outsideShare().slice(0, 2);
+  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
+  if (next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length) {
     const list = el('ol');
     // A privacy answer that is due comes first: it has a date, launch steps do not.
     for (const item of privacy.next) {
@@ -1336,6 +1429,13 @@ function renderLaunchOverview() {
       const entry = stepIndex(launchPlan).get(item.stepKey);
       b.append(el('span', 'launch-next-gate', `Send a reminder · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: sent ${item.sent}, no answer after ${item.days} days`));
       b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey)); li.append(b); list.append(li);
+    }
+    // Then answered requests whose evidence is still incomplete CHASE_DAYS after the answer.
+    for (const item of askAgain.next) {
+      const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
+      const entry = stepIndex(launchPlan).get(item.stepKey), n = item.missing.length;
+      b.append(el('span', 'launch-next-gate', `Ask again for missing pieces · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: answered ${item.answered}, ${n} ${n === 1 ? 'piece' : 'pieces'} still missing after ${item.days} days`));
+      b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey, true)); li.append(b); list.append(li);
     }
     // Then requests whose evidence has all come back while the step is still open: share the documents.
     for (const item of share) {
@@ -1469,12 +1569,14 @@ function outsideBox(previewOpen = false) {
     if (reqLine) b.append(el('span', `lo-out-req${/to chase/.test(reqLine) ? ' is-chase' : ''}`, reqLine));
     const evLine = partyEvidenceLine(partyEvidence(outsideEvidence, x.party.id, tracked(x)));
     if (evLine) b.append(el('span', 'lo-out-ev', evLine));
+    const askAgain = missingAttention(outsideRequests, outsideEvidence, x.rows.filter(r => r.state === 'ready' || r.state === 'waiting').map(r => requestId(x.party.id, r.key)), today).count;
+    if (askAgain) b.append(el('span', 'lo-out-req is-chase', `${askAgain} to ask again for missing pieces`));
     b.addEventListener('click', () => { outsideParty = x.party.id; const next = outsideBox(); wrap.replaceWith(next); next.querySelector(`[data-party="${CSS.escape(x.party.id)}"]`)?.focus(); });
     pick.append(b);
   }
   wrap.append(pick);
   wrap.append(el('p', 'lo-out-who', `Who: ${s.contact.text}`));
-  wrap.append(el('p', 'hint lo-req-hint', `Record the day you send each request and the day the answer arrives. After ${CHASE_DAYS} days without an answer the request shows “Send a reminder” here and in Your next steps, and the copied list says when you first asked. Dates only, kept in this browser and carried in your test report.`));
+  wrap.append(el('p', 'hint lo-req-hint', `Record the day you send each request and the day the answer arrives. After ${CHASE_DAYS} days without an answer the request shows “Send a reminder” here and in Your next steps, and the copied list says when you first asked. The same happens when they answered but pieces of evidence are still missing ${CHASE_DAYS} days later. Dates only, kept in this browser and carried in your test report.`));
   const ol = el('ul', 'lo-out-steps');
   for (const r of s.rows) {
     const li = el('li', `lo-out-step is-${r.state}`);
@@ -1570,7 +1672,8 @@ function evidenceTracker(party, r) {
   const base = `lo-ev-${party.id}-${r.key.replace(/[^a-z0-9-]/gi, '-')}`;
   const entry = outsideRequests.entries[id];
   // Folded until something can have come back (a tick or an answer date), so long lists stay short.
-  const outer = el('details', `lo-ev is-${st.state}`); outer.dataset.ev = id; outer.open = Boolean(st.count || entry?.answered || evidenceOpen.has(id));
+  const missing = r.state !== 'done' ? missingAfterAnswer(id, entry, outsideEvidence.entries[id], localToday()) : null;
+  const outer = el('details', `lo-ev is-${st.state}${missing?.due ? ' is-ask-again' : ''}`); outer.dataset.ev = id; outer.open = Boolean(st.count || entry?.answered || evidenceOpen.has(id));
   outer.addEventListener('toggle', () => { if (outer.open) evidenceOpen.add(id); else evidenceOpen.delete(id); });
   const sum = el('summary'); sum.append(el('span', 'lo-ev-title', 'What came back'), el('span', 'lo-ev-count', st.count ? `${st.count} of ${st.total}` : `${st.total} to come back`)); outer.append(sum);
   const box = el('fieldset', 'lo-ev-set'); outer.append(box);
@@ -1595,6 +1698,10 @@ function evidenceTracker(party, r) {
     li.append(lab); ul.append(li);
   }
   box.append(ul);
+  if (missing) {
+    const note = el('p', `lo-ev-note${missing.due ? ' is-due' : ''}`, `${missing.label}.${missing.nothingTicked ? ' If some of it already arrived, tick it above first.' : ''}`);
+    note.id = `${base}-missing`; box.append(note);
+  }
   if (st.count && r.state !== 'done') {
     if (st.state === 'complete') box.append(el('p', 'lo-ev-note is-ready', 'Everything is in. Check the documents, then share them with “Copy evidence summary” so this step can be marked done in the checklist. Ticking does not mark it done by itself.'));
     else box.append(el('p', 'lo-ev-note', 'The copied list now thanks them for what arrived and asks only for what is still missing.'));
@@ -1615,10 +1722,16 @@ function outsideChase(limit = 2) {
   for (const s of partyStatus(launchPlan, launchRecords, decisionAnswers)) for (const r of s.rows) if (r.state === 'done' || r.state === 'not-needed') skip.add(requestId(s.party.id, r.key));
   return outsideAttention(outsideRequests, localToday(), { limit, skip });
 }
-function openOutsideRequest(partyId, stepKey) {
+// Answered requests (open steps only) whose evidence is still incomplete CHASE_DAYS after the answer.
+function outsideAskAgain(limit = 2) {
+  return missingAttention(outsideRequests, outsideEvidence, evidenceRows().filter(r => r.open).map(r => r.id), localToday(), { limit });
+}
+function openOutsideRequest(partyId, stepKey, toEvidence = false) {
   outsideParty = partyId; renderLaunchOrder();
-  const box = document.querySelector(`#lo-out [data-req="${CSS.escape(requestId(partyId, stepKey))}"]`);
+  const id = CSS.escape(requestId(partyId, stepKey));
+  const box = toEvidence ? document.querySelector(`#lo-out [data-ev="${id}"]`) || document.querySelector(`#lo-out [data-req="${id}"]`) : document.querySelector(`#lo-out [data-req="${id}"]`);
   if (!box) return;
+  if (box.tagName === 'DETAILS') box.open = true;
   box.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   box.classList.add('is-highlight'); setTimeout(() => box.classList.remove('is-highlight'), 2400);
   box.querySelector('input')?.focus({ preventScroll: true });

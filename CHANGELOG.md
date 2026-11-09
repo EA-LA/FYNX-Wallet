@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-09 14:55 UTC — [autopilot] Owner workspace: look up any transaction, and a reminder when outside parties still owe documents
+
+- Crypto tools → Step 5 · Track: checking a transaction ID that was not sent from this page (for example from another wallet app) now shows a full result card: status, explorer link, sender, recipient, transaction number, block, confirmations, the exact ETH amount for simple transfers, and whether FYNX sent it (this page, an earlier session, or not that this browser knows), plus what to do next.
+- If that transaction was sped up or cancelled, "Find the replacement" shows which transaction took its place and whether it is confirmed. "Check again" follows a waiting one; "Clear" removes the card. Only reads the network; nothing is signed or sent.
+- Launch readiness → Hand off to outside parties: when a party answered but some of the documents you asked for are still missing, the request now says how many are missing and from which day to ask again. After 14 days it turns amber, the party button shows "to ask again for missing pieces", and it appears in "Your next steps" as "Ask again for missing pieces" (one press opens the list).
+- The list you copy for that party now says how many days have passed since their answer while the remaining points are still needed.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools and Launch readiness tabs, after signing in).
+
 ## 2026-11-09 10:40 UTC — [autopilot] Owner workspace: see which transaction replaced a sped-up or cancelled one
 
 - Crypto tools → Step 5 · Track: when you press "Speed up" or "Cancel" in your wallet, the original transaction shows "Replaced". FYNX now finds the transaction that took its place by itself and shows it under the original: its ID (opens the explorer), whether it was a speed-up, a cancel or something different, and whether it is confirmed (with confirmations) or failed.
