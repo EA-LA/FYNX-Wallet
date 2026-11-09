@@ -182,13 +182,16 @@ export async function findReplacement(request, known = {}, network = null) {
   const countNow = await countAt(latest).catch(() => null);
   if (countNow !== null && countNow <= nonce) return { state: 'not-used', detail: 'The wallet has not used this transaction number yet, so nothing has replaced it. Check the status again.' };
   const full = lookbackBlocks(network, known.submittedAt, now);
-  for (const window of [...new Set([full, RECENT_BLOCKS])]) {
+  // searchAll (the wallet + number search): try the whole chain first; connections that cannot read
+  // old state fall back to the day window, then the recent blocks.
+  const windows = known.searchAll === true ? [latest, full, RECENT_BLOCKS] : [full, RECENT_BLOCKS];
+  for (const window of [...new Set(windows)]) {
     if (countNow === null) { unreadable = true; break; }
     let lo = Math.max(0, latest - window), hi = latest, atLo;
     try { atLo = await countAt(lo); } catch { unreadable = true; continue; }
     // Used before the full window: further back than this page searches. Before the short fallback
     // window only: the older blocks could not be read.
-    if (atLo > nonce) { if (window === full) olderThanWindow = true; else unreadable = true; break; }
+    if (atLo > nonce) { if (window === full || window === latest) olderThanWindow = true; else unreadable = true; break; }
     try {
       while (hi - lo > 1) {
         const mid = Math.floor((lo + hi) / 2);
@@ -214,7 +217,7 @@ export async function findReplacement(request, known = {}, network = null) {
     const why = olderThanWindow ? 'It happened before this transaction was submitted (or more than a day ago), which is further back than this page searches.'
       : unreadable ? 'This network connection cannot read past blocks, and none of the transfers in the loaded history has the same number. Load the history in Portfolio & history, then try again.'
         : 'The block where the number was used does not list it.';
-    return { state: 'not-found', detail: `The replacement could not be found. ${why} The wallet's activity list shows it.` };
+    return { state: 'not-found', reason: olderThanWindow ? 'older' : unreadable ? 'unreadable' : 'missing', detail: `The replacement could not be found. ${why} The wallet's activity list shows it.` };
   }
   const receipt = await request({ method: 'eth_getTransactionReceipt', params: [found.hash] });
   const block = quantity(receipt?.blockNumber ?? found.blockNumber);
@@ -227,6 +230,46 @@ export async function findReplacement(request, known = {}, network = null) {
   }
   return { state: 'found', hash: found.hash.toLowerCase(), block, kind, status, confirmations, target, deep: status !== 'pending' && confirmations >= target, to: call.to, value: call.value, method, detail: replacementText({ kind, status, block, confirmations, target }) };
 }
+// ---- Searching by wallet and transaction number (nonce) ----
+// For a looked-up ID the network no longer knows (or knows without its wallet): the owner copies the
+// wallet and number from the explorer or the wallet's activity list, and FYNX finds the transaction
+// that used that number. Read-only, like everything in this file.
+export const NO_HASH = '0x' + '0'.repeat(64); // matches no real transaction: nothing is excluded
+export function parseNonceSearch(wallet, nonce) {
+  const from = String(wallet ?? '').trim(), text = String(nonce ?? '').trim();
+  if (!ADDRESS.test(from)) return { ok: false, field: 'wallet', error: 'Enter the wallet address: 0x followed by 40 letters and numbers.' };
+  if (!/^\d{1,15}$/.test(text)) return { ok: false, field: 'nonce', error: 'Enter the transaction number (nonce) as a whole number, for example 12. Explorers list it as "Nonce".' };
+  const n = Number(text);
+  if (!Number.isSafeInteger(n)) return { ok: false, field: 'nonce', error: 'That transaction number is too large.' };
+  return { ok: true, from: from.toLowerCase(), nonce: n };
+}
+// exclude: the looked-up ID (left out of the matches), or omitted. candidates: transaction IDs from the
+// loaded history to try when old blocks cannot be read.
+export async function findByNonce(request, { from, nonce, exclude = null, candidates = [], now } = {}, network = null) {
+  const parsed = parseNonceSearch(from, nonce);
+  if (!parsed.ok) throw new Error(parsed.error);
+  const hash = typeof exclude === 'string' && HASH.test(exclude) ? exclude : NO_HASH;
+  const found = await findReplacement(request, { hash, from: parsed.from, nonce: parsed.nonce, original: null, candidates, searchAll: true, now }, network);
+  const n = parsed.nonce;
+  if (found.state === 'not-used') return { ...found, from: parsed.from, nonce: n, detail: `This wallet has not used number ${n} yet: its next transaction will use it. If you expected one, it is still waiting or was dropped; check the wallet's activity.` };
+  if (found.state === 'not-found') {
+    const why = found.reason === 'older' ? 'The number was used before the oldest block this connection can read.'
+      : found.reason === 'unreadable' ? 'This network connection cannot read past blocks, and no transfer in the loaded history used it. Load the history in Portfolio & history, then search again.'
+        : 'The block where the number was used does not list it.';
+    return { ...found, from: parsed.from, nonce: n, detail: `No transaction with number ${n} from this wallet was found. ${why} The wallet's page on the explorer lists every transaction with its number.` };
+  }
+  if (found.state !== 'found') return { ...found, from: parsed.from, nonce: n };
+  const what = found.kind === 'cancel' ? 'It sends nothing to anyone (a cancel in the wallet).' : 'Open it on the explorer to see what it did.';
+  const where = found.status === 'confirmed' ? `Confirmed in block ${found.block} (${Math.min(found.confirmations, 9999)} of ${found.target} confirmations${found.deep ? ', settled' : ''}).`
+    : found.status === 'failed' ? `Included in block ${found.block} but failed, so nothing moved.` : 'Not confirmed yet.';
+  return { ...found, from: parsed.from, nonce: n, kind: found.kind === 'cancel' ? 'cancel' : 'unknown', detail: `Number ${n} from this wallet was used by this transaction. ${where} ${what}` };
+}
+// Whether the lookup card offers the wallet + number search: the network does not know the ID, or knows
+// it was replaced without its wallet and number.
+export function offersNonceSearch(result) {
+  return result?.status === 'not-found' || (result?.status === 'replaced' && !canFindReplacement(result));
+}
+
 // ---- Looking up an ID typed into the Track card (not submitted on this page) ----
 // Whether the replacement of a looked-up transaction can be searched: the network still knows the
 // original (so its wallet and number are known) and the wallet already used that number elsewhere.
@@ -256,8 +299,8 @@ export function formatWei(wei) {
 export function lookupNext(result, { canFind = canFindReplacement(result), replacement = null } = {}) {
   if (!result) return '';
   if (replacement?.state === 'found') return replacement.deep ? 'The replacement is settled: nothing more to check.' : 'Check the replacement again in a minute to follow its confirmations.';
-  if (result.status === 'replaced') return canFind ? 'Press “Find the replacement” to see which transaction took its place. FYNX only reads the network.' : 'The network no longer knows this transaction\'s wallet and number, so its replacement cannot be searched here. The wallet\'s activity list shows it.';
-  if (isSettled(result)) return result.status === 'not-found' ? 'If you copied it from a wallet or explorer, check that the selected network matches.' : 'Settled: nothing more to check.';
+  if (result.status === 'replaced') return canFind ? 'Press “Find the replacement” to see which transaction took its place. FYNX only reads the network.' : 'The network no longer knows this transaction\'s wallet and number. If you know them (from the explorer or the wallet\'s activity), search by wallet and number below.';
+  if (isSettled(result)) return result.status === 'not-found' ? 'If you copied it from a wallet or explorer, check that the selected network matches. If it was sped up or cancelled and has gone, search by its wallet and number below.' : 'Settled: nothing more to check.';
   return 'Press “Check again” to follow it. Checking never signs or resends anything.';
 }
 // One plain sentence about a found replacement.

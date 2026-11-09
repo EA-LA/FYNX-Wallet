@@ -18,7 +18,7 @@ import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem,
 import { OUTSIDE_KEY, CHASE_DAYS, requestId, cleanRequests, setDate as setRequestDate, requestState as outsideRequestState, partyRequests, partyRequestLine, outsideAttention, requestReportLines, parseRequestReport, mergeRequests } from './outside-requests.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
-import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext } from './tx-tracker.js';
+import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext, findByNonce, parseNonceSearch, offersNonceSearch } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retryText } from './reconcile.js';
 import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
@@ -169,7 +169,8 @@ function updateWalletControls() {
   $('#prepare-swap').disabled = busy || !canSend || !swapQuote || !connection?.network.testnet;
   $('#revoke-allowance').disabled = busy || !canSend || !connection?.network.router;
   $('#lookup-transaction').disabled = busy || !verified;
-  for (const b of document.querySelectorAll('#transaction-journal .tx-check, #transaction-journal .tx-find, #lookup-result .tx-check, #lookup-result .tx-find')) b.disabled = busy || !connection?.address;
+  for (const b of document.querySelectorAll('#transaction-journal .tx-check, #transaction-journal .tx-find, #lookup-result .tx-check, #lookup-result .tx-find, #nonce-go')) b.disabled = busy || !connection?.address;
+  if ($('#nonce-mine')) $('#nonce-mine').disabled = !connection?.address;
   $('#tx-check-all').disabled = busy || autoRunning || !connection?.address || !waitingItems(journal.values(), selectedNetwork().id).length;
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
   $('#network-choice').disabled = busy;
@@ -911,8 +912,76 @@ async function lookUp(hash, checkSession) {
   const current = connection;
   const result = await checkStatus(hash, checkSession);
   const keep = lookupEntry && lookupEntry.hash.toLowerCase() === hash.toLowerCase() && lookupEntry.network.id === current.network.id ? lookupEntry : null;
-  lookupEntry = { hash, network: current.network, result, checkedAt: Date.now(), replacement: keep?.replacement || null, note: keep?.note || null, findCheckedAt: keep?.findCheckedAt || null };
+  lookupEntry = { hash, network: current.network, result, checkedAt: Date.now(), replacement: keep?.replacement || null, note: keep?.note || null, findCheckedAt: keep?.findCheckedAt || null, nonceDraft: keep?.nonceDraft || null, nonceSearch: keep?.nonceSearch || null };
   return result;
+}
+// The wallet + number search for a looked-up ID the network no longer knows. Read-only; whatever it
+// finds is shown with an explorer link and can be looked up in turn (it is not added to the register).
+async function searchLookupByNonce(checkSession, wallet, nonce) {
+  const entry = lookupEntry, current = connection;
+  if (!entry || !current?.address) throw new Error('Connect your wallet first.');
+  if (entry.network.id !== current.network.id) throw new Error(`Switch to ${entry.network.name} to search.`);
+  const parsed = parseNonceSearch(wallet, nonce);
+  if (!parsed.ok) throw new Error(parsed.error);
+  const epoch = await current.assertCurrent();
+  const candidates = lastHistory && lastHistory.chainId === entry.network.id ? (lastHistory.items || []).filter(i => i && typeof i.hash === 'string').map(i => i.hash).reverse() : [];
+  const found = await findByNonce(request => current.provider.request(request), { from: parsed.from, nonce: parsed.nonce, exclude: entry.hash, candidates }, current.network);
+  checkSession(); await current.assertCurrent(epoch);
+  if (current !== connection || entry !== lookupEntry) throw new Error('Wallet changed.');
+  entry.nonceSearch = { ...found, checkedAt: Date.now() };
+  return found;
+}
+function renderNonceSearch(box, entry) {
+  const wrap = guideEl('div', 'nonce-search');
+  wrap.setAttribute('role', 'group'); wrap.setAttribute('aria-labelledby', 'nonce-search-title');
+  const title = guideEl('p', 'nonce-search-title'); title.id = 'nonce-search-title'; title.append(guideEl('strong', '', 'Search by wallet and number'));
+  wrap.append(title, guideEl('p', 'tx-detail', 'Every transaction from a wallet has a number (the nonce). If you know the wallet and the number of the transaction that went missing (the explorer and the wallet\'s activity list show both), FYNX finds the transaction that used that number. FYNX only reads the network.'));
+  const draft = entry.nonceDraft || { wallet: entry.nonceSearch?.from || entry.result.from || '', nonce: entry.nonceSearch ? String(entry.nonceSearch.nonce) : Number.isSafeInteger(entry.result.nonce) ? String(entry.result.nonce) : '' };
+  const form = guideEl('form', 'nonce-form'); form.id = 'nonce-form'; form.noValidate = true;
+  const wl = guideEl('label', '', 'Wallet address'); wl.htmlFor = 'nonce-wallet';
+  const wi = guideEl('input', 'mono'); wi.id = 'nonce-wallet'; wi.autocomplete = 'off'; wi.spellcheck = false; wi.maxLength = 42; wi.placeholder = '0x…'; wi.value = draft.wallet;
+  const nl = guideEl('label', '', 'Transaction number (nonce)'); nl.htmlFor = 'nonce-number';
+  const ni = guideEl('input', ''); ni.id = 'nonce-number'; ni.inputMode = 'numeric'; ni.autocomplete = 'off'; ni.maxLength = 15; ni.placeholder = 'for example 12'; ni.value = draft.nonce;
+  const keep = () => { entry.nonceDraft = { wallet: wi.value, nonce: ni.value }; };
+  wi.addEventListener('input', keep); ni.addEventListener('input', keep);
+  const row = guideEl('div', 'nonce-actions');
+  const mine = guideEl('button', 'text-button', 'Use my connected wallet'); mine.type = 'button'; mine.id = 'nonce-mine'; mine.disabled = !connection?.address;
+  mine.addEventListener('click', () => { wi.value = connection?.address || ''; keep(); ni.focus(); });
+  const go = guideEl('button', 'button secondary', 'Search'); go.type = 'submit'; go.id = 'nonce-go'; go.disabled = busy || !connection?.address;
+  row.append(go, mine);
+  form.append(wl, wi, nl, ni, row);
+  form.addEventListener('submit', async event => {
+    event.preventDefault(); keep();
+    const parsed = parseNonceSearch(wi.value, ni.value);
+    if (!parsed.ok) { setText('#lookup-status', parsed.error); (parsed.field === 'wallet' ? wi : ni).focus(); return; }
+    await run(go, async checkSession => {
+      const f = await searchLookupByNonce(checkSession, wi.value, ni.value);
+      setText('#lookup-status', f.state === 'found' ? `Number ${f.nonce}: ${f.hash.slice(0, 10)}…. ${f.detail}` : f.detail);
+    }, '#lookup-status');
+    renderLookup(); ($('#nonce-result a') || $('#nonce-go'))?.focus();
+  });
+  wrap.append(form);
+  const res = entry.nonceSearch;
+  if (res) {
+    const out = guideEl('div', 'nonce-result'); out.id = 'nonce-result';
+    if (res.state === 'found') {
+      const h = guideEl('p', 'tx-replacement-head');
+      h.append(guideEl('strong', '', `Number ${res.nonce} was used by `), guideEl('span', `tx-badge is-${res.status === 'pending' ? 'pending' : res.status}`, `${res.kind === 'cancel' ? 'Cancel · ' : ''}${res.status === 'confirmed' ? 'Confirmed' : res.status === 'failed' ? 'Failed on-chain' : 'Not confirmed yet'}`));
+      const a = guideEl('a', 'mono', res.hash); a.href = `${entry.network.explorer}/tx/${res.hash}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.setAttribute('aria-label', `Open ${res.hash} on the explorer`);
+      out.append(h, a, guideEl('p', 'tx-detail', res.detail));
+      const open = guideEl('button', 'text-button tx-check', 'Look up this transaction'); open.type = 'button'; open.id = 'nonce-open'; open.disabled = busy || !connection?.address;
+      open.addEventListener('click', async () => {
+        const target = res.hash;
+        await run(open, async checkSession => { $('#lookup-hash').value = target; const r = await lookUp(target, checkSession); setText('#lookup-status', `${r.label}. ${r.detail}`); }, '#lookup-status');
+        renderLookup(); $('#lookup-result a')?.focus();
+      });
+      out.append(open);
+    } else out.append(guideEl('p', 'tx-detail', res.detail));
+    out.append(guideEl('p', 'tx-when', `Searched ${new Date(res.checkedAt).toLocaleTimeString()} · wallet ${res.from.slice(0, 6)}…${res.from.slice(-4)}, number ${res.nonce}`));
+    wrap.append(out);
+  }
+  box.append(wrap);
 }
 async function findLookupReplacement(checkSession) {
   const entry = lookupEntry, current = connection;
@@ -972,6 +1041,7 @@ function renderLookup() {
     if (rep.childNodes.length) box.append(rep);
   }
   box.append(guideEl('p', 'tx-detail lookup-next', lookupNext(r, { canFind, replacement: entry.replacement })));
+  if (offersNonceSearch(r)) renderNonceSearch(box, entry);
   const meta = [`Checked ${new Date(entry.checkedAt).toLocaleTimeString()} on ${entry.network.name}`];
   box.append(guideEl('p', 'tx-when', meta.join(' · ')));
   const actions = guideEl('div', 'lookup-actions');

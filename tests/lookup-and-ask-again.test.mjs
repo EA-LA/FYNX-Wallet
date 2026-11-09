@@ -50,7 +50,7 @@ test('canFindReplacement needs a replaced status with the wallet and number know
   assert.equal(canFindReplacement({ status: 'replaced', from: wallet, nonce: null }), false);
   assert.equal(canFindReplacement({ status: 'pending', from: wallet, nonce: 3 }), false);
   assert.equal(canFindReplacement(null), false);
-  assert.match(lookupNext({ status: 'replaced', from: null, nonce: null }), /cannot be searched here/);
+  assert.match(lookupNext({ status: 'replaced', from: null, nonce: null }), /search by wallet and number below/);
   assert.match(lookupNext({ status: 'replaced', from: wallet, nonce: 1 }), /Find the replacement/);
 });
 

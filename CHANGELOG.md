@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-09 18:20 UTC — [autopilot] Owner workspace: find a lost transaction from its wallet and number
+
+- Crypto tools → Step 5 Track: when you look up a transaction ID the network no longer knows (for example one that was sped up or cancelled in another app), the result now offers **Search by wallet and number**. Paste the wallet address (or press "Use my connected wallet") and the transaction number ("Nonce" on the explorer), and FYNX shows the transaction that used that number: explorer link, confirmed / failed / not yet, block and confirmations, and whether it was a cancel.
+- One press on "Look up this transaction" opens the found transaction in the same card.
+- Clear answers when the wallet has not used that number yet, or when it was used further back than the network connection can read (with what to do instead).
+- FYNX only reads the network: nothing is signed, sent or saved.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools tab, after signing in).
+
 ## 2026-11-09 14:55 UTC — [autopilot] Owner workspace: look up any transaction, and a reminder when outside parties still owe documents
 
 - Crypto tools → Step 5 · Track: checking a transaction ID that was not sent from this page (for example from another wallet app) now shows a full result card: status, explorer link, sender, recipient, transaction number, block, confirmations, the exact ETH amount for simple transfers, and whether FYNX sent it (this page, an earlier session, or not that this browser knows), plus what to do next.
