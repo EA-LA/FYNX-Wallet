@@ -209,7 +209,9 @@ const stateText = { ready: 'Ask now', waiting: 'Not yet', done: 'Done', 'not-nee
 
 // `sent` (optional): step key → { sent, answered } dates from the request tracker, so a list sent again
 // says it is a reminder and when the request first went out.
-export function outsideBrief(plan, records = {}, partyId, answers = {}, { date = new Date(), sent = {} } = {}) {
+// `evidence` (optional): step key → evidenceState() from the "what came back" ticks, so the list
+// thanks the party for what arrived and asks only for what is still missing.
+export function outsideBrief(plan, records = {}, partyId, answers = {}, { date = new Date(), sent = {}, evidence = {} } = {}) {
   const s = partyStatus(plan, records, answers).find(x => x.party.id === partyId);
   if (!s) return '';
   const { party, rows, contact } = s;
@@ -228,11 +230,19 @@ export function outsideBrief(plan, records = {}, partyId, answers = {}, { date =
   let n = 0;
   const block = r => {
     L.push('', `### ${shortStep(r.step)} (\`${r.key}\`)`, '', `Checklist step: ${clean(r.step.text)}`, '');
-    const d = sent[r.key];
-    if (d?.sent && d.answered) L.push(`Your answer of ${d.answered} is noted, thank you. These are the points still needed to close this step:`, '');
-    else if (d?.sent) L.push(`Reminder: we first sent this request on ${d.sent}.`, '');
+    const d = sent[r.key], ev = evidence[r.key];
+    if (ev?.state !== 'complete') {
+      if (d?.sent && d.answered) L.push(`Your answer of ${d.answered} is noted, thank you. These are the points still needed to close this step:`, '');
+      else if (d?.sent) L.push(`Reminder: we first sent this request on ${d.sent}.`, '');
+    }
+    const lower = i => i.label.charAt(0).toLowerCase() + i.label.slice(1);
+    if (ev?.state === 'complete') {
+      L.push(`We have received everything we asked for on this request (${ev.received.map(lower).join('; ')}). Thank you: nothing more is needed here.`);
+      return;
+    }
+    if (ev?.state === 'partial') L.push(`Received so far, thank you: ${ev.received.map(lower).join('; ')}.`, '');
     for (const q of r.spec.questions) L.push(`${++n}. ${q}`);
-    L.push('', `Please send back: ${r.spec.back}`);
+    L.push('', ev?.state === 'partial' ? `Please send back (still missing): ${ev.missing.map(lower).join('; ')}.` : `Please send back: ${r.spec.back}`);
   };
   L.push('', `## Ask now (${ready.length})`);
   if (!ready.length) L.push('', s.open ? 'Nothing can be asked yet: every open request waits on another step (below).' : 'Nothing open for this party.');

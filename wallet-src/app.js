@@ -14,6 +14,7 @@ import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { PARTIES, partyStatus, partyLine, outsideBrief, handoffStateText } from './outside-handoff.js';
+import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem, evidenceState, partyEvidence, partyEvidenceLine, readyToShare, evidenceSummary, evidenceReportLines, parseEvidenceReport, mergeEvidence } from './outside-evidence.js';
 import { OUTSIDE_KEY, CHASE_DAYS, requestId, cleanRequests, setDate as setRequestDate, requestState as outsideRequestState, partyRequests, partyRequestLine, outsideAttention, requestReportLines, parseRequestReport, mergeRequests } from './outside-requests.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
@@ -1031,6 +1032,9 @@ try { privacyLog = cleanLog(JSON.parse(localStorage.getItem(PRIVACY_KEY) || '{}'
 let outsideRequests = { entries: {} };
 try { outsideRequests = cleanRequests(JSON.parse(localStorage.getItem(OUTSIDE_KEY) || '{}')); } catch { outsideRequests = { entries: {} }; }
 function saveOutsideRequests() { try { localStorage.setItem(OUTSIDE_KEY, JSON.stringify(outsideRequests)); return true; } catch { return false; } }
+let outsideEvidence = { entries: {} };
+try { outsideEvidence = cleanEvidence(JSON.parse(localStorage.getItem(EVIDENCE_KEY) || '{}')); } catch { outsideEvidence = { entries: {} }; }
+function saveOutsideEvidence() { try { localStorage.setItem(EVIDENCE_KEY, JSON.stringify(outsideEvidence)); return true; } catch { return false; } }
 function savePrivacyLog() { try { localStorage.setItem(PRIVACY_KEY, JSON.stringify(privacyLog)); } catch { setText('#pr-status', 'This browser blocked saving. The log lasts until you close the page.'); } renderPrivacyBadge(); }
 // Open/overdue privacy requests on the Waitlist tab button, so a due answer is visible from every tab.
 function renderPrivacyBadge() {
@@ -1258,9 +1262,9 @@ function renderLaunchOverview() {
   const mine = el('li'); mine.append(el('div', 'launch-stat stat-mine', ''));
   mine.firstChild.append(el('strong', '', `${o.yoursDone}/${o.yours}`), el('span', '', `your tests and decisions done${o.failed ? ` · ${o.failed} failed` : ''}`));
   stats.append(mine); box.append(stats);
-  const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase();
-  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length || privacy.next.length || chase.next.length ? 'Your next steps' : 'All your steps are recorded'));
-  if (next.length || privacy.next.length || chase.next.length) {
+  const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), share = outsideShare().slice(0, 2);
+  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length || privacy.next.length || chase.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
+  if (next.length || privacy.next.length || chase.next.length || share.length) {
     const list = el('ol');
     // A privacy answer that is due comes first: it has a date, launch steps do not.
     for (const item of privacy.next) {
@@ -1273,6 +1277,13 @@ function renderLaunchOverview() {
       const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
       const entry = stepIndex(launchPlan).get(item.stepKey);
       b.append(el('span', 'launch-next-gate', `Send a reminder · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: sent ${item.sent}, no answer after ${item.days} days`));
+      b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey)); li.append(b); list.append(li);
+    }
+    // Then requests whose evidence has all come back while the step is still open: share the documents.
+    for (const item of share) {
+      const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
+      const entry = stepIndex(launchPlan).get(item.stepKey);
+      b.append(el('span', 'launch-next-gate', `Share the evidence · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: everything came back. Send the documents so the step can be checked and marked done.`));
       b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey)); li.append(b); list.append(li);
     }
     for (const { gate, step, failed } of next) {
@@ -1384,6 +1395,7 @@ function engineeringBox(o, previewOpen = false) {
 // "Hand off to outside parties": per party (lawyer, payment provider, security reviewer, market data),
 // what can be asked now, what waits and on what, the questions to answer and the evidence to ask back.
 let outsideParty = PARTIES[0].id;
+const evidenceOpen = new Set(); // "What came back" lists the owner opened by hand (kept across re-renders)
 function outsideBox(previewOpen = false) {
   const all = partyStatus(launchPlan, launchRecords, decisionAnswers), today = localToday();
   const s = all.find(x => x.party.id === outsideParty) || all[0];
@@ -1397,6 +1409,8 @@ function outsideBox(previewOpen = false) {
     const reqLine = partyRequestLine(partyRequests(outsideRequests, x.party.id, x.rows.filter(r => r.state === 'ready' || r.state === 'waiting').map(r => r.key), today));
     b.append(el('strong', '', x.party.name), el('span', '', partyLine(x)));
     if (reqLine) b.append(el('span', `lo-out-req${/to chase/.test(reqLine) ? ' is-chase' : ''}`, reqLine));
+    const evLine = partyEvidenceLine(partyEvidence(outsideEvidence, x.party.id, tracked(x)));
+    if (evLine) b.append(el('span', 'lo-out-ev', evLine));
     b.addEventListener('click', () => { outsideParty = x.party.id; const next = outsideBox(); wrap.replaceWith(next); next.querySelector(`[data-party="${CSS.escape(x.party.id)}"]`)?.focus(); });
     pick.append(b);
   }
@@ -1420,14 +1434,15 @@ function outsideBox(previewOpen = false) {
       });
       li.append(w);
     } else if (r.state === 'not-needed') li.append(el('p', 'lo-waits', r.spec.onlyIf.reason));
-    if (r.state !== 'not-needed') li.append(requestTracker(s.party, r, today));
+    if (r.state !== 'not-needed') li.append(requestTracker(s.party, r, today), evidenceTracker(s.party, r));
     ol.append(li);
   }
   wrap.append(ol);
   const status = el('p', 'status'); status.id = 'lo-out-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   if (outsideStatus) { status.textContent = outsideStatus; outsideStatus = ''; }
   const sentDates = Object.fromEntries(tracked(s).map(k => [k, outsideRequests.entries[requestId(s.party.id, k)]]).filter(([, e]) => e?.sent));
-  const brief = () => outsideBrief(launchPlan, launchRecords, s.party.id, decisionAnswers, { sent: sentDates });
+  const evStates = Object.fromEntries(tracked(s).map(k => { const id = requestId(s.party.id, k); return [k, evidenceState(id, outsideEvidence.entries[id])]; }));
+  const brief = () => outsideBrief(launchPlan, launchRecords, s.party.id, decisionAnswers, { sent: sentDates, evidence: evStates });
   const actions = el('div', 'actions');
   const copy = el('button', 'button secondary', `Copy the list for the ${s.party.short}`); copy.type = 'button'; copy.id = 'lo-out-copy';
   copy.addEventListener('click', async () => {
@@ -1440,7 +1455,12 @@ function outsideBox(previewOpen = false) {
     a.href = url; a.download = `fynx-handoff-${s.party.id}-${new Date().toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     status.textContent = `List for the ${s.party.short} downloaded.`;
   });
-  actions.append(copy, dl);
+  const evCopy = el('button', 'text-button', 'Copy evidence summary'); evCopy.type = 'button'; evCopy.id = 'lo-out-ev-copy';
+  evCopy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(evidenceSummary(outsideEvidence, evidenceRows())); status.textContent = 'Evidence summary copied (all parties). Send it together with the documents themselves: a tick alone does not mark a step done.'; }
+    catch { status.textContent = 'Copying was blocked by the browser. The ticks are also in your test report under “Outside evidence received”.'; }
+  });
+  actions.append(copy, dl, evCopy);
   const preview = el('details', 'lo-part lo-eng-preview'); preview.dataset.part = 'out-preview';
   preview.append(el('summary', '', 'Preview the list'));
   const pre = el('pre', 'lo-eng-pre'); preview.addEventListener('toggle', () => { if (preview.open) pre.textContent = brief(); });
@@ -1486,6 +1506,51 @@ function requestTracker(party, r, today) {
   }
   return box;
 }
+// "What came back": tick each piece of evidence the party was asked to send back. Ticks only, this browser.
+function evidenceTracker(party, r) {
+  const id = requestId(party.id, r.key), items = evidenceItems(id), st = evidenceState(id, outsideEvidence.entries[id]);
+  const base = `lo-ev-${party.id}-${r.key.replace(/[^a-z0-9-]/gi, '-')}`;
+  const entry = outsideRequests.entries[id];
+  // Folded until something can have come back (a tick or an answer date), so long lists stay short.
+  const outer = el('details', `lo-ev is-${st.state}`); outer.dataset.ev = id; outer.open = Boolean(st.count || entry?.answered || evidenceOpen.has(id));
+  outer.addEventListener('toggle', () => { if (outer.open) evidenceOpen.add(id); else evidenceOpen.delete(id); });
+  const sum = el('summary'); sum.append(el('span', 'lo-ev-title', 'What came back'), el('span', 'lo-ev-count', st.count ? `${st.count} of ${st.total}` : `${st.total} to come back`)); outer.append(sum);
+  const box = el('fieldset', 'lo-ev-set'); outer.append(box);
+  box.append(el('legend', 'visually-hidden-label', `What came back from the ${party.short}`));
+  const stateLine = el('p', 'lo-ev-state', st.label); stateLine.id = `${base}-state`; box.append(stateLine);
+  const ul = el('ul', 'lo-ev-list');
+  for (const it of items) {
+    const li = el('li'), input = el('input'), lab = el('label');
+    input.type = 'checkbox'; input.id = `${base}-${it.id}`; input.checked = st.received.includes(it); input.setAttribute('aria-describedby', stateLine.id);
+    lab.htmlFor = input.id; lab.append(input, el('span', '', it.label));
+    input.addEventListener('change', () => {
+      const res = setEvidenceItem(outsideEvidence, id, it.id, input.checked);
+      if (res.error) outsideStatus = res.error;
+      else if (!res.unchanged) {
+        outsideEvidence = res.log;
+        const saved = saveOutsideEvidence(), ns = evidenceState(id, outsideEvidence.entries[id]);
+        outsideStatus = `${party.name}, ${shortStep(r.step)}: ${ns.label}.${saved ? '' : ' This browser blocked saving; the ticks last until you close the page.'}`;
+      }
+      renderLaunchOverview(); renderLaunchOrder();
+      document.getElementById(input.id)?.focus();
+    });
+    li.append(lab); ul.append(li);
+  }
+  box.append(ul);
+  if (st.count && r.state !== 'done') {
+    if (st.state === 'complete') box.append(el('p', 'lo-ev-note is-ready', 'Everything is in. Check the documents, then share them with “Copy evidence summary” so this step can be marked done in the checklist. Ticking does not mark it done by itself.'));
+    else box.append(el('p', 'lo-ev-note', 'The copied list now thanks them for what arrived and asks only for what is still missing.'));
+    if (!entry?.answered) box.append(el('p', 'lo-ev-note', entry?.sent ? 'Tip: also record the “Answered on” date above.' : 'Tip: also record when you sent the request and when they answered, above.'));
+  }
+  return outer;
+}
+// Every hand-off request (party + step, not-needed ones left out) in display order, with a short title.
+function evidenceRows() {
+  const out = [];
+  for (const s of partyStatus(launchPlan, launchRecords, decisionAnswers)) for (const r of s.rows) if (r.state !== 'not-needed') out.push({ id: requestId(s.party.id, r.key), title: shortStep(r.step), open: r.state !== 'done' });
+  return out;
+}
+function outsideShare() { return readyToShare(outsideEvidence, evidenceRows().filter(r => r.open).map(r => r.id)); }
 // Requests still needing an answer (open steps only) that have waited CHASE_DAYS or more.
 function outsideChase(limit = 2) {
   const skip = new Set();
@@ -1606,7 +1671,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests)] });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence)] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -1667,12 +1732,13 @@ function previewReport(text) {
   const prIn = parsePrivacyReport(text), prCount = prIn.log.entries.length, prDeleted = prIn.log.deleted.length, drIn = parseDrillReport(text), drCount = drIn.runs.length;
   const rgIn = parseRegisterReport(text), rgCount = rgIn.register.entries.length;
   const rqIn = parseRequestReport(text), rqCount = Object.keys(rqIn.log.entries).length;
-  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const evIn = parseEvidenceReport(text), evCount = Object.keys(evIn.log.entries).length;
+  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
   const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
-  const rqm = mergeRequests(outsideRequests, rqIn.log);
-  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm };
+  const rqm = mergeRequests(outsideRequests, rqIn.log), evm = mergeEvidence(outsideEvidence, evIn.log);
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -1763,15 +1829,29 @@ function previewReport(text) {
     }
     if (ql.children.length) box.append(ql);
   }
+  if (evCount) {
+    const esum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', evm.added.length, 'new here'], ['is-update', evm.updated.length, 'changed later than this browser'], ['is-same', evm.same.length, 'already here'], ['is-kept', evm.kept.length, 'kept: this browser changed it later']]) if (n) esum.append(guideEl('li', cls, `${n} ${label}`));
+    if (evIn.unknown) esum.append(guideEl('li', 'is-kept', `${evIn.unknown} line${evIn.unknown === 1 ? '' : 's'} not understood`));
+    box.append(guideEl('h4', '', `Evidence ticks for ${evCount} outside request${evCount === 1 ? '' : 's'} found in the report`), esum);
+    const el2 = guideEl('ul', 'launch-import-list');
+    for (const kind of ['added', 'updated', 'kept']) for (const id of evm[kind]) {
+      const e = evIn.log.entries[id], pid = id.slice(0, id.indexOf('|')), key = id.slice(id.indexOf('|') + 1), hit = index.get(key), st = evidenceState(id, e);
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', `${PARTIES.find(p => p.id === pid)?.name || pid}: ${hit ? shortStep(hit.step) : key}`), guideEl('small', '', `${st.count ? `${st.count} of ${st.total} pieces received` : 'Ticks cleared on the other device'}${kind === 'kept' ? ' · this browser’s ticks are newer and stay' : ''}`));
+      li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); el2.append(li);
+    }
+    if (el2.children.length) box.append(el2);
+  }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, asks = rqm.added.length + rqm.updated.length, changes = results + decisions + requests + runs + ticks + transfers + asks;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer'), n(asks, 'outside request date')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer'), n(asks, 'outside request date'), n(evTicks, 'evidence list')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
@@ -1781,8 +1861,9 @@ function previewReport(text) {
     if (runs || ticks) { drill = dri.drill; saveDrill(); }
     if (transfers) { pilotRegister = rgi.register; savePilotRegister(); renderReconcile(); }
     if (asks) { outsideRequests = rqi.log; saveOutsideRequests(); }
+    if (evTicks) { outsideEvidence = evi.log; saveOutsideEvidence(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });

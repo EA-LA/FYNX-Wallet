@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-09 06:40 UTC — [autopilot] Owner workspace: tick off what each outside party sent back
+
+- Launch readiness → "What can move now" → "Hand off to outside parties": every request to your lawyer, Transak, the security reviewer and the market-data provider now has a "What came back" list (for example: the written memo, approved terms, signed agreement, final report, retest letter, licence terms). Tick each piece as it arrives.
+- Each request shows "2 of 5 received · still missing: …" or "Everything is in"; the party buttons show how many pieces have arrived.
+- The list you copy for a party now thanks them for what arrived and asks only for what is still missing; a request that is complete stops asking questions.
+- When everything for a request is in, "Your next steps" tells you to share the documents. "Copy evidence summary" gives a ready list to send with them. Ticking alone never marks a launch step done.
+- The ticks travel with your test report, so another device can bring them in.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab)
+
 ## 2026-11-09 02:40 UTC — [autopilot] Owner workspace: track when you asked outside parties and when they answered
 
 - Launch readiness → What can move now → Hand off to outside parties: under every request to your lawyer, payment provider, security reviewer or market-data provider you can now record the day you sent it and the day the answer came (or press "Sent today" / "Answered today").
