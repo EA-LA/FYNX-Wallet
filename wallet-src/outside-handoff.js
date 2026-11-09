@@ -207,7 +207,9 @@ export function partyLine(s) {
 
 const stateText = { ready: 'Ask now', waiting: 'Not yet', done: 'Done', 'not-needed': 'Not needed' };
 
-export function outsideBrief(plan, records = {}, partyId, answers = {}, { date = new Date() } = {}) {
+// `sent` (optional): step key → { sent, answered } dates from the request tracker, so a list sent again
+// says it is a reminder and when the request first went out.
+export function outsideBrief(plan, records = {}, partyId, answers = {}, { date = new Date(), sent = {} } = {}) {
   const s = partyStatus(plan, records, answers).find(x => x.party.id === partyId);
   if (!s) return '';
   const { party, rows, contact } = s;
@@ -226,6 +228,9 @@ export function outsideBrief(plan, records = {}, partyId, answers = {}, { date =
   let n = 0;
   const block = r => {
     L.push('', `### ${shortStep(r.step)} (\`${r.key}\`)`, '', `Checklist step: ${clean(r.step.text)}`, '');
+    const d = sent[r.key];
+    if (d?.sent && d.answered) L.push(`Your answer of ${d.answered} is noted, thank you. These are the points still needed to close this step:`, '');
+    else if (d?.sent) L.push(`Reminder: we first sent this request on ${d.sent}.`, '');
     for (const q of r.spec.questions) L.push(`${++n}. ${q}`);
     L.push('', `Please send back: ${r.spec.back}`);
   };

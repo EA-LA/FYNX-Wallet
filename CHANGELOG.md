@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-09 02:40 UTC — [autopilot] Owner workspace: track when you asked outside parties and when they answered
+
+- Launch readiness → What can move now → Hand off to outside parties: under every request to your lawyer, payment provider, security reviewer or market-data provider you can now record the day you sent it and the day the answer came (or press "Sent today" / "Answered today").
+- Each request says where it stands: not sent yet, waiting (how many days, and from which day to send a reminder), "send a reminder" after 14 days without an answer, or answered (and how many days it took).
+- The party buttons show how many requests are waiting, to chase or answered. Requests that need a reminder appear at the top of "Your next steps", and one press opens the request.
+- When you copy the list again for a party, it now says "Reminder: we first sent this request on …".
+- The dates travel with your test report to your other devices (only dates, nothing you typed).
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab).
+
 ## 2026-11-08 22:16 UTC — [autopilot] Owner workspace: ready-to-send lists for your lawyer, payment provider, security reviewer and price provider
 
 - Launch readiness → "What can move now" has a new "Hand off to outside parties" box. Pick who you are writing to (Lawyer, Payment provider (Transak), Independent security reviewer, Market-data provider). Each card says how many requests you can send them now and how many are still waiting.

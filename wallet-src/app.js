@@ -14,6 +14,7 @@ import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { PARTIES, partyStatus, partyLine, outsideBrief, handoffStateText } from './outside-handoff.js';
+import { OUTSIDE_KEY, CHASE_DAYS, requestId, cleanRequests, setDate as setRequestDate, requestState as outsideRequestState, partyRequests, partyRequestLine, outsideAttention, requestReportLines, parseRequestReport, mergeRequests } from './outside-requests.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
@@ -1026,6 +1027,10 @@ $('#wl-reply-copy').addEventListener('click', async () => {
 // Privacy request log: arrival date, what was asked, the 30-day due date and the answer. No email addresses; this browser only.
 let privacyLog = { entries: [] }, prAnswering = '';
 try { privacyLog = cleanLog(JSON.parse(localStorage.getItem(PRIVACY_KEY) || '{}')); } catch { privacyLog = { entries: [] }; }
+// Hand-off request dates (sent on / answered on), this browser only; they travel in the test report.
+let outsideRequests = { entries: {} };
+try { outsideRequests = cleanRequests(JSON.parse(localStorage.getItem(OUTSIDE_KEY) || '{}')); } catch { outsideRequests = { entries: {} }; }
+function saveOutsideRequests() { try { localStorage.setItem(OUTSIDE_KEY, JSON.stringify(outsideRequests)); return true; } catch { return false; } }
 function savePrivacyLog() { try { localStorage.setItem(PRIVACY_KEY, JSON.stringify(privacyLog)); } catch { setText('#pr-status', 'This browser blocked saving. The log lasts until you close the page.'); } renderPrivacyBadge(); }
 // Open/overdue privacy requests on the Waitlist tab button, so a due answer is visible from every tab.
 function renderPrivacyBadge() {
@@ -1253,15 +1258,22 @@ function renderLaunchOverview() {
   const mine = el('li'); mine.append(el('div', 'launch-stat stat-mine', ''));
   mine.firstChild.append(el('strong', '', `${o.yoursDone}/${o.yours}`), el('span', '', `your tests and decisions done${o.failed ? ` · ${o.failed} failed` : ''}`));
   stats.append(mine); box.append(stats);
-  const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday());
-  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length || privacy.next.length ? 'Your next steps' : 'All your steps are recorded'));
-  if (next.length || privacy.next.length) {
+  const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase();
+  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length || privacy.next.length || chase.next.length ? 'Your next steps' : 'All your steps are recorded'));
+  if (next.length || privacy.next.length || chase.next.length) {
     const list = el('ol');
     // A privacy answer that is due comes first: it has a date, launch steps do not.
     for (const item of privacy.next) {
       const li = el('li'); const b = el('button', `text-button launch-next-link is-${item.state}`); b.type = 'button';
       b.append(el('span', 'launch-next-gate', `Privacy request · ${item.label}`), el('span', '', `${item.title}${item.ref ? ` (${item.ref})` : ''}: answer by ${item.due}`));
       b.addEventListener('click', () => openPrivacyRequest(item.id)); li.append(b); list.append(li);
+    }
+    // Then outside requests that have had no answer for CHASE_DAYS: they also have a date.
+    for (const item of chase.next) {
+      const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
+      const entry = stepIndex(launchPlan).get(item.stepKey);
+      b.append(el('span', 'launch-next-gate', `Send a reminder · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: sent ${item.sent}, no answer after ${item.days} days`));
+      b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey)); li.append(b); list.append(li);
     }
     for (const { gate, step, failed } of next) {
       const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
@@ -1373,20 +1385,24 @@ function engineeringBox(o, previewOpen = false) {
 // what can be asked now, what waits and on what, the questions to answer and the evidence to ask back.
 let outsideParty = PARTIES[0].id;
 function outsideBox(previewOpen = false) {
-  const all = partyStatus(launchPlan, launchRecords, decisionAnswers);
+  const all = partyStatus(launchPlan, launchRecords, decisionAnswers), today = localToday();
   const s = all.find(x => x.party.id === outsideParty) || all[0];
+  const tracked = x => x.rows.filter(r => r.state !== 'not-needed').map(r => r.key);
   const wrap = el('div', 'lo-eng lo-out'); wrap.id = 'lo-out';
   wrap.append(el('h4', '', 'Hand off to outside parties'), el('p', 'hint', 'Pick who you are writing to. The list says what you can ask them now, what has to happen first, the questions they need to answer and what to ask them to send back. It uses your decision answers; notes are left out. Questions, not legal or security advice.'));
   const pick = el('div', 'lo-out-pick'); pick.setAttribute('role', 'group'); pick.setAttribute('aria-label', 'Outside party');
   for (const x of all) {
     const b = el('button', `lo-out-party${x.party.id === s.party.id ? ' is-on' : ''}`); b.type = 'button'; b.dataset.party = x.party.id;
     b.setAttribute('aria-pressed', String(x.party.id === s.party.id));
+    const reqLine = partyRequestLine(partyRequests(outsideRequests, x.party.id, x.rows.filter(r => r.state === 'ready' || r.state === 'waiting').map(r => r.key), today));
     b.append(el('strong', '', x.party.name), el('span', '', partyLine(x)));
+    if (reqLine) b.append(el('span', `lo-out-req${/to chase/.test(reqLine) ? ' is-chase' : ''}`, reqLine));
     b.addEventListener('click', () => { outsideParty = x.party.id; const next = outsideBox(); wrap.replaceWith(next); next.querySelector(`[data-party="${CSS.escape(x.party.id)}"]`)?.focus(); });
     pick.append(b);
   }
   wrap.append(pick);
   wrap.append(el('p', 'lo-out-who', `Who: ${s.contact.text}`));
+  wrap.append(el('p', 'hint lo-req-hint', `Record the day you send each request and the day the answer arrives. After ${CHASE_DAYS} days without an answer the request shows “Send a reminder” here and in Your next steps, and the copied list says when you first asked. Dates only, kept in this browser and carried in your test report.`));
   const ol = el('ul', 'lo-out-steps');
   for (const r of s.rows) {
     const li = el('li', `lo-out-step is-${r.state}`);
@@ -1404,11 +1420,14 @@ function outsideBox(previewOpen = false) {
       });
       li.append(w);
     } else if (r.state === 'not-needed') li.append(el('p', 'lo-waits', r.spec.onlyIf.reason));
+    if (r.state !== 'not-needed') li.append(requestTracker(s.party, r, today));
     ol.append(li);
   }
   wrap.append(ol);
   const status = el('p', 'status'); status.id = 'lo-out-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
-  const brief = () => outsideBrief(launchPlan, launchRecords, s.party.id, decisionAnswers);
+  if (outsideStatus) { status.textContent = outsideStatus; outsideStatus = ''; }
+  const sentDates = Object.fromEntries(tracked(s).map(k => [k, outsideRequests.entries[requestId(s.party.id, k)]]).filter(([, e]) => e?.sent));
+  const brief = () => outsideBrief(launchPlan, launchRecords, s.party.id, decisionAnswers, { sent: sentDates });
   const actions = el('div', 'actions');
   const copy = el('button', 'button secondary', `Copy the list for the ${s.party.short}`); copy.type = 'button'; copy.id = 'lo-out-copy';
   copy.addEventListener('click', async () => {
@@ -1429,6 +1448,57 @@ function outsideBox(previewOpen = false) {
   if (previewOpen) { preview.open = true; pre.textContent = brief(); }
   wrap.append(actions, preview, status);
   return wrap;
+}
+// Sent on / answered on for one hand-off request. Dates only; saved in this browser; in the test report.
+let outsideStatus = '';
+function requestTracker(party, r, today) {
+  const id = requestId(party.id, r.key), entry = outsideRequests.entries[id], st = outsideRequestState(entry, today);
+  const base = `lo-req-${party.id}-${r.key.replace(/[^a-z0-9-]/gi, '-')}`;
+  const box = el('div', `lo-req is-${st.state}`); box.dataset.req = id;
+  box.append(el('p', 'lo-req-state', r.state === 'done' && st.state === 'not-sent' ? 'Step done · no request dates recorded' : st.label));
+  const change = (field, value, focusId) => {
+    const res = setRequestDate(outsideRequests, id, field, value, { today: localToday() });
+    if (res.error) { outsideStatus = res.error; }
+    else if (res.unchanged) { outsideStatus = 'Dates unchanged.'; }
+    else {
+      outsideRequests = res.log;
+      const saved = saveOutsideRequests(), ns = outsideRequestState(outsideRequests.entries[id], localToday());
+      outsideStatus = `${party.name}, ${shortStep(r.step)}: ${ns.label}.${saved ? '' : ' This browser blocked saving; the dates last until you close the page.'}`;
+    }
+    renderLaunchOverview(); renderLaunchOrder();
+    document.getElementById(focusId)?.focus();
+  };
+  for (const [field, label] of [['sent', 'Sent on'], ['answered', 'Answered on']]) {
+    if (field === 'answered' && !entry?.sent) continue;
+    const wrap = el('span', 'lo-req-field'), input = el('input'), lab = el('label', '', label);
+    input.type = 'date'; input.id = `${base}-${field}`; input.max = today; input.value = entry?.[field] || ''; lab.htmlFor = input.id;
+    input.setAttribute('aria-describedby', 'lo-out-status');
+    input.addEventListener('change', () => change(field, input.value, input.id));
+    wrap.append(lab, input); box.append(wrap);
+  }
+  const quick = el('button', 'text-button lo-req-today'); quick.type = 'button';
+  if (!entry?.sent) { quick.textContent = 'Sent today'; quick.id = `${base}-sent-today`; quick.addEventListener('click', () => change('sent', localToday(), `${base}-answered-today`)); box.append(quick); }
+  else if (!entry.answered) { quick.textContent = 'Answered today'; quick.id = `${base}-answered-today`; quick.addEventListener('click', () => change('answered', localToday(), `${base}-answered`)); box.append(quick); }
+  if (entry?.sent) {
+    const clear = el('button', 'text-button lo-req-clear', 'Clear dates'); clear.type = 'button'; clear.id = `${base}-clear`;
+    clear.setAttribute('aria-label', `Clear the request dates for ${shortStep(r.step)}`);
+    clear.addEventListener('click', () => change('sent', '', `${base}-sent-today`)); box.append(clear);
+  }
+  return box;
+}
+// Requests still needing an answer (open steps only) that have waited CHASE_DAYS or more.
+function outsideChase(limit = 2) {
+  const skip = new Set();
+  for (const s of partyStatus(launchPlan, launchRecords, decisionAnswers)) for (const r of s.rows) if (r.state === 'done' || r.state === 'not-needed') skip.add(requestId(s.party.id, r.key));
+  return outsideAttention(outsideRequests, localToday(), { limit, skip });
+}
+function openOutsideRequest(partyId, stepKey) {
+  outsideParty = partyId; renderLaunchOrder();
+  const box = document.querySelector(`#lo-out [data-req="${CSS.escape(requestId(partyId, stepKey))}"]`);
+  if (!box) return;
+  box.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  box.classList.add('is-highlight'); setTimeout(() => box.classList.remove('is-highlight'), 2400);
+  box.querySelector('input')?.focus({ preventScroll: true });
 }
 // Gate summary line: which open steps the gate's waiting steps still wait for.
 function gateBlockedLine(item) {
@@ -1536,7 +1606,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister)] });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests)] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -1596,11 +1666,13 @@ function previewReport(text) {
   const dec = parseDecisions(text), decCount = Object.keys(dec.answers).length;
   const prIn = parsePrivacyReport(text), prCount = prIn.log.entries.length, prDeleted = prIn.log.deleted.length, drIn = parseDrillReport(text), drCount = drIn.runs.length;
   const rgIn = parseRegisterReport(text), rgCount = rgIn.register.entries.length;
-  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const rqIn = parseRequestReport(text), rqCount = Object.keys(rqIn.log.entries).length;
+  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
   const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
-  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm };
+  const rqm = mergeRequests(outsideRequests, rqIn.log);
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -1677,15 +1749,29 @@ function previewReport(text) {
     if (gl.children.length) box.append(gl);
     box.append(guideEl('p', 'hint', 'Only public transaction IDs travel; wallet addresses stay on each device. “Undo” on a mark and “Forget remembered transfers” do not travel: do them on each device.'));
   }
+  if (rqCount) {
+    const qsum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', rqm.added.length, 'new here'], ['is-update', rqm.updated.length, 'changed later than this browser'], ['is-same', rqm.same.length, 'already here'], ['is-kept', rqm.kept.length, 'kept: this browser changed it later']]) if (n) qsum.append(guideEl('li', cls, `${n} ${label}`));
+    if (rqIn.unknown) qsum.append(guideEl('li', 'is-kept', `${rqIn.unknown} line${rqIn.unknown === 1 ? '' : 's'} not understood`));
+    box.append(guideEl('h4', '', `${rqCount} outside request date${rqCount === 1 ? '' : 's'} found in the report`), qsum);
+    const ql = guideEl('ul', 'launch-import-list');
+    for (const kind of ['added', 'updated', 'kept']) for (const id of rqm[kind]) {
+      const e = rqIn.log.entries[id], [pid, key] = [id.slice(0, id.indexOf('|')), id.slice(id.indexOf('|') + 1)], hit = index.get(key);
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', `${PARTIES.find(p => p.id === pid)?.name || pid}: ${hit ? shortStep(hit.step) : key}`), guideEl('small', '', `${e.sent ? `Sent ${e.sent}${e.answered ? ` · answered ${e.answered}` : ' · no answer yet'}` : 'Dates cleared on the other device'}${kind === 'kept' ? ' · this browser’s dates are newer and stay' : ''}`));
+      li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); ql.append(li);
+    }
+    if (ql.children.length) box.append(ql);
+  }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, changes = results + decisions + requests + runs + ticks + transfers;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, asks = rqm.added.length + rqm.updated.length, changes = results + decisions + requests + runs + ticks + transfers + asks;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer'), n(asks, 'outside request date')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
@@ -1694,8 +1780,9 @@ function previewReport(text) {
     if (logChanged) { privacyLog = pmi.log; savePrivacyLog(); renderPrivacyLog(); }
     if (runs || ticks) { drill = dri.drill; saveDrill(); }
     if (transfers) { pilotRegister = rgi.register; savePilotRegister(); renderReconcile(); }
+    if (asks) { outsideRequests = rqi.log; saveOutsideRequests(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });
