@@ -46,6 +46,16 @@ const MISSING = {
 // Lower-case on purpose: they sit inside sentences. Kept in step with REASONS in pilot-register.js.
 const REASON_TEXT = { 'earlier-session': 'sent from FYNX in an earlier session', 'other-device': 'sent from another device', 'other-app': 'sent from another wallet app', 'own-transfer': 'moved between own wallets' };
 const SOURCE_TEXT = { 'this-page': 'from this page', earlier: 'from FYNX, earlier session', marked: 'marked yours', outside: 'not from this page' };
+// A replaced transaction is explained once its replacement is known (found in Track → "Find the replacement").
+function replacedReason(r, inHistory) {
+  if (!r || typeof r.hash !== 'string' || !HASH.test(r.hash)) return MISSING.replaced;
+  const id = `${r.hash.slice(0, 10)}…`;
+  if (inHistory.has(r.hash.toLowerCase())) return ['ok', `Replaced by ${id}${r.kind === 'speed-up' ? ' (sped up in the wallet)' : ''}, which is in the history under that ID.`];
+  if (r.status === 'failed') return ['ok', `Its replacement ${id} failed on-chain, so nothing moved (only network fees).`];
+  if (r.kind === 'cancel' && r.status === 'confirmed') return ['ok', `Cancelled in the wallet: the replacement ${id} sent nothing, so no ETH or USDC moved (only the network fee).`];
+  if (r.status === 'confirmed') return ['todo', `Replaced by ${id}, which is confirmed but not in the history yet. It can lag a few minutes: load the history again.`];
+  return ['todo', `Replaced by ${id}, which is not confirmed yet. Check it in Step 5 · Track, then load the history again.`];
+}
 const WAITING = ['todo', 'Not settled yet. Use “Check status” in Step 5 · Track, then load the history again.'];
 
 function cleanItem(item) {
@@ -76,6 +86,13 @@ export function reconcile(input = {}) {
     if (wallet && typeof entry.address === 'string' && entry.address.toLowerCase() !== wallet) { otherWallet.push(entry); continue; }
     submitted.set(entry.hash.toLowerCase(), entry);
   }
+  // Replacements found in Track (a speed-up or cancel sent from the wallet with the same nonce) belong
+  // to the submitted transaction they replaced: in the history they appear under the replacement's ID.
+  const replacements = new Map();
+  for (const entry of submitted.values()) {
+    const r = entry.replacement;
+    if (entry.status === 'replaced' && r && typeof r.hash === 'string' && HASH.test(r.hash) && !submitted.has(r.hash.toLowerCase())) replacements.set(r.hash.toLowerCase(), entry);
+  }
   // Remembered in this browser (wallet-src/pilot-register.js): earlier FYNX sessions and transfers you marked as yours.
   const earlier = new Map(), marked = new Map();
   for (const entry of Array.isArray(input.known) ? input.known : []) {
@@ -90,11 +107,12 @@ export function reconcile(input = {}) {
   for (const item of items) {
     const t = totals[item.token];
     if (item.direction === 'in') { t.inUnits += item.units; t.inCount += 1; } else { t.outUnits += item.units; t.outCount += 1; }
-    const fromPage = submitted.has(item.hash);
+    const replaced = replacements.get(item.hash) || null;
+    const fromPage = submitted.has(item.hash) || Boolean(replaced);
     const source = fromPage ? 'this-page' : earlier.has(item.hash) ? 'earlier' : (item.direction === 'out' && marked.has(item.hash)) ? 'marked' : 'outside';
     const limit = item.direction === 'out' ? transferLimit(chainId, item.token, input.policy) : null;
     const above = Boolean(limit && limit.units !== null && item.units > limit.units);
-    const row = { ...item, source, label: fromPage ? submitted.get(item.hash).label : source === 'earlier' ? earlier.get(item.hash).label || null : null, reason: source === 'marked' ? marked.get(item.hash).reason : null, aboveLimit: above ? limit : null };
+    const row = { ...item, source, label: replaced ? `${typeof replaced.label === 'string' ? replaced.label : 'Transaction'} (replacement)` : fromPage ? submitted.get(item.hash).label : source === 'earlier' ? earlier.get(item.hash).label || null : null, reason: source === 'marked' ? marked.get(item.hash).reason : null, aboveLimit: above ? limit : null };
     transfers.push(row);
     if (item.direction === 'out' && source === 'outside') outside.push(row);
     if (above) overLimit.push(row);
@@ -103,8 +121,9 @@ export function reconcile(input = {}) {
   const missing = [];
   for (const [hash, entry] of submitted) {
     if (inHistory.has(hash)) continue;
-    const [tone, reason] = MISSING[entry.status] || WAITING;
-    missing.push({ hash, label: typeof entry.label === 'string' ? entry.label : 'Transaction', status: entry.status || 'pending', tone, reason });
+    let [tone, reason] = MISSING[entry.status] || WAITING;
+    if (entry.status === 'replaced') [tone, reason] = replacedReason(entry.replacement, inHistory);
+    missing.push({ hash, label: typeof entry.label === 'string' ? entry.label : 'Transaction', status: entry.status || 'pending', tone, reason, ...(entry.status === 'replaced' && tone === 'todo' && entry.replacement?.status === 'confirmed' ? { replacementConfirmed: true } : {}) });
   }
   const matched = transfers.filter(t => t.source === 'this-page').length;
   const fromEarlier = transfers.filter(t => t.source === 'earlier').length;
@@ -191,7 +210,7 @@ export const HISTORY_RETRY = Object.freeze({ delayMs: 45000, max: 2 });
 export function historyRetry(result, state = {}, options = HISTORY_RETRY) {
   const max = Number.isInteger(options?.max) && options.max >= 0 ? options.max : HISTORY_RETRY.max;
   const delayMs = Number.isFinite(options?.delayMs) && options.delayMs >= 0 ? options.delayMs : HISTORY_RETRY.delayMs;
-  const waiting = (Array.isArray(result?.missing) ? result.missing : []).filter(m => m && m.status === 'confirmed' && HASH.test(m.hash || ''));
+  const waiting = (Array.isArray(result?.missing) ? result.missing : []).filter(m => m && (m.status === 'confirmed' || m.replacementConfirmed === true) && HASH.test(m.hash || ''));
   if (!waiting.length) return { due: false, reason: 'none', key: '', attempts: 0, max, delayMs, count: 0, hashes: [] };
   const hashes = waiting.map(m => m.hash.toLowerCase()).sort();
   const key = `${Number(result.chainId)}:${hashes.join(',')}`;

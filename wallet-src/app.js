@@ -18,7 +18,7 @@ import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem,
 import { OUTSIDE_KEY, CHASE_DAYS, requestId, cleanRequests, setDate as setRequestDate, requestState as outsideRequestState, partyRequests, partyRequestLine, outsideAttention, requestReportLines, parseRequestReport, mergeRequests } from './outside-requests.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
-import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS } from './tx-tracker.js';
+import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retryText } from './reconcile.js';
 import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
@@ -168,7 +168,7 @@ function updateWalletControls() {
   $('#prepare-swap').disabled = busy || !canSend || !swapQuote || !connection?.network.testnet;
   $('#revoke-allowance').disabled = busy || !canSend || !connection?.network.router;
   $('#lookup-transaction').disabled = busy || !verified;
-  for (const b of document.querySelectorAll('#transaction-journal .tx-check')) b.disabled = busy || !connection?.address;
+  for (const b of document.querySelectorAll('#transaction-journal .tx-check, #transaction-journal .tx-find')) b.disabled = busy || !connection?.address;
   $('#tx-check-all').disabled = busy || autoRunning || !connection?.address || !waitingItems(journal.values(), selectedNetwork().id).length;
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
   $('#network-choice').disabled = busy;
@@ -691,13 +691,41 @@ async function checkStatus(hash, checkSession) {
   checkSession(); await current.assertCurrent(epoch);
   if (current !== connection) throw new Error('Wallet changed.');
   const before = item?.status;
-  if (item) { item.status = result.status; item.result = result; item.checkedAt = Date.now(); if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce; renderJournal(); }
+  if (item) { item.status = result.status; item.result = result; item.checkedAt = Date.now(); if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce; if (result.call) item.call = result.call; renderJournal(); }
+  // Just turned out to be replaced: look up the speed-up / cancel that took its place once, by itself.
+  if (item && result.status === 'replaced' && before !== 'replaced' && !item.replacement) {
+    try { await lookUpReplacement(item, checkSession); } catch (error) { if (/session changed|Wallet changed|Sign in again/i.test(error.message || '')) throw error; item.replacementNote = `The replacement could not be looked up: ${errorMessage(error)}`; renderJournal(); }
+  }
   // Keep the reconciliation current: a transfer that just settled changes what it expects in the history.
   if (item && lastHistory && settledChange(before, item, lastHistory.chainId)) {
     const auto = renderReconcile();
     setText('#rc-updated', `Updated ${new Date().toLocaleTimeString()}: “${item.label}” is now ${(result.label || result.status).toLowerCase()}. ${auto ? 'The history is loaded again by itself shortly to include it.' : 'Press Load history again to include it in the totals.'}`); show('#rc-updated', true);
   }
   return result;
+}
+
+// Read-only: finds the transaction that replaced a submitted one (same wallet, same nonce) and keeps it
+// with the Track entry, so the list and the reconciliation can show where the transfer went.
+async function lookUpReplacement(item, checkSession) {
+  const current = connection;
+  if (!current?.address) throw new Error('Connect your wallet first.');
+  if (item.network.id !== current.network.id) throw new Error(`Switch to ${item.network.name} to look this up.`);
+  const epoch = await current.assertCurrent();
+  // Outgoing transfers in the loaded history are candidates when the connection cannot read old blocks.
+  const candidates = lastHistory && lastHistory.chainId === item.network.id ? (lastHistory.items || []).filter(i => i && i.direction === 'out' && typeof i.hash === 'string' && !journal.has(i.hash)).map(i => i.hash).reverse() : [];
+  const found = await findReplacement(request => current.provider.request(request), { hash: item.hash, from: item.address, nonce: item.nonce, original: item.call || null, submittedAt: item.submittedAt, candidates }, current.network);
+  checkSession(); await current.assertCurrent(epoch);
+  if (current !== connection) throw new Error('Wallet changed.');
+  item.replacementCheckedAt = Date.now();
+  if (found.state === 'found') {
+    const first = !item.replacement || item.replacement.hash !== found.hash;
+    item.replacement = found; item.replacementNote = null;
+    // Remembered like a FYNX transfer, so a reconciliation in a later session still knows it.
+    if (first) { pilotRegister = addSubmitted(pilotRegister, { hash: found.hash, label: `${item.label} (replacement)`.slice(0, 80), network: item.network, address: item.address, submittedAt: Date.now() }); savePilotRegister(); }
+  } else item.replacementNote = found.detail;
+  renderJournal();
+  if (lastHistory && lastHistory.chainId === item.network.id) renderReconcile();
+  return found;
 }
 
 function detailList(id, entries) {
@@ -818,6 +846,7 @@ function renderJournal() {
     if (Number.isSafeInteger(item.nonce)) meta.push(`nonce ${item.nonce}`);
     if (item.checkedAt) meta.push(`checked ${new Date(item.checkedAt).toLocaleTimeString()}`);
     row.append(link, guideEl('p', 'tx-when', meta.join(' · ')));
+    if (item.status === 'replaced') row.append(replacementBox(item));
     if (!isSettled(item.result)) {
       const button = guideEl('button', 'text-button tx-check', item.result ? 'Check again' : 'Check status');
       button.type = 'button'; button.setAttribute('aria-label', `${item.result ? 'Check again' : 'Check status'}: ${item.label}`);
@@ -843,6 +872,35 @@ function renderJournal() {
   if (focused) list.querySelector(`.tx-check[data-hash="${focused}"]`)?.focus();
   if (!list.children.length) { const empty = document.createElement('li'); empty.className = 'journal-empty'; empty.textContent = `No transactions submitted on ${selectedNetwork().name} in this page session yet.`; list.append(empty); }
   renderCryptoSetup();
+}
+function replacementBox(item) {
+  const box = guideEl('div', 'tx-replacement'), r = item.replacement;
+  box.setAttribute('role', 'group'); box.setAttribute('aria-label', `Replacement of ${item.label}`);
+  if (r) {
+    const head = guideEl('p', 'tx-replacement-head');
+    head.append(guideEl('strong', '', 'Replaced by '), guideEl('span', `tx-badge is-${r.status === 'pending' ? 'pending' : r.status}`, `${REPLACEMENT_KINDS[r.kind] || 'Replacement'} · ${r.status === 'confirmed' ? 'Confirmed' : r.status === 'failed' ? 'Failed on-chain' : 'Not confirmed yet'}`));
+    const link = guideEl('a', 'mono', r.hash); link.href = `${item.network.explorer}/tx/${r.hash}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    link.setAttribute('aria-label', `Open the replacement ${r.hash} on the explorer`);
+    box.append(head, link, guideEl('p', 'tx-detail', r.detail));
+  } else {
+    box.append(guideEl('p', 'tx-detail', item.replacementNote || 'The wallet used this transaction\'s number for another transaction. Find out which one: FYNX reads the network only, nothing is signed or sent.'));
+  }
+  if (item.replacementCheckedAt) box.append(guideEl('p', 'tx-when', `Looked up ${new Date(item.replacementCheckedAt).toLocaleTimeString()}`));
+  if (!r || !r.deep) {
+    const label = r ? 'Check the replacement again' : item.replacementCheckedAt ? 'Look again' : 'Find the replacement';
+    const button = guideEl('button', 'text-button tx-find', label);
+    button.type = 'button'; button.dataset.hash = item.hash; button.disabled = busy || !connection?.address;
+    button.setAttribute('aria-label', `${label}: ${item.label}`);
+    button.addEventListener('click', async () => {
+      await run(button, async checkSession => {
+        const found = await lookUpReplacement(item, checkSession);
+        setText('#lookup-status', `${item.label}: ${found.state === 'found' ? `replaced by ${found.hash.slice(0, 10)}…. ${found.detail}` : found.detail}`);
+      }, '#lookup-status');
+      (document.querySelector(`#transaction-journal .tx-find[data-hash="${item.hash}"]`) || document.querySelector(`#transaction-journal a[href$="${item.hash}"]`))?.focus();
+    });
+    box.append(button);
+  }
+  return box;
 }
 $('#lookup-form').addEventListener('submit', event => { event.preventDefault(); run($('#lookup-transaction'), async checkSession => {
   const hash = $('#lookup-hash').value.trim(), result = await checkStatus(hash, checkSession);

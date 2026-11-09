@@ -20,6 +20,10 @@ export function quantity(value) {
   const n = BigInt(value);
   return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : null;
 }
+const DATA = /^0x(?:[0-9a-fA-F]{2}){0,4096}$/;
+function callOf(tx) {
+  return { to: ADDRESS.test(tx?.to || '') ? tx.to.toLowerCase() : null, value: QUANTITY.test(tx?.value || '') ? BigInt(tx.value).toString() : null, input: typeof tx?.input === 'string' && DATA.test(tx.input) ? tx.input.toLowerCase() : null };
+}
 function minutes(ms) { const m = Math.max(0, Math.round(ms / 60000)); return m < 1 ? 'under a minute' : m === 1 ? '1 minute' : `${m} minutes`; }
 function invalid() { return new Error('Transaction status could not be verified. Check the block explorer.'); }
 
@@ -34,6 +38,9 @@ export function classify(facts) {
   const to = tx && ADDRESS.test(tx.to || '') ? tx.to : null;
   const nonce = tx ? quantity(tx.nonce) : (Number.isSafeInteger(facts.knownNonce) ? facts.knownNonce : null);
   const base = { hash, from, to, nonce, block: null, confirmations: 0, target: confirmationTarget(network), deep: false };
+  // What the transaction does (recipient, amount, call data): kept so a later replacement can be told
+  // apart as a speed-up (same call) or a cancel. Public on-chain facts only.
+  if (tx) base.call = callOf(tx);
   const result = (status, detail, extra = {}) => ({ ...base, ...extra, status, label: STATUS_LABELS[status], detail });
   if (receipt && receipt.blockNumber) {
     const block = quantity(receipt.blockNumber);
@@ -120,4 +127,114 @@ export function batchSummary(results) {
   const parts = [...counts].map(([label, n]) => `${n} ${label.toLowerCase()}`);
   if (failed) parts.push(`${failed} could not be checked`);
   return `Checked ${results.length} transaction${results.length === 1 ? '' : 's'}: ${parts.join(', ')}.`;
+}
+
+// ---- Finding the replacement of a replaced transaction (read-only) ----
+// "Speed up" and "Cancel" in a wallet send a new transaction with the same nonce. The network then
+// drops the original, so its ID never confirms. To show which transaction took its place:
+//   1. find the first block where the wallet's transaction count passed the nonce (binary search on
+//      eth_getTransactionCount at past blocks), read that block and pick the wallet's transaction
+//      with that nonce;
+//   2. if the connection cannot read past blocks that far back (most non-archive nodes keep about
+//      128 blocks), check candidate IDs (outgoing transfers from the loaded history) one by one.
+// Every match is verified on-chain (same sender, same nonce, different ID). Nothing is signed or sent.
+export const BLOCK_SECONDS = Object.freeze({ 11155111: 12, 84532: 2, 8453: 2 });
+export const RECENT_BLOCKS = 120;
+export const MAX_LOOKBACK_SECONDS = 24 * 60 * 60;
+export const MAX_CANDIDATES = 20;
+export const REPLACEMENT_KINDS = Object.freeze({
+  'speed-up': 'Sped up', cancel: 'Cancelled', different: 'Different transaction', unknown: 'Same number, other transaction',
+});
+// How many blocks back to look: from the submit time (plus a margin), at least RECENT_BLOCKS, at most a day.
+export function lookbackBlocks(network, submittedAt, now = Date.now()) {
+  const seconds = BLOCK_SECONDS[network?.id] || 2, cap = Math.ceil(MAX_LOOKBACK_SECONDS / seconds);
+  if (!Number.isFinite(submittedAt) || submittedAt > now) return cap;
+  return Math.min(cap, Math.max(RECENT_BLOCKS, Math.ceil((now - submittedAt) / 1000 / seconds) + 50));
+}
+// original / found: { to, value, input } as made by callOf (lower-case, value as a decimal string).
+export function replacementKind(from, original, found) {
+  const self = typeof from === 'string' && found?.to === from.toLowerCase();
+  if (self && found.value === '0' && (found.input === '0x' || found.input === null)) return 'cancel';
+  if (!original || (original.to === null && original.value === null && original.input === null)) return 'unknown';
+  return original.to === found?.to && original.value === found?.value && original.input === found?.input ? 'speed-up' : 'different';
+}
+const hexBlock = n => '0x' + n.toString(16);
+const sameAddress = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+
+// known: { hash, from, nonce, original: { to, value, input } | null, submittedAt, candidates: [hash], now }
+export async function findReplacement(request, known = {}, network = null) {
+  const { hash, from, nonce } = known;
+  if (typeof hash !== 'string' || !HASH.test(hash)) throw new Error('Enter a valid transaction hash.');
+  if (!ADDRESS.test(from || '') || !Number.isSafeInteger(nonce) || nonce < 0) {
+    return { state: 'unknown', detail: 'The wallet and transaction number (nonce) of this transaction are not known on this page, so its replacement cannot be looked up. Open the wallet\'s activity list instead.' };
+  }
+  const now = Number.isFinite(known.now) ? known.now : Date.now();
+  const latest = quantity(await request({ method: 'eth_blockNumber', params: [] }));
+  if (latest === null) throw invalid();
+  const matches = tx => tx && typeof tx.hash === 'string' && HASH.test(tx.hash) && tx.hash.toLowerCase() !== hash.toLowerCase() && sameAddress(tx.from, from) && quantity(tx.nonce) === nonce;
+  let found = null, method = null, olderThanWindow = false, unreadable = false;
+
+  const countAt = async block => {
+    const value = quantity(await request({ method: 'eth_getTransactionCount', params: [from, hexBlock(block)] }));
+    if (value === null) throw invalid();
+    return value;
+  };
+  const countNow = await countAt(latest).catch(() => null);
+  if (countNow !== null && countNow <= nonce) return { state: 'not-used', detail: 'The wallet has not used this transaction number yet, so nothing has replaced it. Check the status again.' };
+  const full = lookbackBlocks(network, known.submittedAt, now);
+  for (const window of [...new Set([full, RECENT_BLOCKS])]) {
+    if (countNow === null) { unreadable = true; break; }
+    let lo = Math.max(0, latest - window), hi = latest, atLo;
+    try { atLo = await countAt(lo); } catch { unreadable = true; continue; }
+    // Used before the full window: further back than this page searches. Before the short fallback
+    // window only: the older blocks could not be read.
+    if (atLo > nonce) { if (window === full) olderThanWindow = true; else unreadable = true; break; }
+    try {
+      while (hi - lo > 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (await countAt(mid) > nonce) hi = mid; else lo = mid;
+      }
+    } catch { unreadable = true; continue; }
+    const block = await request({ method: 'eth_getBlockByNumber', params: [hexBlock(hi), true] });
+    const tx = Array.isArray(block?.transactions) ? block.transactions.find(t => typeof t === 'object' && matches(t)) : null;
+    if (tx) { found = { ...tx, blockNumber: tx.blockNumber || hexBlock(hi) }; method = 'blocks'; }
+    break;
+  }
+  if (!found) {
+    const seen = new Set();
+    for (const candidate of Array.isArray(known.candidates) ? known.candidates : []) {
+      if (typeof candidate !== 'string' || !HASH.test(candidate) || candidate.toLowerCase() === hash.toLowerCase() || seen.has(candidate.toLowerCase())) continue;
+      seen.add(candidate.toLowerCase());
+      if (seen.size > MAX_CANDIDATES) break;
+      const tx = await request({ method: 'eth_getTransactionByHash', params: [candidate] });
+      if (matches(tx)) { found = tx; method = 'history'; break; }
+    }
+  }
+  if (!found) {
+    const why = olderThanWindow ? 'It happened before this transaction was submitted (or more than a day ago), which is further back than this page searches.'
+      : unreadable ? 'This network connection cannot read past blocks, and none of the transfers in the loaded history has the same number. Load the history in Portfolio & history, then try again.'
+        : 'The block where the number was used does not list it.';
+    return { state: 'not-found', detail: `The replacement could not be found. ${why} The wallet's activity list shows it.` };
+  }
+  const receipt = await request({ method: 'eth_getTransactionReceipt', params: [found.hash] });
+  const block = quantity(receipt?.blockNumber ?? found.blockNumber);
+  const target = confirmationTarget(network);
+  const call = callOf(found), kind = replacementKind(from, known.original || null, call);
+  let status = 'pending', confirmations = 0;
+  if (receipt?.blockNumber && block !== null && receipt.transactionHash?.toLowerCase() === found.hash.toLowerCase() && ['0x0', '0x1'].includes(receipt.status)) {
+    status = receipt.status === '0x1' ? 'confirmed' : 'failed';
+    confirmations = Math.max(0, latest - block + 1);
+  }
+  return { state: 'found', hash: found.hash.toLowerCase(), block, kind, status, confirmations, target, deep: status !== 'pending' && confirmations >= target, to: call.to, value: call.value, method, detail: replacementText({ kind, status, block, confirmations, target }) };
+}
+// One plain sentence about a found replacement.
+export function replacementText({ kind, status, block, confirmations, target }) {
+  const what = kind === 'cancel' ? 'You cancelled it in the wallet: the replacement sends nothing to anyone and only cost a network fee.'
+    : kind === 'speed-up' ? 'You sped it up in the wallet: the replacement does the same thing under a new ID.'
+      : kind === 'different' ? 'Another transaction from this wallet used the same number and does something different. Check it on the explorer.'
+        : 'Another transaction from this wallet used the same number. Open it on the explorer to see what it did.';
+  const where = status === 'confirmed' ? `It is confirmed in block ${block} (${Math.min(confirmations, 9999)} of ${target} confirmations).`
+    : status === 'failed' ? `It was included in block ${block} but failed, so nothing moved.`
+      : 'It is not confirmed yet.';
+  return `${what} ${where}`;
 }

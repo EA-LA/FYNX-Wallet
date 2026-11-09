@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-09 10:40 UTC — [autopilot] Owner workspace: see which transaction replaced a sped-up or cancelled one
+
+- Crypto tools → Step 5 · Track: when you press "Speed up" or "Cancel" in your wallet, the original transaction shows "Replaced". FYNX now finds the transaction that took its place by itself and shows it under the original: its ID (opens the explorer), whether it was a speed-up, a cancel or something different, and whether it is confirmed (with confirmations) or failed.
+- Buttons "Find the replacement", "Look again" and "Check the replacement again" on replaced transactions. Only reads the network; nothing is signed or sent.
+- Crypto tools → Portfolio & history → Reconciliation: a sped-up transfer no longer shows up as "not submitted from FYNX". The original is explained (in the history under the new ID, cancelled so nothing moved, failed, or not listed yet, in which case the history is loaded again by itself). The replacement is remembered in this browser for later checks.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools tab, after signing in).
+
 ## 2026-11-09 06:40 UTC — [autopilot] Owner workspace: tick off what each outside party sent back
 
 - Launch readiness → "What can move now" → "Hand off to outside parties": every request to your lawyer, Transak, the security reviewer and the market-data provider now has a "What came back" list (for example: the written memo, approved terms, signed agreement, final report, retest letter, licence terms). Tick each piece as it arrives.
