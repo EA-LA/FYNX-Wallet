@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-09 22:20 UTC — [autopilot] Owner workspace: see why a wallet's transactions are stuck
+
+- Crypto tools → Step 5 Track has a new section, **"Stuck or missing transaction? Check the wallet's numbers"**. Paste any wallet address (or press "Use my connected wallet") and press Check wallet: no transaction ID needed.
+- It shows how many transaction numbers the wallet has used, which number its next transaction gets, and how many are waiting. When something is stuck it names the exact number that holds up the rest and says what to do in your wallet (speed it up or cancel it; never send the same transfer again).
+- Transactions you submitted on this page are matched up: ones the network no longer has in its queue, and ones that still show as waiting although their number is already used (press Check again on them).
+- "Which transaction used a number?": type a number (or press "Find the last used number") and FYNX shows the transaction with that number: explorer link, confirmed / failed / not yet, and one press to look it up in full.
+- FYNX only reads the network: nothing is signed, sent or saved. It clears when you sign out.
+- Also: the previous update's automatic publish run failed on GitHub's side before it started; this update publishes everything again.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools tab, after signing in).
+
 ## 2026-11-09 18:20 UTC — [autopilot] Owner workspace: find a lost transaction from its wallet and number
 
 - Crypto tools → Step 5 Track: when you look up a transaction ID the network no longer knows (for example one that was sped up or cancelled in another app), the result now offers **Search by wallet and number**. Paste the wallet address (or press "Use my connected wallet") and the transaction number ("Nonce" on the explorer), and FYNX shows the transaction that used that number: explorer link, confirmed / failed / not yet, block and confirmations, and whether it was a cancel.

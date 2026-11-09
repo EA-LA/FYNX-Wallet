@@ -314,3 +314,62 @@ export function replacementText({ kind, status, block, confirmations, target }) 
       : 'It is not confirmed yet.';
   return `${what} ${where}`;
 }
+
+// ---- Wallet number check (standalone, no transaction ID needed) ----
+// Every transaction from a wallet uses the next number (nonce) in order, and a waiting number holds
+// up every later one. This reads two counts for any wallet and explains them: how many numbers are
+// used, which number the next transaction gets, and which waiting number blocks the queue. Read-only.
+export async function walletQueue(request, wallet) {
+  const from = String(wallet ?? '').trim();
+  if (!ADDRESS.test(from)) throw new Error('Enter the wallet address: 0x followed by 40 letters and numbers.');
+  const address = from.toLowerCase();
+  const [usedHex, nextHex, blockHex] = await Promise.all([
+    request({ method: 'eth_getTransactionCount', params: [address, 'latest'] }),
+    request({ method: 'eth_getTransactionCount', params: [address, 'pending'] }).catch(() => null),
+    request({ method: 'eth_blockNumber', params: [] }),
+  ]);
+  const used = quantity(usedHex), block = quantity(blockHex), pendingCount = nextHex === null ? null : quantity(nextHex);
+  if (used === null || block === null || (nextHex !== null && pendingCount === null)) throw new Error('The network gave an unreadable answer. Try again, or open the wallet on the explorer.');
+  // Some connections do not see waiting transactions at all (they report the same count twice) or
+  // answer the pending count from a node that is behind; never report fewer than the used count.
+  const next = pendingCount === null ? used : Math.max(used, pendingCount);
+  return { from: address, used, next, waiting: next - used, block, pendingKnown: pendingCount !== null };
+}
+// Transactions submitted on this page for that wallet, sorted into the queue: still waiting (number
+// not used yet), and ones whose number the network already used (check them again to see the outcome).
+// items: journal entries { hash, label, address, nonce, status, network }.
+export function queuePageItems(items, queue, networkId) {
+  const mine = [...(items || [])].filter(i => i && i.network?.id === networkId && typeof i.address === 'string' && i.address.toLowerCase() === queue.from && Number.isSafeInteger(i.nonce));
+  const waiting = mine.filter(i => i.nonce >= queue.used).sort((a, b) => a.nonce - b.nonce);
+  const settle = mine.filter(i => i.nonce < queue.used && ['pending', 'unseen', 'lagging'].includes(i.status)).sort((a, b) => a.nonce - b.nonce);
+  return { waiting, settle };
+}
+// The plain explanation of a queue, plus the numbers worth searching (as quick buttons).
+export function queueSummary(queue, page = { waiting: [], settle: [] }) {
+  const { used, next, waiting } = queue;
+  const facts = [['Numbers used so far', used === 0 ? 'None yet (this wallet has not sent anything)' : `${used} (0 to ${used - 1})`], ['Next transaction gets number', String(next)]];
+  facts.push(['Waiting in the network queue', !queue.pendingKnown ? 'Not reported by this connection' : waiting === 0 ? 'None' : waiting === 1 ? `1 (number ${used})` : `${waiting} (numbers ${used} to ${next - 1})`]);
+  const quick = [];
+  if (used > 0) quick.push({ nonce: used - 1, label: `Find the last used number (${used - 1})` });
+  let state, title, detail;
+  if (waiting > 0) {
+    state = 'waiting';
+    title = waiting === 1 ? 'One transaction is waiting' : `${waiting} transactions are waiting`;
+    detail = `Number ${used} is the oldest waiting transaction. ${waiting === 2 ? `Number ${used + 1} cannot go through until it does. ` : waiting > 2 ? `Numbers ${used + 1} to ${next - 1} cannot go through until it does. ` : 'Anything you send next waits behind it. '}If it has waited a long time, open your wallet and use "Speed up" (pay a higher fee) or "Cancel" on the transaction with number ${used}. Do not send the same transfer again: it would only join the queue. FYNX never speeds up, cancels or resends anything.`;
+  } else if (used === 0) {
+    state = 'fresh'; title = 'This wallet has not sent anything yet';
+    detail = 'Its first transaction will use number 0. Receiving funds does not use a number.';
+  } else {
+    state = 'clear'; title = 'Nothing is waiting';
+    detail = `All ${used} numbers are used by included transactions; the next one you send gets number ${next}.${queue.pendingKnown ? '' : ' This connection does not report waiting transactions.'} If your wallet still shows a transaction as waiting, it has number ${next} or higher and the network has not accepted it: check the wallet's activity, or cancel it there.`;
+  }
+  if (page.waiting.length && state !== 'waiting') detail += ` ${page.waiting.length === 1 ? 'One transaction' : `${page.waiting.length} transactions`} submitted on this page (number${page.waiting.length === 1 ? '' : 's'} ${page.waiting.map(i => i.nonce).join(', ')}) ${page.waiting.length === 1 ? 'is' : 'are'} not in this connection's queue: check ${page.waiting.length === 1 ? 'it' : 'them'} above; ${page.waiting.length === 1 ? 'it' : 'they'} may have been dropped.`;
+  if (page.settle.length) detail += ` ${page.settle.length === 1 ? 'One transaction' : `${page.settle.length} transactions`} above still show${page.settle.length === 1 ? 's' : ''} as waiting although ${page.settle.length === 1 ? 'its number is' : 'their numbers are'} used: press "Check again" on ${page.settle.length === 1 ? 'it' : 'them'} to see whether ${page.settle.length === 1 ? 'it' : 'they'} confirmed or ${page.settle.length === 1 ? 'was' : 'were'} replaced.`;
+  return { state, title, detail, facts, quick };
+}
+// A transaction submitted on this page that carries that wallet and number (for numbers not used yet,
+// which the network cannot be searched for).
+export function pageMatch(items, from, nonce, networkId) {
+  const f = String(from || '').toLowerCase();
+  return [...(items || [])].find(i => i && i.network?.id === networkId && String(i.address || '').toLowerCase() === f && i.nonce === nonce) || null;
+}

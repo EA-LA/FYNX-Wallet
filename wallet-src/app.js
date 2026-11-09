@@ -18,7 +18,7 @@ import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem,
 import { OUTSIDE_KEY, CHASE_DAYS, requestId, cleanRequests, setDate as setRequestDate, requestState as outsideRequestState, partyRequests, partyRequestLine, outsideAttention, requestReportLines, parseRequestReport, mergeRequests } from './outside-requests.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
-import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext, findByNonce, parseNonceSearch, offersNonceSearch } from './tx-tracker.js';
+import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext, findByNonce, parseNonceSearch, offersNonceSearch, walletQueue, queuePageItems, queueSummary, pageMatch } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retryText } from './reconcile.js';
 import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
@@ -34,6 +34,7 @@ let auth, api, session, connection, challenge, review, pendingHash;
 let swapQuote = null, actionReview = null, checkoutReady = false, checkoutId = null;
 const journal = new Map();
 let lookupEntry = null; // the transaction last looked up by ID in the Track card (see renderLookup)
+let queueEntry = null; // the wallet last checked in "Check the wallet's numbers" (see renderQueue)
 const selectedNetwork = () => networkFor(Number($('#network-choice').value));
 let generation = 0, verifiedAddress = null, busy = false, lastActivity = Date.now();
 let dashboardFrame = null, dashboardLoading = false, dashboardTimer;
@@ -145,7 +146,7 @@ function clearWallet() {
   updateWalletControls();
 }
 function clearPrivateWorkspace() {
-  journal.clear(); lookupEntry = null; $('#lookup-result').replaceChildren(); show('#lookup-result', false); $('#transaction-journal').replaceChildren(); $('#tx-auto').checked = false; autoLastRun = null; setText('#tx-auto-status', ''); show('#tx-batch', false); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
+  journal.clear(); lookupEntry = null; $('#lookup-result').replaceChildren(); show('#lookup-result', false); queueEntry = null; $('#queue-result').replaceChildren(); show('#queue-result', false); $('#queue-wallet').value = ''; setText('#queue-status', ''); $('#transaction-journal').replaceChildren(); $('#tx-auto').checked = false; autoLastRun = null; setText('#tx-auto-status', ''); show('#tx-batch', false); setText('#lookup-status', ''); setText('#provider-message', ''); checkoutReady = false;
   session = null; connection?.close(); connection = null; clearWallet(); clearDashboard();
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
@@ -171,6 +172,8 @@ function updateWalletControls() {
   $('#lookup-transaction').disabled = busy || !verified;
   for (const b of document.querySelectorAll('#transaction-journal .tx-check, #transaction-journal .tx-find, #lookup-result .tx-check, #lookup-result .tx-find, #nonce-go')) b.disabled = busy || !connection?.address;
   if ($('#nonce-mine')) $('#nonce-mine').disabled = !connection?.address;
+  $('#queue-go').disabled = busy || !connection?.address; $('#queue-mine').disabled = !connection?.address;
+  for (const b of document.querySelectorAll('#queue-result .queue-find, #queue-result .tx-check, #queue-number-go')) b.disabled = busy || !connection?.address;
   $('#tx-check-all').disabled = busy || autoRunning || !connection?.address || !waitingItems(journal.values(), selectedNetwork().id).length;
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
   $('#network-choice').disabled = busy;
@@ -760,7 +763,7 @@ $('#receive-asset').addEventListener('change', () => run(null, renderReceive));
 $('#network-choice').addEventListener('change', () => {
   connection?.close(); connection = null; clearWallet();
   renderNetworkNote();
-  setText('#lookup-status', ''); renderJournal(); renderLookup();
+  setText('#lookup-status', ''); renderJournal(); renderLookup(); setText('#queue-status', ''); renderQueue();
 });
 function renderAction(prepared) {
   review = null; show('#transfer-review', false); actionReview = prepared;
@@ -873,7 +876,7 @@ function renderJournal() {
   $('#tx-check-all').textContent = waiting ? `Check all waiting (${waiting})` : 'Check all waiting';
   if (focused) list.querySelector(`.tx-check[data-hash="${focused}"]`)?.focus();
   if (!list.children.length) { const empty = document.createElement('li'); empty.className = 'journal-empty'; empty.textContent = `No transactions submitted on ${selectedNetwork().name} in this page session yet.`; list.append(empty); }
-  renderCryptoSetup();
+  renderCryptoSetup(); renderQueue();
 }
 function replacementBox(item) {
   const box = guideEl('div', 'tx-replacement'), r = item.replacement;
@@ -1069,6 +1072,137 @@ $('#lookup-form').addEventListener('submit', event => { event.preventDefault(); 
   const result = await lookUp(hash, checkSession);
   setText('#lookup-status', `${result.label}. ${result.detail}`);
 }, '#lookup-status').then(renderLookup); });
+// "Check the wallet's numbers": a standalone look at any wallet's transaction numbers (nonces) — how
+// many are used, which one is waiting and holding up the rest — and a search for the transaction that
+// used a given number. Read-only; nothing found here is added to the pilot register.
+const historyHashes = networkId => lastHistory && lastHistory.chainId === networkId ? (lastHistory.items || []).filter(i => i && typeof i.hash === 'string').map(i => i.hash).reverse() : [];
+async function checkQueue(checkSession, wallet) {
+  const current = connection;
+  if (!current?.address) throw new Error('Connect your wallet first.');
+  const epoch = await current.assertCurrent();
+  const queue = await walletQueue(request => current.provider.request(request), wallet);
+  checkSession(); await current.assertCurrent(epoch);
+  if (current !== connection) throw new Error('Wallet changed.');
+  const keep = queueEntry && queueEntry.network.id === current.network.id && queueEntry.queue.from === queue.from ? queueEntry : null;
+  queueEntry = { network: current.network, queue, checkedAt: Date.now(), search: keep?.search || null, numberDraft: keep?.numberDraft ?? '' };
+  return queue;
+}
+async function searchQueueNumber(checkSession, nonce) {
+  const entry = queueEntry, current = connection;
+  if (!entry || !current?.address) throw new Error('Connect your wallet first.');
+  if (entry.network.id !== current.network.id) throw new Error(`Switch to ${entry.network.name} to search.`);
+  const parsed = parseNonceSearch(entry.queue.from, nonce);
+  if (!parsed.ok) throw new Error(parsed.error);
+  const epoch = await current.assertCurrent();
+  const found = await findByNonce(request => current.provider.request(request), { from: parsed.from, nonce: parsed.nonce, candidates: historyHashes(entry.network.id) }, current.network);
+  checkSession(); await current.assertCurrent(epoch);
+  if (current !== connection || entry !== queueEntry) throw new Error('Wallet changed.');
+  const page = found.state === 'not-used' ? pageMatch(journal.values(), parsed.from, parsed.nonce, entry.network.id) : null;
+  entry.search = { ...found, page: page ? { hash: page.hash, label: page.label } : null, checkedAt: Date.now() };
+  return entry.search;
+}
+function queueSearchNow(nonce, button) {
+  return run(button, async checkSession => {
+    const f = await searchQueueNumber(checkSession, nonce);
+    setText('#queue-status', f.state === 'found' ? `Number ${f.nonce}: ${f.hash.slice(0, 10)}…. ${f.detail}` : f.detail);
+  }, '#queue-status').then(() => { renderQueue(); ($('#queue-search-result a') || $('#queue-number'))?.focus(); });
+}
+function renderQueue() {
+  const box = $('#queue-result'), entry = queueEntry;
+  box.replaceChildren();
+  if (!entry || entry.network.id !== selectedNetwork().id) { show('#queue-result', false); return; }
+  const q = entry.queue, page = queuePageItems(journal.values(), q, entry.network.id), sum = queueSummary(q, page);
+  const head = guideEl('p', 'lookup-head');
+  head.append(guideEl('strong', '', sum.title), guideEl('span', `tx-badge is-${sum.state === 'waiting' ? 'replaced' : 'confirmed'}`, sum.state === 'waiting' ? `${q.waiting} waiting` : sum.state === 'fresh' ? 'Unused wallet' : 'Queue clear'));
+  const link = guideEl('a', 'mono', q.from); link.href = `${entry.network.explorer}/address/${q.from}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
+  link.setAttribute('aria-label', `Open the wallet ${q.from} on the explorer`);
+  box.append(head, link);
+  const facts = guideEl('dl', 'lookup-facts');
+  for (const [name, value] of sum.facts) facts.append(guideEl('dt', '', name), guideEl('dd', '', value));
+  box.append(facts, guideEl('p', 'tx-detail', sum.detail));
+  if (page.waiting.length || page.settle.length) {
+    const list = guideEl('ul', 'queue-page');
+    list.setAttribute('aria-label', 'Transactions submitted on this page from this wallet');
+    for (const item of [...page.settle, ...page.waiting]) {
+      const li = guideEl('li', '');
+      const a = guideEl('a', '', `${item.label} · number ${item.nonce}`); a.href = '#transaction-journal';
+      a.addEventListener('click', event => { event.preventDefault(); (document.querySelector(`#transaction-journal .tx-check[data-hash="${item.hash}"]`) || document.querySelector(`#transaction-journal a[href$="${item.hash}"]`))?.focus(); });
+      li.append(a, guideEl('span', 'tx-when', item.nonce < q.used ? ' · number already used: check again' : ' · not in the queue'));
+      list.append(li);
+    }
+    box.append(list);
+  }
+  // Search one number.
+  const wrap = guideEl('div', 'nonce-search');
+  wrap.setAttribute('role', 'group'); wrap.setAttribute('aria-labelledby', 'queue-search-title');
+  const title = guideEl('p', 'nonce-search-title'); title.id = 'queue-search-title'; title.append(guideEl('strong', '', 'Which transaction used a number?'));
+  wrap.append(title);
+  const quick = guideEl('div', 'nonce-actions queue-quick');
+  for (const qk of sum.quick) {
+    const b = guideEl('button', 'text-button queue-find', qk.label); b.type = 'button'; b.disabled = busy || !connection?.address;
+    b.addEventListener('click', () => { entry.numberDraft = String(qk.nonce); queueSearchNow(String(qk.nonce), b); });
+    quick.append(b);
+  }
+  if (quick.childNodes.length) wrap.append(quick);
+  const form = guideEl('form', 'nonce-form queue-number-form'); form.noValidate = true;
+  const nl = guideEl('label', '', 'Transaction number (nonce)'); nl.htmlFor = 'queue-number';
+  const ni = guideEl('input', ''); ni.id = 'queue-number'; ni.inputMode = 'numeric'; ni.autocomplete = 'off'; ni.maxLength = 15; ni.placeholder = `0 to ${Math.max(0, q.next)}`; ni.value = entry.numberDraft;
+  ni.addEventListener('input', () => { entry.numberDraft = ni.value; });
+  const go = guideEl('button', 'button secondary', 'Find'); go.type = 'submit'; go.id = 'queue-number-go'; go.disabled = busy || !connection?.address;
+  const actions = guideEl('div', 'nonce-actions'); actions.append(go);
+  form.append(nl, ni, actions);
+  form.addEventListener('submit', event => {
+    event.preventDefault(); entry.numberDraft = ni.value;
+    const parsed = parseNonceSearch(q.from, ni.value);
+    if (!parsed.ok) { setText('#queue-status', parsed.error); ni.focus(); return; }
+    queueSearchNow(ni.value, go);
+  });
+  wrap.append(form);
+  const res = entry.search;
+  if (res) {
+    const out = guideEl('div', 'nonce-result'); out.id = 'queue-search-result';
+    if (res.state === 'found') {
+      const h = guideEl('p', 'tx-replacement-head');
+      h.append(guideEl('strong', '', `Number ${res.nonce} was used by `), guideEl('span', `tx-badge is-${res.status === 'pending' ? 'pending' : res.status}`, `${res.kind === 'cancel' ? 'Cancel · ' : ''}${res.status === 'confirmed' ? 'Confirmed' : res.status === 'failed' ? 'Failed on-chain' : 'Not confirmed yet'}`));
+      const a = guideEl('a', 'mono', res.hash); a.href = `${entry.network.explorer}/tx/${res.hash}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.setAttribute('aria-label', `Open ${res.hash} on the explorer`);
+      out.append(h, a, guideEl('p', 'tx-detail', res.detail));
+      const open = guideEl('button', 'text-button tx-check', 'Look up this transaction'); open.type = 'button'; open.disabled = busy || !connection?.address;
+      open.addEventListener('click', async () => {
+        const target = res.hash;
+        await run(open, async checkSession => { $('#lookup-hash').value = target; const r = await lookUp(target, checkSession); setText('#lookup-status', `${r.label}. ${r.detail}`); }, '#queue-status');
+        renderLookup(); $('#lookup-result a')?.focus();
+      });
+      out.append(open);
+    } else {
+      out.append(guideEl('p', 'tx-detail', res.detail));
+      if (res.page) out.append(guideEl('p', 'tx-detail', `Submitted on this page with this number: ${res.page.label} (${res.page.hash.slice(0, 10)}…). It has not been included yet; check it in the list above.`));
+    }
+    out.append(guideEl('p', 'tx-when', `Searched ${new Date(res.checkedAt).toLocaleTimeString()} · number ${res.nonce}`));
+    wrap.append(out);
+  }
+  box.append(wrap);
+  box.append(guideEl('p', 'tx-when', `Checked ${new Date(entry.checkedAt).toLocaleTimeString()} on ${entry.network.name} at block ${q.block}`));
+  const row = guideEl('div', 'lookup-actions');
+  const again = guideEl('button', 'text-button tx-check', 'Check again'); again.type = 'button'; again.id = 'queue-again'; again.disabled = busy || !connection?.address;
+  again.addEventListener('click', () => run(again, async checkSession => { const qq = await checkQueue(checkSession, entry.queue.from); setText('#queue-status', queueSummary(qq, queuePageItems(journal.values(), qq, entry.network.id)).title + '.'); }, '#queue-status').then(() => { renderQueue(); ($('#queue-again') || $('#queue-wallet'))?.focus(); }));
+  const clear = guideEl('button', 'text-button', 'Clear'); clear.type = 'button';
+  clear.addEventListener('click', () => { queueEntry = null; renderQueue(); setText('#queue-status', ''); $('#queue-wallet').focus(); });
+  row.append(again, clear); box.append(row);
+  show('#queue-result', true);
+}
+$('#queue-mine').addEventListener('click', () => { $('#queue-wallet').value = connection?.address || ''; $('#queue-go').focus(); });
+$('#queue-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const wallet = $('#queue-wallet').value.trim() || connection?.address || '';
+  const parsed = parseNonceSearch(wallet, '0');
+  if (!parsed.ok) { setText('#queue-status', parsed.error); $('#queue-wallet').focus(); return; }
+  $('#queue-wallet').value = wallet;
+  run($('#queue-go'), async checkSession => {
+    const q = await checkQueue(checkSession, wallet);
+    setText('#queue-status', `${queueSummary(q, queuePageItems(journal.values(), q, connection.network.id)).title}.`);
+  }, '#queue-status').then(() => { renderQueue(); if (queueEntry) $('#queue-result a')?.focus(); });
+});
 $('#provider-status').addEventListener('click', event => run(event.currentTarget, async () => {
   const result = await api({ action: 'provider-status' }); checkoutReady = result.sandboxReady === true;
   setText('#provider-message', result.message);
