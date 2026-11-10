@@ -160,3 +160,55 @@ export function launchPace(plan, records, { now = Date.now(), weeks = 8, log = {
 }
 
 export const daysAgo = (at, now = Date.now()) => Math.max(0, Math.floor((now - at) / DAY));
+
+// Travel between devices inside the Launch readiness test report ("Measured test times" section).
+// One line per kept measurement: step key, whole minutes and the exact UTC time of the result that ended it
+// (the time identifies the measurement, so bringing the same report in twice changes nothing). Only step
+// keys, minutes and times travel. "Forget measured times" does not travel: do it on each device.
+export const TIMING_SECTION = 'Measured test times';
+const stampMs = ms => new Date(ms).toISOString().replace('T', ' ').replace('Z', '');
+const TIMING_LINE = /^\s*[-*]\s+([a-z0-9-]{1,60}\/[a-z0-9-]{1,60}) · (\d{1,4}) min · (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}\.\d{3}) UTC(?: · .*)?$/;
+
+export function timingReportLines(log, plan) {
+  const clean = cleanTimings(log, plan), index = stepIndex(plan), keys = Object.keys(clean);
+  if (!keys.length) return [];
+  const L = [`## ${TIMING_SECTION}`, '', `How long your launch tests took in finished test sessions (up to ${KEEP_PER_TEST} per test), so other devices can plan with your own times. Step, minutes and when the result was recorded only.`, ''];
+  for (const [gate, step] of plan.items.flatMap(g => (g.steps || []).map(s => [g, s]))) {
+    const key = stepKey(gate.id, step.id);
+    for (const t of clean[key] || []) L.push(`- ${key} · ${t.min} min · ${stampMs(t.at)} UTC · ${md(shortStep(index.get(key).step))}`);
+  }
+  L.push('');
+  return L;
+}
+
+export function parseTimingReport(text, plan) {
+  const raw = {};
+  let inSection = false, unknown = 0, found = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 5000)) {
+    if (/^##\s/.test(line)) { inSection = line.replace(/^##\s+/, '').trim() === TIMING_SECTION; continue; }
+    if (!inSection || !/^\s*[-*]\s/.test(line)) continue;
+    const m = line.match(TIMING_LINE), at = m ? Date.parse(`${m[3]}T${m[4]}Z`) : NaN;
+    if (!m || !Number.isFinite(at)) { unknown += 1; continue; }
+    (raw[m[1]] ||= []).push({ min: Number(m[2]), at }); found += 1;
+  }
+  const log = cleanTimings(raw, plan), kept = Object.values(log).reduce((n, l) => n + l.length, 0);
+  // Lines for steps that are gone or no longer timed, impossible minutes, repeats and anything past the
+  // newest KEEP_PER_TEST per test are left out and counted, not guessed.
+  return { log, count: kept, unknown, leftOut: found - kept };
+}
+
+// Measurements from both browsers are combined (the same measurement once), newest KEEP_PER_TEST per test.
+export function mergeTimings(local, incoming, plan) {
+  const mine = cleanTimings(local, plan), inc = cleanTimings(incoming, plan), combined = {};
+  const tests = { added: [], same: [] };
+  let added = 0, same = 0;
+  for (const key of new Set([...Object.keys(mine), ...Object.keys(inc)])) combined[key] = [...(mine[key] || []), ...(inc[key] || [])];
+  const log = cleanTimings(combined, plan);
+  for (const [key, list] of Object.entries(inc)) {
+    const have = new Set((mine[key] || []).map(t => t.at)), kept = new Set((log[key] || []).map(t => t.at));
+    const fresh = list.filter(t => !have.has(t.at) && kept.has(t.at));
+    same += list.length - list.filter(t => !have.has(t.at)).length;
+    if (fresh.length) { added += fresh.length; tests.added.push(key); } else tests.same.push(key);
+  }
+  return { log, added, same, tests: tests.added, older: Object.values(inc).flat().length - added - same };
+}

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-10 14:45 UTC — [autopilot] Owner workspace: your measured test times now move between your devices
+
+- Launch readiness → the test report (Copy test report / Download report) now carries a **"Measured test times"** section: how long each launch test took in your finished test sessions. Only the step, the minutes and when the result was recorded go in; no notes.
+- **"Bring in results from another device"** now reads those times too. Before adding, it shows how many are new, which are already here, and for each test "your time 7 → 10 min · estimate 3 min". Bringing the same report in twice adds nothing.
+- So a session you timed on your phone helps plan the next one on your computer ("Plan with my own times", "Your pace" and "Your measured times" all use them).
+- "Your measured times" says the times travel in your report. "Forget measured times" stays per device, and the preview says so.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab, after signing in).
+
 ## 2026-11-10 12:10 UTC — [autopilot] Owner workspace: see your pace, and learn how long your tests really take
 
 - Launch readiness → new **"Your pace"** box at the top: how many of your own steps you finished in the last four weeks, about how much testing time is left in your open tests, and how many decisions and sign-offs are still open. Once you have a steady pace (two or more steps in four weeks) it says roughly when your part will be done, with the date. It never guesses for engineering or outside parties, and says so. Open "Steps finished per week" for a small chart of the last 8 weeks.

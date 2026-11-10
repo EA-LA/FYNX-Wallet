@@ -26,7 +26,7 @@ import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainn
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
-import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText } from './test-timing.js';
+import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -2169,12 +2169,13 @@ function renderMeasuredTimes(box) {
   const measured = Object.keys(testTimings).length;
   const d = el('details', 'ts-out ts-times'); d.id = 'ts-times';
   if (!measured) {
-    d.append(el('summary', '', 'Your measured times'), el('p', 'hint', 'Not measured yet. During a session, FYNX times each test from one result to the next (a gap of more than three times the estimate counts as a break and is not timed). Finished sessions keep the times here, and later plans can use them.'));
+    d.append(el('summary', '', 'Your measured times'), el('p', 'hint', 'Not measured yet. During a session, FYNX times each test from one result to the next (a gap of more than three times the estimate counts as a break and is not timed). Finished sessions keep the times here, and later plans can use them. Times measured on another device come in with “Bring in results from another device”.'));
     box.append(d); return;
   }
   const fixes = estimateCorrections(launchPlan, testTimings), ratio = paceRatio(launchPlan, testTimings), times = measuredTimes(testTimings);
   d.append(el('summary', '', `Your measured times: ${measured} ${measured === 1 ? 'test' : 'tests'}${fixes.length ? ` · ${fixes.length} ${fixes.length === 1 ? 'estimate' : 'estimates'} to correct` : ''}`));
   if (ratio !== null) d.append(el('p', 'hint', ratio >= 1.1 ? `Your tests take about ${Math.round((ratio - 1) * 100)}% longer than the estimates.` : ratio <= 0.9 ? `Your tests take about ${Math.round((1 - ratio) * 100)}% less time than the estimates.` : 'Your tests take about as long as the estimates.'));
+  d.append(el('p', 'hint', 'These times travel inside your test report (Copy test report or Download report), so your phone, iPad and computer can plan with the same times.'));
   const ul = el('ul', 'ts-times-list');
   for (const [key, { gate, step }] of launchIndex) {
     if (times[key] === undefined) continue;
@@ -2347,7 +2348,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence)] });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan)] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -2409,12 +2410,13 @@ function previewReport(text) {
   const rgIn = parseRegisterReport(text), rgCount = rgIn.register.entries.length;
   const rqIn = parseRequestReport(text), rqCount = Object.keys(rqIn.log.entries).length;
   const evIn = parseEvidenceReport(text), evCount = Object.keys(evIn.log.entries).length;
-  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const tmIn = parseTimingReport(text, launchPlan), tmCount = tmIn.count;
+  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
   const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
-  const rqm = mergeRequests(outsideRequests, rqIn.log), evm = mergeEvidence(outsideEvidence, evIn.log);
-  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm };
+  const rqm = mergeRequests(outsideRequests, rqIn.log), evm = mergeEvidence(outsideEvidence, evIn.log), tmm = mergeTimings(testTimings, tmIn.log, launchPlan);
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -2519,15 +2521,30 @@ function previewReport(text) {
     }
     if (el2.children.length) box.append(el2);
   }
+  if (tmCount || tmIn.unknown || tmIn.leftOut) {
+    const tsum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', tmm.added, `measurement${tmm.added === 1 ? '' : 's'} new here`], ['is-same', tmm.same, 'already here'], ['is-kept', tmm.older, `older than the newest ${KEEP_TIMES} kept per test, left out`], ['is-kept', tmIn.leftOut, 'left out (repeats, or tests that are no longer timed)'], ['is-kept', tmIn.unknown, `line${tmIn.unknown === 1 ? '' : 's'} not understood`]]) if (n) tsum.append(guideEl('li', cls, `${n} ${label}`));
+    box.append(guideEl('h4', '', `${tmCount} measured test time${tmCount === 1 ? '' : 's'} found in the report`), tsum);
+    const tl = guideEl('ul', 'launch-import-list'), mineNow = measuredTimes(testTimings), after = measuredTimes(tmm.log);
+    for (const key of tmm.tests.slice(0, 20)) {
+      const hit = index.get(key); if (!hit) continue;
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', shortStep(hit.step)), guideEl('small', '', `${hit.gate.title} · your time ${mineNow[key] !== undefined && mineNow[key] !== after[key] ? `${mineNow[key]} → ${after[key]}` : after[key]} min · estimate ${hit.step.minutes} min`));
+      li.append(guideEl('span', 'import-mark import-added', 'New'), body); tl.append(li);
+    }
+    if (tmm.tests.length > 20) tl.append(guideEl('li', 'hint', `and ${tmm.tests.length - 20} more`));
+    if (tl.children.length) box.append(tl);
+    box.append(guideEl('p', 'hint', 'Only the step, the minutes and when each result was recorded travel. “Forget measured times” does not travel: do it on each device.'));
+  }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer'), n(asks, 'outside request date'), n(evTicks, 'evidence list')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
@@ -2538,8 +2555,9 @@ function previewReport(text) {
     if (transfers) { pilotRegister = rgi.register; savePilotRegister(); renderReconcile(); }
     if (asks) { outsideRequests = rqi.log; saveOutsideRequests(); }
     if (evTicks) { outsideEvidence = evi.log; saveOutsideEvidence(); }
+    if (timesIn) { testTimings = tmi.log; saveTestTimings(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });
