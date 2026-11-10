@@ -26,6 +26,7 @@ import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainn
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
+import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText } from './test-timing.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -1643,6 +1644,41 @@ function openGate(id, focus = true) {
   details.open = true; details.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   if (focus) details.querySelector('summary')?.focus({ preventScroll: true });
 }
+// "Your pace": the owner's own steps finished per week (from result times in this browser), the time the
+// open tests still need and, once there is a steady pace, roughly when the owner's part is done.
+let paceChartOpen = false;
+function launchPaceBlock() {
+  const now = Date.now(), pace = launchPace(launchPlan, launchRecords, { now, log: testTimings });
+  const wrap = el('section', 'pace'); wrap.id = 'launch-pace'; wrap.setAttribute('aria-labelledby', 'pace-h');
+  const head = el('div', 'pace-head'); const h = el('h3', '', 'Your pace'); h.id = 'pace-h';
+  head.append(h, el('span', 'hint', 'Your own steps only. Engineering and outside parties are not in this estimate.')); wrap.append(head);
+  const facts = el('ul', 'pace-facts');
+  const fact = (big, small) => { const li = el('li'); li.append(el('strong', '', big), el('span', '', small)); facts.append(li); };
+  fact(String(pace.last28), `${pace.last28 === 1 ? 'step' : 'steps'} finished in the last 4 weeks${pace.last28 ? ` (${pace.perWeek} a week)` : ''}`);
+  const left = pace.ratio !== null && pace.mineLeft !== pace.minutesLeft ? pace.mineLeft : pace.minutesLeft;
+  fact(pace.openTests ? `about ${durationText(left)}` : '0', pace.openTests ? `of testing left in ${pace.openTests} open ${pace.openTests === 1 ? 'test' : 'tests'}${left !== pace.minutesLeft ? ` (your measured times; estimates say ${durationText(pace.minutesLeft)})` : ''}` : 'open tests');
+  fact(String(pace.otherOpen), `${pace.otherOpen === 1 ? 'decision or sign-off' : 'decisions and sign-offs'} still open`);
+  wrap.append(facts);
+  const forecast = el('p', 'pace-forecast');
+  if (pace.forecast) forecast.append(el('strong', '', `At this pace your ${pace.open} open ${pace.open === 1 ? 'step is' : 'steps are'} done in about ${pace.forecast.weeks} ${pace.forecast.weeks === 1 ? 'week' : 'weeks'}`), document.createTextNode(` (around ${pace.forecast.date.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}). A test session of an hour a week keeps it moving.`));
+  else forecast.textContent = { done: 'All your own steps are finished. What remains is with engineering and outside parties.', 'not-started': 'No results recorded in this browser yet. Plan a test session below to start; a forecast appears after two finished steps in four weeks.', slow: `Fewer than two steps finished in the last four weeks, so there is no forecast yet.${pace.lastAt ? ` Last result recorded ${daysAgo(pace.lastAt, now) === 0 ? 'today' : `${daysAgo(pace.lastAt, now)} days ago`}.` : ''} Plan a short test session below to get going again.` }[pace.reason] || '';
+  wrap.append(forecast);
+  const max = Math.max(1, ...pace.buckets.map(b => b.count)), total = pace.buckets.reduce((n, b) => n + b.count, 0);
+  const chart = el('div', 'wl-chart pace-chart');
+  const axis = el('div', 'wl-axis'); axis.setAttribute('aria-hidden', 'true'); axis.append(el('span', '', String(max)), el('span', '', max > 1 ? String(Math.round(max / 2)) : ''), el('span', '', '0'));
+  const bars = el('div', 'wl-bars'); bars.setAttribute('role', 'list'); bars.setAttribute('aria-label', `Your steps finished per week, last 8 weeks, oldest first: ${total} in all`);
+  const labels = el('div', 'wl-labels'); labels.setAttribute('aria-hidden', 'true');
+  pace.buckets.forEach((b, i) => {
+    const bar = el('div', `wl-bar${b.count ? '' : ' zero'}${i === pace.buckets.length - 1 ? ' today' : ''}`); bar.setAttribute('role', 'listitem');
+    const text = `${i === pace.buckets.length - 1 ? 'Last 7 days' : `Week to ${shortDate(b.end)}`}: ${b.count} ${b.count === 1 ? 'step' : 'steps'} finished`; bar.title = text; bar.setAttribute('aria-label', text);
+    const fill = el('span'); fill.style.height = `${Math.round(b.count / max * 100)}%`; bar.append(fill); bars.append(bar);
+    const fromEnd = pace.buckets.length - 1 - i; labels.append(el('span', '', fromEnd === 0 ? 'Now' : fromEnd % 2 ? '' : shortDate(b.end)));
+  });
+  chart.append(axis, bars, labels);
+  const d = el('details', 'pace-more'); d.open = paceChartOpen; d.addEventListener('toggle', () => { paceChartOpen = d.open; }); d.append(el('summary', '', `Steps finished per week · ${total} in 8 weeks`), chart);
+  wrap.append(d);
+  return wrap;
+}
 function renderLaunchOverview() {
   const o = overview(launchPlan, launchRecords), box = $('#launch-overview'); box.replaceChildren();
   const head = el('div', 'launch-headline');
@@ -1658,6 +1694,7 @@ function renderLaunchOverview() {
   const mine = el('li'); mine.append(el('div', 'launch-stat stat-mine', ''));
   mine.firstChild.append(el('strong', '', `${o.yoursDone}/${o.yours}`), el('span', '', `your tests and decisions done${o.failed ? ` · ${o.failed} failed` : ''}`));
   stats.append(mine); box.append(stats);
+  box.append(launchPaceBlock());
   const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), askAgain = outsideAskAgain(), share = outsideShare().slice(0, 2);
   const run = testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null;
   const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', run || next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
@@ -2026,8 +2063,19 @@ function gateBlockedLine(item) {
 // Test session planner: one sitting's worth of the owner's open tests, in a sensible order.
 let testSession = null;
 try { testSession = cleanSession(JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'), launchPlan); } catch { testSession = null; }
-const sessionDraft = { minutes: 30, have: new Set(testSession?.have || ['test-wallet']) };
+const sessionDraft = { minutes: 30, have: new Set(testSession?.have || ['test-wallet']), mine: true };
 let sessionStatus = '';
+// How long each test really took, measured in finished sessions (whole minutes per step; this browser only).
+let testTimings = {};
+try { testTimings = cleanTimings(JSON.parse(localStorage.getItem(TIMING_KEY) || 'null'), launchPlan); } catch { testTimings = {}; }
+function saveTestTimings() { try { if (Object.keys(testTimings).length) localStorage.setItem(TIMING_KEY, JSON.stringify(testTimings)); else localStorage.removeItem(TIMING_KEY); } catch { /* the times last until the page closes */ } }
+// Keep the times of a session that ends (finished or stopped). Adding the same session twice changes nothing.
+function archiveSessionTimes() {
+  if (!testSession) return 0;
+  const { log, added } = addTimings(testTimings, sessionTimings(testSession, launchPlan, launchRecords));
+  if (added) { testTimings = log; saveTestTimings(); }
+  return added;
+}
 function saveTestSession() { try { if (testSession) localStorage.setItem(SESSION_KEY, JSON.stringify(testSession)); else localStorage.removeItem(SESSION_KEY); } catch { sessionStatus = 'This browser blocked saving. The session lasts until you close the page.'; } }
 function sessionNeeds(needs) {
   const wrap = el('span', 'ts-needs');
@@ -2046,7 +2094,7 @@ function recordSessionStep(key, result) {
   const next = { ...prev, result: fresh && rec.result === result ? '' : result, at: Date.now() };
   if (!next.result && !next.note) delete launchRecords[key]; else launchRecords[key] = next;
   saveLaunchRecords();
-  const p = sessionProgress(testSession, launchPlan, launchRecords);
+  const p = sessionProgress(testSession, launchPlan, launchRecords, measuredTimes(testTimings));
   sessionStatus = next.result ? `${resultLabels[next.result]}: ${shortStep(entry.step)}. ${p.complete ? 'Every test in this session is recorded.' : `${p.total - p.recorded} to go.`}` : `Result cleared: ${shortStep(entry.step)}.`;
   renderLaunch(); renderCryptoTests();
   const box = $('#test-session');
@@ -2072,7 +2120,13 @@ function renderSessionPlanner(box) {
     l.append(c, el('span', '', label)); list.append(l);
   }
   haveSet.append(list); form.append(lenSet, haveSet); box.append(form);
-  const planned = planSession(launchPlan, launchRecords, { minutes: sessionDraft.minutes, have: [...sessionDraft.have] });
+  const times = measuredTimes(testTimings), measuredCount = Object.keys(times).length, useMine = sessionDraft.mine && measuredCount > 0;
+  if (measuredCount) {
+    const l = el('label', 'ts-check ts-mine'), c = el('input'); c.type = 'checkbox'; c.checked = sessionDraft.mine; c.id = 'ts-use-mine';
+    c.addEventListener('change', () => { sessionDraft.mine = c.checked; renderTestSession(); $('#ts-use-mine')?.focus(); });
+    l.append(c, el('span', '', `Plan with my own times (${measuredCount} ${measuredCount === 1 ? 'test' : 'tests'} measured in earlier sessions; the others use the estimate)`)); box.append(l);
+  }
+  const planned = planSession(launchPlan, launchRecords, { minutes: sessionDraft.minutes, have: [...sessionDraft.have], times: useMine ? times : null });
   if (!planned.openTests) { box.append(el('p', 'muted', 'All your tests are recorded. Copy the test report below and share it so the checklist evidence can be updated.')); return; }
   const head = el('p', 'ts-total');
   head.append(el('strong', '', planned.steps.length ? `${planned.steps.length} ${planned.steps.length === 1 ? 'test' : 'tests'} · about ${planned.total} of ${planned.minutes} minutes` : 'Nothing fits this session yet'), el('span', 'muted', ` · ${planned.openTests} open ${planned.openTests === 1 ? 'test' : 'tests'} in all`));
@@ -2082,7 +2136,7 @@ function renderSessionPlanner(box) {
     for (const s of planned.steps) {
       const li = el('li', `ts-plan-row${s.retest ? ' is-failed' : ''}`);
       const b = el('button', 'text-button lo-link'); b.type = 'button';
-      b.append(el('span', 'lo-meta', `${s.retest ? 'Retest · ' : ''}${s.gate.title} · about ${s.minutes} min`), el('span', 'lo-text', shortStep(s.step)));
+      b.append(el('span', 'lo-meta', `${s.retest ? 'Retest · ' : ''}${s.gate.title} · about ${s.minutes} min${s.measured ? ` (your time; estimate ${s.estimate})` : ''}`), el('span', 'lo-text', shortStep(s.step)));
       b.addEventListener('click', () => openStep(s.key));
       li.append(b); if (s.needs.length) li.append(sessionNeeds(s.needs)); ol.append(li);
     }
@@ -2101,29 +2155,57 @@ function renderSessionPlanner(box) {
   const actions = el('div', 'actions');
   const start = el('button', 'button', 'Start this session'); start.type = 'button'; start.id = 'ts-start'; start.disabled = !planned.steps.length;
   start.addEventListener('click', () => {
-    testSession = startSession(planned, { minutes: sessionDraft.minutes, have: [...sessionDraft.have] }); saveTestSession();
+    testSession = startSession(planned, { minutes: sessionDraft.minutes, have: [...sessionDraft.have], mine: useMine }); saveTestSession();
     sessionStatus = `Session started: ${planned.steps.length} ${planned.steps.length === 1 ? 'test' : 'tests'}. Record each result here as you go.`;
     renderLaunch(); $('#test-session')?.querySelector('.ts-row.is-current .launch-result')?.focus();
   });
   const copy = el('button', 'button secondary', 'Copy plan'); copy.type = 'button'; copy.disabled = !planned.steps.length;
   copy.addEventListener('click', () => copySession(planMarkdown(planned, { have: [...sessionDraft.have] }), 'Plan copied. Paste it into your notes to keep beside you.'));
   actions.append(start, copy); box.append(actions);
+  renderMeasuredTimes(box);
+}
+// What earlier sessions measured, and which estimates in the checklist are clearly off.
+function renderMeasuredTimes(box) {
+  const measured = Object.keys(testTimings).length;
+  const d = el('details', 'ts-out ts-times'); d.id = 'ts-times';
+  if (!measured) {
+    d.append(el('summary', '', 'Your measured times'), el('p', 'hint', 'Not measured yet. During a session, FYNX times each test from one result to the next (a gap of more than three times the estimate counts as a break and is not timed). Finished sessions keep the times here, and later plans can use them.'));
+    box.append(d); return;
+  }
+  const fixes = estimateCorrections(launchPlan, testTimings), ratio = paceRatio(launchPlan, testTimings), times = measuredTimes(testTimings);
+  d.append(el('summary', '', `Your measured times: ${measured} ${measured === 1 ? 'test' : 'tests'}${fixes.length ? ` · ${fixes.length} ${fixes.length === 1 ? 'estimate' : 'estimates'} to correct` : ''}`));
+  if (ratio !== null) d.append(el('p', 'hint', ratio >= 1.1 ? `Your tests take about ${Math.round((ratio - 1) * 100)}% longer than the estimates.` : ratio <= 0.9 ? `Your tests take about ${Math.round((1 - ratio) * 100)}% less time than the estimates.` : 'Your tests take about as long as the estimates.'));
+  const ul = el('ul', 'ts-times-list');
+  for (const [key, { gate, step }] of launchIndex) {
+    if (times[key] === undefined) continue;
+    const fix = fixes.find(f => f.key === key), li = el('li', fix ? 'is-off' : '');
+    li.append(el('span', '', `${shortStep(step)} (${gate.title})`), el('span', 'ts-times-num', `${times[key]} min · estimate ${step.minutes}${testTimings[key].length > 1 ? ` · ${testTimings[key].length} times` : ''}${fix ? ' · off' : ''}`));
+    ul.append(li);
+  }
+  d.append(ul);
+  const actions = el('div', 'actions');
+  const copy = el('button', 'button secondary', 'Copy estimates to correct'); copy.type = 'button';
+  copy.addEventListener('click', () => copySession(correctionsMarkdown(launchPlan, testTimings), fixes.length ? `Copied ${fixes.length} ${fixes.length === 1 ? 'estimate' : 'estimates'} to correct. Share the list so the checklist times can be updated.` : 'Copied: every measured test is close to its estimate.'));
+  const forget = el('button', 'text-button', 'Forget measured times'); forget.type = 'button';
+  forget.addEventListener('click', () => { if (!window.confirm('Forget every measured test time in this browser? Your test results are kept.')) return; testTimings = {}; saveTestTimings(); sessionStatus = 'Measured times forgotten. Results are kept.'; renderLaunch(); });
+  actions.append(copy, forget); d.append(actions); box.append(d);
 }
 function renderSessionRun(box) {
-  const p = sessionProgress(testSession, launchPlan, launchRecords);
+  const p = sessionProgress(testSession, launchPlan, launchRecords, measuredTimes(testTimings)), timing = sessionTimings(testSession, launchPlan, launchRecords);
   const head = el('div', 'lo-head');
   head.append(el('h3', '', testSession.finished ? 'Test session finished' : 'Test session in progress'), el('p', 'hint', `Started ${new Date(testSession.started).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · planned ${testSession.minutes} minutes. Results are the same as the checklist below and stay in this browser. Add notes (browser, device, transaction ID) in the checklist with “Add a note”.`));
   box.append(head);
   box.append(progressBar(p.recorded, p.total, `${p.recorded} of ${p.total} tests recorded`));
   const line = el('p', 'ts-total');
-  line.append(el('strong', '', `${p.recorded} of ${p.total} recorded`), el('span', 'muted', ` · ${p.passed} passed · ${p.failed} failed · ${p.skipped} not applicable${p.complete ? '' : ` · about ${p.minutesLeft} min left`}`));
+  line.append(el('strong', '', `${p.recorded} of ${p.total} recorded`), el('span', 'muted', ` · ${p.passed} passed · ${p.failed} failed · ${p.skipped} not applicable${p.complete ? '' : ` · about ${p.minutesLeft} min left`}${timing.timed ? ` · took ${durationText(timing.actual)} so far (estimate ${durationText(timing.estimate)})` : ''}`));
   box.append(line);
   const ol = el('ol', 'ts-run');
   for (const r of p.rows) {
     const current = !testSession.finished && p.current?.key === r.key;
     const li = el('li', `ts-row${current ? ' is-current' : ''}${r.recorded ? ` is-${r.result}` : ''}`); li.dataset.key = r.key;
     const top = el('div', 'ts-row-top');
-    top.append(el('span', 'lo-meta', `${current ? 'Now · ' : ''}${r.gate.title} · about ${r.minutes} min`), el('span', 'launch-mark', r.recorded ? resultLabels[r.result] : current ? 'Up next' : 'To do'));
+    const t = r.recorded ? timing.byKey[r.key] : null;
+    top.append(el('span', 'lo-meta', `${current ? 'Now · ' : ''}${r.gate.title} · ${t ? (t.took === null ? `not timed (a break) · estimate ${r.estimate} min` : `took ${t.took} min · estimate ${r.estimate} min`) : `about ${r.minutes} min${r.minutes !== r.estimate ? ` (your time; estimate ${r.estimate})` : ''}`}`), el('span', 'launch-mark', r.recorded ? resultLabels[r.result] : current ? 'Up next' : 'To do'));
     li.append(top, el('p', 'launch-step-text', r.step.text));
     if (r.needs.length) li.append(sessionNeeds(r.needs));
     const controls = el('div', 'launch-step-controls');
@@ -2148,26 +2230,28 @@ function renderSessionRun(box) {
   const actions = el('div', 'actions');
   if (!testSession.finished) {
     const finish = el('button', p.complete ? 'button' : 'button secondary', p.complete ? 'Finish session' : 'Finish early'); finish.type = 'button'; finish.id = 'ts-finish';
-    finish.addEventListener('click', () => { testSession = { ...testSession, finished: Date.now() }; saveTestSession(); sessionStatus = `Session finished: ${p.passed} passed, ${p.failed} failed, ${p.skipped} not applicable${p.total - p.recorded ? `, ${p.total - p.recorded} not recorded` : ''}.`; renderTestSession(); $('#ts-copy')?.focus(); });
+    finish.addEventListener('click', () => { testSession = { ...testSession, finished: Date.now() }; saveTestSession(); const kept = archiveSessionTimes(); sessionStatus = `Session finished: ${p.passed} passed, ${p.failed} failed, ${p.skipped} not applicable${p.total - p.recorded ? `, ${p.total - p.recorded} not recorded` : ''}.${kept ? ` Kept the times of ${kept} ${kept === 1 ? 'test' : 'tests'} for your next plans.` : ''}`; renderLaunch(); $('#ts-copy')?.focus(); });
     actions.append(finish);
   }
   const copy = el('button', testSession.finished ? 'button' : 'button secondary', 'Copy session results'); copy.type = 'button'; copy.id = 'ts-copy';
-  copy.addEventListener('click', () => copySession(sessionSummary(testSession, launchPlan, launchRecords), 'Session results copied (results only, no notes). Share them, or the full test report, so the checklist evidence can be updated.'));
+  copy.addEventListener('click', () => copySession(sessionSummary(testSession, launchPlan, launchRecords, { appendix: timingLines(sessionTimings(testSession, launchPlan, launchRecords)) }), 'Session results copied (results only, no notes). Share them, or the full test report, so the checklist evidence can be updated.'));
   const again = el('button', 'text-button', testSession.finished ? 'Plan another session' : 'Stop and plan again'); again.type = 'button';
   again.addEventListener('click', () => {
     if (!testSession.finished && p.recorded && !window.confirm('Stop this session? The results you recorded are kept.')) return;
-    sessionDraft.minutes = testSession.minutes; sessionDraft.have = new Set(testSession.have); testSession = null; saveTestSession();
-    sessionStatus = 'Session closed. Your recorded results are kept.'; renderTestSession(); $('#ts-start')?.focus();
+    archiveSessionTimes();
+    sessionDraft.minutes = testSession.minutes; sessionDraft.have = new Set(testSession.have); sessionDraft.mine = testSession.mine || sessionDraft.mine; testSession = null; saveTestSession();
+    sessionStatus = 'Session closed. Your recorded results are kept.'; renderLaunch(); $('#ts-start')?.focus();
   });
   actions.append(copy, again); box.append(actions);
   if (testSession.finished && p.failed) box.append(el('p', 'hint', 'Failed tests come first in your next session, for a retest once the problem is fixed.'));
 }
 function renderTestSession() {
   const box = $('#test-session'); if (!box) return;
-  const wasOpen = box.querySelector('.ts-out')?.open;
+  const wasOpen = box.querySelector('.ts-out:not(.ts-times)')?.open, timesOpen = box.querySelector('#ts-times')?.open;
   box.replaceChildren();
   if (testSession) renderSessionRun(box); else renderSessionPlanner(box);
-  const out = box.querySelector('.ts-out'); if (out && wasOpen) out.open = true;
+  const out = box.querySelector('.ts-out:not(.ts-times)'); if (out && wasOpen) out.open = true;
+  const tbox = box.querySelector('#ts-times'); if (tbox && timesOpen) tbox.open = true;
   const status = el('p', 'status'); status.id = 'ts-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = sessionStatus; sessionStatus = '';
   box.append(status);
 }

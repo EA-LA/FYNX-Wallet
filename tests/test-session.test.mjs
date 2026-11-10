@@ -112,7 +112,7 @@ test('cleanSession drops unknown keys and bad values, round-trips a real session
   assert.equal(cleanSession(null, plan), null);
   assert.equal(cleanSession({ keys: ['nope/x', 'legal/counsel'], started: 1 }, plan), null);
   const c = cleanSession({ keys: ['identity/idle', 'identity/idle', 'nope/x'], started: 5, minutes: 999, have: ['phone', 'jetpack'], finished: 1 }, plan);
-  assert.deepEqual(c, { keys: ['identity/idle'], minutes: 30, have: ['phone'], started: 5, finished: 0 });
+  assert.deepEqual(c, { keys: ['identity/idle'], minutes: 30, have: ['phone'], started: 5, finished: 0, mine: false });
 });
 
 test('plan and summary texts carry results only, no notes', () => {

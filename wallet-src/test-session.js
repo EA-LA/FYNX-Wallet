@@ -35,13 +35,14 @@ export function checkSessionFields(plan) {
 
 // Build a plan. `have`: the NEEDS keys at hand. Failed tests come first (retest), then checklist order.
 // A step joins when everything it waits for is done or already earlier in this plan, and it fits the time left.
-export function planSession(plan, records, { minutes = 30, have = [] } = {}) {
+// `times` (optional): the owner's measured minutes per step key; a measured test is planned with its real time.
+export function planSession(plan, records, { minutes = 30, have = [], times = null } = {}) {
   const index = stepIndex(plan), at = new Set(have), budget = Math.max(0, Math.min(MAX_MINUTES, Number(minutes) || 0));
   const open = [];
   for (const gate of plan.items) for (const step of gate.steps || []) {
     if (!sessionable(step)) continue;
     const state = stepState(gate, step, records);
-    if (state !== 'done') open.push({ key: stepKey(gate.id, step.id), gate, step, minutes: step.minutes, needs: step.needs || [], retest: state === 'failed' });
+    if (state !== 'done') { const key = stepKey(gate.id, step.id), mine = times?.[key]; open.push({ key, gate, step, minutes: Number.isInteger(mine) && mine > 0 ? mine : step.minutes, estimate: step.minutes, measured: Number.isInteger(mine) && mine > 0, needs: step.needs || [], retest: state === 'failed' }); }
   }
   const ordered = [...open.filter(o => o.retest), ...open.filter(o => !o.retest)];
   const chosen = [], inPlan = new Set();
@@ -77,21 +78,22 @@ export function cleanSession(raw, plan) {
   const minutes = Number.isInteger(raw.minutes) && raw.minutes > 0 && raw.minutes <= MAX_MINUTES ? raw.minutes : 30;
   const have = Array.isArray(raw.have) ? [...new Set(raw.have.filter(n => NEEDS[n]))] : [];
   const finished = Number.isFinite(raw.finished) && raw.finished >= raw.started ? raw.finished : 0;
-  return { keys, minutes, have, started: raw.started, finished };
+  return { keys, minutes, have, started: raw.started, finished, mine: raw.mine === true };
 }
-export function startSession(planned, { minutes, have = [], now = Date.now() } = {}) {
-  return { keys: planned.steps.map(s => s.key), minutes: planned.minutes || minutes || 30, have: [...have], started: now, finished: 0 };
+export function startSession(planned, { minutes, have = [], now = Date.now(), mine = false } = {}) {
+  return { keys: planned.steps.map(s => s.key), minutes: planned.minutes || minutes || 30, have: [...have], started: now, finished: 0, mine: Boolean(mine) };
 }
 
 // Where the session stands. A step counts as recorded in this session when its result was saved after
 // the session started (an older failure being retested is not "recorded" until it is tested again).
-export function sessionProgress(session, plan, records) {
+export function sessionProgress(session, plan, records, times = null) {
   const index = stepIndex(plan), rows = [];
   for (const key of session?.keys || []) {
     const entry = index.get(key); if (!entry) continue;
     const rec = records[key], state = stepState(entry.gate, entry.step, records);
     const recorded = Boolean(rec?.result) && (rec.at || 0) >= session.started;
-    rows.push({ key, gate: entry.gate, step: entry.step, minutes: entry.step.minutes, needs: entry.step.needs || [], result: recorded ? rec.result : '', recorded, state });
+    const mine = session.mine ? times?.[key] : undefined;
+    rows.push({ key, gate: entry.gate, step: entry.step, minutes: Number.isInteger(mine) && mine > 0 ? mine : entry.step.minutes, estimate: entry.step.minutes, needs: entry.step.needs || [], result: recorded ? rec.result : '', recorded, state });
   }
   const recorded = rows.filter(r => r.recorded);
   const count = r => recorded.filter(x => x.result === r).length;
@@ -123,12 +125,14 @@ export function planMarkdown(planned, { have = [], date = new Date() } = {}) {
 }
 
 // Results of a session (results only, no notes), to share so the checklist evidence can be updated.
-export function sessionSummary(session, plan, records, { date = new Date() } = {}) {
+// `appendix`: extra lines placed before the closing line (the time each test took).
+export function sessionSummary(session, plan, records, { date = new Date(), appendix = [] } = {}) {
   const p = sessionProgress(session, plan, records);
   const L = ['# FYNX Wallet: test session results', '', `Session started ${stamp(session.started)} UTC${session.finished ? `, finished ${stamp(session.finished)} UTC` : `, summary made ${stamp(date.getTime())} UTC`}. Planned: ${p.total} ${p.total === 1 ? 'test' : 'tests'} in ${session.minutes} minutes. With you: ${haveLine(session.have)}.`, '',
     `Recorded ${p.recorded} of ${p.total}: ${p.passed} passed, ${p.failed} failed, ${p.skipped} not applicable.`, ''];
   for (const r of p.rows) L.push(`- ${r.recorded ? resultLabels[r.result] : 'Not recorded'}: ${md(shortStep(r.step))} (${md(r.gate.title)})`);
   if (p.failed) L.push('', 'Failed tests come first in the next session for a retest.');
+  if (appendix.length) L.push('', ...appendix);
   L.push('', 'Notes and transaction IDs are in the full test report (Launch readiness → Copy test report). Contains no keys, recovery phrases or passwords.');
   return `${L.join('\n')}\n`;
 }

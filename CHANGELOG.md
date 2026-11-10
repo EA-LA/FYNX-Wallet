@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-10 12:10 UTC — [autopilot] Owner workspace: see your pace, and learn how long your tests really take
+
+- Launch readiness → new **"Your pace"** box at the top: how many of your own steps you finished in the last four weeks, about how much testing time is left in your open tests, and how many decisions and sign-offs are still open. Once you have a steady pace (two or more steps in four weeks) it says roughly when your part will be done, with the date. It never guesses for engineering or outside parties, and says so. Open "Steps finished per week" for a small chart of the last 8 weeks.
+- Test sessions now **time each test** for you: every row says "took 12 min · estimate 10 min", and the top shows the time so far. A long pause counts as a break and is not timed.
+- When a session ends, the times are kept in this browser. Your next plan can use **your own times** instead of the estimates ("Plan with my own times"), so a 30-minute session really fits in 30 minutes.
+- **"Your measured times"** under the planner lists each measured test, says whether your tests run longer or shorter than the estimates, flags estimates that are clearly off, and **"Copy estimates to correct"** gives a short list to share so the checklist times can be fixed. "Forget measured times" clears them (your results stay).
+- "Copy session results" now adds a "Time taken" section.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab, after signing in).
+
 ## 2026-11-10 06:45 UTC — [autopilot] Owner workspace: plan a test session that fits your time
 
 - Launch readiness → new **"Plan a test session"** box. Pick how long you have (15 minutes to 1.5 hours) and tick what you have with you (a test wallet, your phone or iPad, a Ledger, your email inbox, a second Google account, your team). FYNX picks the open launch tests that fit, puts any failed test first for a retest, and keeps the right order (for example, a passkey is added before you sign in with it). It also says what was left out and why.
