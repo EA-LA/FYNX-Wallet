@@ -76,7 +76,8 @@ export function requestsWithoutEvidence() {
   return PARTIES.flatMap(p => Object.keys(p.steps).map(k => requestId(p.id, k))).filter(id => !evidenceItems(id).length);
 }
 
-// One entry per request: { got: [item ids in list order], changed }. An entry with nothing ticked but
+// One entry per request: { got: [item ids in list order], changed, on? }. `on` (optional) holds the
+// day each ticked piece arrived ({ itemId: 'YYYY-MM-DD' }); it is left out when no date is recorded. An entry with nothing ticked but
 // a change time is a "cleared" marker, so un-ticking everything also travels (the later change wins).
 export function cleanEntry(id, raw) {
   if (!raw || typeof raw !== 'object' || !EVIDENCE[id]) return null;
@@ -84,7 +85,18 @@ export function cleanEntry(id, raw) {
   const got = evidenceItems(id).map(i => i.id).filter(x => want.has(x));
   const changed = Number.isFinite(raw.changed) && raw.changed > 0 ? raw.changed : 0;
   if (!got.length && !changed) return null;
-  return { got, changed };
+  const on = cleanDates(raw.on, got);
+  return on ? { got, changed, on } : { got, changed };
+}
+// Received-on dates: real calendar days from FIRST_DAY on, only for ticked pieces, in list order.
+export const FIRST_DAY = '2024-01-01';
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const validDay = d => typeof d === 'string' && DAY_RE.test(d) && dayNumber(d) !== null && d >= FIRST_DAY;
+function cleanDates(raw, got) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  for (const x of got) if (validDay(raw[x])) out[x] = raw[x];
+  return Object.keys(out).length ? out : null;
 }
 export function cleanEvidence(raw) {
   const out = {};
@@ -104,7 +116,23 @@ export function setItem(log, id, itemId, on, { now = Date.now() } = {}) {
   if (cur.includes(itemId) === Boolean(on)) return { log, unchanged: true };
   const want = new Set(on ? [...cur, itemId] : cur.filter(x => x !== itemId));
   const got = evidenceItems(id).map(i => i.id).filter(x => want.has(x));
-  return { log: { entries: { ...log.entries, [id]: { got, changed: now } } } };
+  const dates = cleanDates(log.entries[id]?.on, got);
+  return { log: { entries: { ...log.entries, [id]: dates ? { got, changed: now, on: dates } : { got, changed: now } } } };
+}
+// Record (or clear, with '') the day a ticked piece arrived. Not before FIRST_DAY, not after today.
+export function setReceivedDate(log, id, itemId, day, { now = Date.now(), today } = {}) {
+  if (!EVIDENCE[id]) return { log, error: 'Unknown request.' };
+  if (!itemIds(id).has(itemId)) return { log, error: 'Unknown piece of evidence.' };
+  const cur = log.entries[id];
+  if (!cur?.got?.includes(itemId)) return { log, error: 'Tick the piece as received first.' };
+  const value = String(day ?? '').trim();
+  if (value && !validDay(value)) return { log, error: `Enter a real date from ${FIRST_DAY} on.` };
+  if (value && today && validDay(today) && value > today) return { log, error: 'The date it arrived cannot be in the future.' };
+  if ((cur.on?.[itemId] || '') === value) return { log, unchanged: true };
+  const next = { ...(cur.on || {}) };
+  if (value) next[itemId] = value; else delete next[itemId];
+  const on = cleanDates(next, cur.got);
+  return { log: { entries: { ...log.entries, [id]: on ? { got: cur.got, changed: now, on } : { got: cur.got, changed: now } } } };
 }
 
 // Where one request's evidence stands: nothing yet / n of m / everything in.
@@ -113,10 +141,13 @@ export function evidenceState(id, entry) {
   const received = items.filter(i => got.has(i.id)), missing = items.filter(i => !got.has(i.id));
   const total = items.length, n = received.length;
   const state = !n ? 'none' : n === total ? 'complete' : 'partial';
+  const receivedOn = Object.fromEntries(received.filter(i => validDay(entry?.on?.[i.id])).map(i => [i.id, entry.on[i.id]]));
+  const days = Object.values(receivedOn).sort(), first = days[0] || '', last = days[days.length - 1] || '';
+  const dated = !days.length ? '' : state === 'complete' && days.length === n ? ` · last piece arrived ${last}` : days.length === 1 ? ` · arrived ${last}` : ` · arrived ${first} to ${last}`;
   const label = state === 'none' ? `Nothing received yet (${total} to come back)`
-    : state === 'complete' ? `Everything is in (${n} of ${total})`
-      : `${n} of ${total} received · still missing: ${missing.map(i => i.label.charAt(0).toLowerCase() + i.label.slice(1)).join('; ')}`;
-  return { state, total, count: n, received, missing, label };
+    : state === 'complete' ? `Everything is in (${n} of ${total})${dated}`
+      : `${n} of ${total} received · still missing: ${missing.map(i => i.label.charAt(0).toLowerCase() + i.label.slice(1)).join('; ')}${dated}`;
+  return { state, total, count: n, received, missing, label, receivedOn, firstReceived: first, lastReceived: last };
 }
 
 // Counts across one party's requests (only the step keys passed).
@@ -200,7 +231,7 @@ export function evidenceSummary(log, rows, { date = new Date() } = {}) {
     for (const r of list) {
       const { stepKey } = splitId(r.id);
       L.push(`### ${clean(r.title)} (\`${stepKey}\`) — ${r.st.state === 'complete' ? 'complete' : `${r.st.count} of ${r.st.total}`}`, '');
-      for (const i of evidenceItems(r.id)) L.push(`- [${r.st.received.includes(i) ? 'x' : ' '}] ${i.label}`);
+      for (const i of evidenceItems(r.id)) L.push(`- [${r.st.received.includes(i) ? 'x' : ' '}] ${i.label}${r.st.receivedOn[i.id] ? ` (received ${r.st.receivedOn[i.id]})` : ''}`);
       L.push('');
     }
   }
@@ -217,13 +248,13 @@ export function evidenceReportLines(log) {
   const lines = [`## ${EVIDENCE_SECTION}`, '', 'Which pieces of evidence each outside party has sent back (ticks only, no documents), so the ticks can be brought into another browser.', ''];
   for (const id of ids) {
     const e = log.entries[id], { partyId, stepKey } = splitId(id);
-    lines.push(`- ${partyId} · ${stepKey} · ${e.got.length ? `got ${e.got.join(', ')}` : 'got nothing'}${e.changed ? ` · changed ${stampUtc(e.changed)} UTC` : ''}`);
+    lines.push(`- ${partyId} · ${stepKey} · ${e.got.length ? `got ${e.got.map(x => (e.on?.[x] ? `${x} on ${e.on[x]}` : x)).join(', ')}` : 'got nothing'}${e.changed ? ` · changed ${stampUtc(e.changed)} UTC` : ''}`);
   }
   lines.push('');
   return lines;
 }
 
-const LINE = /^\s*[-*]\s+([a-z]{2,20}) · ([a-z0-9-]{1,40}\/[a-z0-9-]{1,40}) · (?:(got nothing)|got ([a-z0-9-]{1,30}(?:, [a-z0-9-]{1,30}){0,11}))(?: · changed (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC)?\s*$/;
+const LINE = /^\s*[-*]\s+([a-z]{2,20}) · ([a-z0-9-]{1,40}\/[a-z0-9-]{1,40}) · (?:(got nothing)|got ([a-z0-9-]{1,30}(?: on \d{4}-\d{2}-\d{2})?(?:, [a-z0-9-]{1,30}(?: on \d{4}-\d{2}-\d{2})?){0,11}))(?: · changed (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC)?\s*$/;
 export const isEvidenceLine = line => LINE.test(String(line || ''));
 export function parseEvidenceReport(text) {
   const entries = {};
@@ -234,10 +265,10 @@ export function parseEvidenceReport(text) {
     const m = line.match(LINE);
     const id = m && requestId(m[1], m[2]);
     if (!m || !EVIDENCE[id] || id in entries) { unknown += 1; continue; }
-    const listed = m[3] ? [] : m[4].split(', '), valid = itemIds(id);
-    if (listed.some(x => !valid.has(x))) { unknown += 1; continue; }
-    const changed = m[5] ? Date.parse(`${m[5]}T${m[6]}:00Z`) : 0;
-    const e = cleanEntry(id, { got: listed, changed: Number.isFinite(changed) ? changed : 0 });
+    const parts = m[3] ? [] : m[4].split(', ').map(x => x.split(' on ')), listed = parts.map(p => p[0]), valid = itemIds(id);
+    if (listed.some(x => !valid.has(x)) || parts.some(p => p[1] && !validDay(p[1]))) { unknown += 1; continue; }
+    const changed = m[5] ? Date.parse(`${m[5]}T${m[6]}:00Z`) : 0, on = Object.fromEntries(parts.filter(p => p[1]).map(p => [p[0], p[1]]));
+    const e = cleanEntry(id, { got: listed, changed: Number.isFinite(changed) ? changed : 0, on });
     if (!e) { unknown += 1; continue; }
     entries[id] = e;
   }
@@ -245,7 +276,9 @@ export function parseEvidenceReport(text) {
 }
 
 const minute = ms => Math.floor((ms || 0) / 60000) * 60000;
-const sameTicks = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const sameTicks = (a, b) => sameList(a.got, b.got) && a.got.every(x => (a.on?.[x] || '') === (b.on?.[x] || ''));
+const copyEntry = e => (e.on ? { got: [...e.got], changed: e.changed, on: { ...e.on } } : { got: [...e.got], changed: e.changed });
 // Combine an imported set with this browser's: new requests are added; when both have one and the
 // ticks differ, the one changed later wins (same minute: this browser's stays).
 export function mergeEvidence(local, incoming) {
@@ -253,9 +286,9 @@ export function mergeEvidence(local, incoming) {
   for (const [id, inc] of Object.entries(incoming?.entries || {})) {
     if (!EVIDENCE[id]) continue;
     const mine = merged[id];
-    if (!mine) { if (inc.got.length) { merged[id] = { got: [...inc.got], changed: inc.changed }; changes.added.push(id); } continue; }
-    if (sameTicks(mine.got, inc.got)) { changes.same.push(id); continue; }
-    if (minute(inc.changed) > minute(mine.changed)) { merged[id] = { got: [...inc.got], changed: inc.changed }; changes.updated.push(id); } else changes.kept.push(id);
+    if (!mine) { if (inc.got.length) { merged[id] = copyEntry(inc); changes.added.push(id); } continue; }
+    if (sameTicks(mine, inc)) { changes.same.push(id); continue; }
+    if (minute(inc.changed) > minute(mine.changed)) { merged[id] = copyEntry(inc); changes.updated.push(id); } else changes.kept.push(id);
   }
   return { log: cleanEvidence({ entries: merged }), ...changes };
 }

@@ -373,3 +373,22 @@ export function pageMatch(items, from, nonce, networkId) {
   const f = String(from || '').toLowerCase();
   return [...(items || [])].find(i => i && i.network?.id === networkId && String(i.address || '').toLowerCase() === f && i.nonce === nonce) || null;
 }
+// Automatic re-check of a wallet's numbers: the same 30-second rule as Track. It only runs while the
+// result is for the network the page is on and something is still waiting (in the network queue, or a
+// transaction submitted on this page whose number has not been used yet).
+export function queueAutoDue({ enabled, hidden, busy, connected, sameNetwork, queue, pageWaiting = 0, lastRun, now }) {
+  return sameNetwork === true && autoCheckDue({ enabled, hidden, busy, connected, waiting: (queue?.waiting || 0) + (pageWaiting || 0), lastRun, now });
+}
+// What changed between two checks of the same wallet, in one plain sentence ('' when nothing did).
+export function queueChange(before, after) {
+  if (!before || !after || before.from !== after.from) return '';
+  const went = after.used - before.used, parts = [];
+  if (went > 0) parts.push(went === 1 ? `Number ${before.used} went through` : went === 2 ? `Numbers ${before.used} and ${before.used + 1} went through` : `Numbers ${before.used} to ${after.used - 1} went through`);
+  else if (went < 0) parts.push('The network now reports fewer used numbers (a block reorganisation or a connection that is behind): check again in a minute');
+  const added = after.next - Math.max(before.next, after.used);
+  if (added > 0) parts.push(added === 1 ? `a new transaction joined the queue (number ${after.next - 1})` : `${added} new transactions joined the queue`);
+  if (!parts.length) return '';
+  const tail = after.waiting === 0 ? 'nothing is waiting now' : after.waiting === 1 ? `number ${after.used} is still waiting` : `${after.waiting} are still waiting, starting with number ${after.used}`;
+  const s = `${parts.join('; ')}; ${tail}.`;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}

@@ -14,11 +14,11 @@ import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { PARTIES, partyStatus, partyLine, outsideBrief, handoffStateText } from './outside-handoff.js';
-import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem, evidenceState, partyEvidence, partyEvidenceLine, readyToShare, missingAfterAnswer, missingAttention, evidenceSummary, evidenceReportLines, parseEvidenceReport, mergeEvidence } from './outside-evidence.js';
+import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem, setReceivedDate, FIRST_DAY as EVIDENCE_FIRST_DAY, evidenceState, partyEvidence, partyEvidenceLine, readyToShare, missingAfterAnswer, missingAttention, evidenceSummary, evidenceReportLines, parseEvidenceReport, mergeEvidence } from './outside-evidence.js';
 import { OUTSIDE_KEY, CHASE_DAYS, requestId, cleanRequests, setDate as setRequestDate, requestState as outsideRequestState, partyRequests, partyRequestLine, outsideAttention, requestReportLines, parseRequestReport, mergeRequests } from './outside-requests.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
-import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext, findByNonce, parseNonceSearch, offersNonceSearch, walletQueue, queuePageItems, queueSummary, pageMatch } from './tx-tracker.js';
+import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext, findByNonce, parseNonceSearch, offersNonceSearch, walletQueue, queuePageItems, queueSummary, pageMatch, queueAutoDue, queueChange } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retryText } from './reconcile.js';
 import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
@@ -45,6 +45,7 @@ const providers = new Map();
 let signInInfo = null;
 let lastBalances = { eth: null, usdc: null };
 let autoLastRun = null, autoRunning = false;
+let queueAutoLast = null, queueAutoRunning = false; // "Check the wallet's numbers" automatic re-check
 function selectTab(name) {
   for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
@@ -820,6 +821,34 @@ async function autoCheckTick() {
   finally { autoRunning = false; autoLastRun = Date.now(); updateWalletControls(); }
 }
 setInterval(autoCheckTick, 5000);
+// Automatic re-check of "Check the wallet's numbers". Reads only; never runs through run() so buttons
+// and keyboard focus are left alone; pauses while hidden, busy, disconnected or on another network.
+async function queueAutoTick() {
+  const entry = queueEntry;
+  if (!entry?.auto || queueAutoRunning) return;
+  const page = queuePageItems(journal.values(), entry.queue, entry.network.id);
+  if (!queueAutoDue({ enabled: entry.auto, hidden: document.hidden, busy, connected: Boolean(connection?.address), sameNetwork: connection?.network?.id === entry.network.id && selectedNetwork().id === entry.network.id, queue: entry.queue, pageWaiting: page.waiting.length, lastRun: queueAutoLast, now: Date.now() })) return;
+  queueAutoRunning = true;
+  const expected = generation, checkSession = () => { if (expected !== generation) throw new Error('Your session changed. Sign in again.'); };
+  const active = $('#queue-result').contains(document.activeElement) ? document.activeElement : null, hadFocus = active?.id || '';
+  const caret = active && typeof active.selectionStart === 'number' ? [active.selectionStart, active.selectionEnd] : null;
+  try {
+    const q = await checkQueue(checkSession, entry.queue.from), now = queueEntry;
+    if (now) {
+      const left = q.waiting + queuePageItems(journal.values(), q, now.network.id).waiting.length;
+      now.autoNote = `Automatic check at ${new Date(now.checkedAt).toLocaleTimeString()}${now.change ? ' (what changed is shown above).' : ': no change yet. Checking again in 30 seconds.'}${left ? '' : ' Nothing is waiting, so the automatic re-check turned itself off.'}`;
+      if (!left) now.auto = false;
+      setText('#queue-status', `${queueSummary(q, queuePageItems(journal.values(), q, now.network.id)).title}.`);
+    }
+  } catch (error) {
+    if (expected === generation && queueEntry) { queueEntry.autoNote = `Automatic check paused: ${errorMessage(error)}`; }
+  } finally {
+    queueAutoRunning = false; queueAutoLast = Date.now();
+    if (expected === generation) { renderQueue(); const back = hadFocus ? document.getElementById(hadFocus) : null; if (back) { back.focus(); if (caret) try { back.setSelectionRange(...caret); } catch { /* not a text field */ } } }
+  }
+}
+setInterval(queueAutoTick, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) queueAutoTick(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) autoCheckTick(); });
 function trackTransaction(hash, label) {
   const entry = { hash, label, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null };
@@ -1084,7 +1113,7 @@ async function checkQueue(checkSession, wallet) {
   checkSession(); await current.assertCurrent(epoch);
   if (current !== connection) throw new Error('Wallet changed.');
   const keep = queueEntry && queueEntry.network.id === current.network.id && queueEntry.queue.from === queue.from ? queueEntry : null;
-  queueEntry = { network: current.network, queue, checkedAt: Date.now(), search: keep?.search || null, numberDraft: keep?.numberDraft ?? '' };
+  queueEntry = { network: current.network, queue, checkedAt: Date.now(), search: keep?.search || null, numberDraft: keep?.numberDraft ?? '', auto: keep?.auto || false, autoNote: '', change: keep ? queueChange(keep.queue, queue) : '' };
   return queue;
 }
 async function searchQueueNumber(checkSession, nonce) {
@@ -1182,6 +1211,17 @@ function renderQueue() {
     wrap.append(out);
   }
   box.append(wrap);
+  if (entry.change) box.append(guideEl('p', 'tx-detail queue-change', `Since the last check: ${entry.change}`));
+  // Optional automatic re-check while something is waiting (same 30-second rule as Track).
+  if (sum.state === 'waiting' || page.waiting.length || entry.auto) {
+    const autoWrap = guideEl('div', 'queue-auto'), lab = guideEl('label', 'tx-auto'), cb = guideEl('input', '');
+    cb.type = 'checkbox'; cb.id = 'queue-auto'; cb.checked = entry.auto; lab.htmlFor = 'queue-auto';
+    lab.append(cb, document.createTextNode(` Re-check this wallet every ${AUTO_CHECK_MS / 1000} seconds while something is waiting`));
+    const note = guideEl('p', 'hint queue-auto-status', entry.autoNote || (entry.auto ? `On: this wallet's numbers are read again every ${AUTO_CHECK_MS / 1000} seconds while this page is open and visible. Reading never signs, speeds up or cancels anything.` : ''));
+    note.id = 'queue-auto-status'; note.setAttribute('aria-live', 'polite'); cb.setAttribute('aria-describedby', note.id);
+    cb.addEventListener('change', () => { entry.auto = cb.checked; entry.autoNote = cb.checked ? '' : 'Automatic re-check of this wallet is off.'; queueAutoLast = Date.now(); renderQueue(); $('#queue-auto')?.focus(); });
+    autoWrap.append(lab, note); box.append(autoWrap);
+  }
   box.append(guideEl('p', 'tx-when', `Checked ${new Date(entry.checkedAt).toLocaleTimeString()} on ${entry.network.name} at block ${q.block}`));
   const row = guideEl('div', 'lookup-actions');
   const again = guideEl('button', 'text-button tx-check', 'Check again'); again.type = 'button'; again.id = 'queue-again'; again.disabled = busy || !connection?.address;
@@ -1888,18 +1928,38 @@ function evidenceTracker(party, r) {
     const li = el('li'), input = el('input'), lab = el('label');
     input.type = 'checkbox'; input.id = `${base}-${it.id}`; input.checked = st.received.includes(it); input.setAttribute('aria-describedby', stateLine.id);
     lab.htmlFor = input.id; lab.append(input, el('span', '', it.label));
+    const saveAndSay = () => {
+      const saved = saveOutsideEvidence(), ns = evidenceState(id, outsideEvidence.entries[id]);
+      outsideStatus = `${party.name}, ${shortStep(r.step)}: ${ns.label}.${saved ? '' : ' This browser blocked saving; the ticks last until you close the page.'}`;
+    };
     input.addEventListener('change', () => {
       const res = setEvidenceItem(outsideEvidence, id, it.id, input.checked);
       if (res.error) outsideStatus = res.error;
       else if (!res.unchanged) {
         outsideEvidence = res.log;
-        const saved = saveOutsideEvidence(), ns = evidenceState(id, outsideEvidence.entries[id]);
-        outsideStatus = `${party.name}, ${shortStep(r.step)}: ${ns.label}.${saved ? '' : ' This browser blocked saving; the ticks last until you close the page.'}`;
+        // A new tick is dated today; change the date next to it if it arrived earlier.
+        if (input.checked) { const d = setReceivedDate(outsideEvidence, id, it.id, localToday(), { today: localToday() }); if (!d.error && !d.unchanged) outsideEvidence = d.log; }
+        saveAndSay();
       }
       renderLaunchOverview(); renderLaunchOrder();
       document.getElementById(input.id)?.focus();
     });
-    li.append(lab); ul.append(li);
+    li.append(lab);
+    if (input.checked) {
+      const when = el('span', 'lo-ev-when'), dl = el('label', '', 'Arrived'), di = el('input');
+      di.type = 'date'; di.id = `${input.id}-on`; di.min = EVIDENCE_FIRST_DAY; di.max = localToday(); di.value = st.receivedOn[it.id] || ''; dl.htmlFor = di.id;
+      di.setAttribute('aria-label', `Date it arrived: ${it.label}`); di.setAttribute('aria-describedby', 'lo-out-status');
+      di.addEventListener('change', () => {
+        const res = setReceivedDate(outsideEvidence, id, it.id, di.value, { today: localToday() });
+        if (res.error) outsideStatus = res.error;
+        else if (res.unchanged) outsideStatus = 'Date unchanged.';
+        else { outsideEvidence = res.log; saveAndSay(); }
+        renderLaunchOverview(); renderLaunchOrder();
+        document.getElementById(di.id)?.focus();
+      });
+      when.append(dl, di); li.append(when);
+    }
+    ul.append(li);
   }
   box.append(ul);
   if (missing) {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-10 02:30 UTC — [autopilot] Owner workspace: watch a stuck wallet by itself, and date the evidence you receive
+
+- Crypto tools → Track → "Check the wallet's numbers": when something is waiting, you can tick **"Re-check this wallet every 30 seconds while something is waiting"**. FYNX reads the wallet again on its own and says what changed since the last check ("Number 5 went through; number 6 is still waiting"). It pauses when the page is hidden, when you are doing something else, or when you switch network, and switches itself off once nothing is waiting. It only reads the network: nothing is signed, sped up or cancelled.
+- Pressing "Check again" yourself now also shows what changed since the previous check.
+- Launch readiness → Hand off to outside parties → "What came back": every piece you tick now gets an **"Arrived" date** (today by default; change it if it came earlier). The summary line shows when things arrived ("arrived 2026-11-03 to 2026-11-06", "last piece arrived …"), the copied evidence summary lists the date next to each piece, and the dates travel to your other devices inside the test report (older reports still work).
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools and Launch readiness tabs, after signing in).
+
 ## 2026-11-09 22:20 UTC — [autopilot] Owner workspace: see why a wallet's transactions are stuck
 
 - Crypto tools → Step 5 Track has a new section, **"Stuck or missing transaction? Check the wallet's numbers"**. Paste any wallet address (or press "Use my connected wallet") and press Check wallet: no transaction ID needed.
