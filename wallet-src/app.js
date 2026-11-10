@@ -27,6 +27,7 @@ import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryTex
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
+import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -229,10 +230,11 @@ function clearSecurity() {
 function securityState() {
   const user = auth?.currentUser;
   const providers = providerIds(), passkeys = session?.passkeys || [];
-  return { user, providers, passkeys, result: checkup({ emailVerified: !!user?.emailVerified, providers, passkeys, wallet: session?.wallet }), methods: signInMethods({ providers, passkeys }) };
+  return { user, providers, passkeys, result: checkup({ emailVerified: !!user?.emailVerified, providers, passkeys, wallet: session?.wallet, access: accessCheck(accessSummary(accessReview, accessToday())) }), methods: signInMethods({ providers, passkeys }) };
 }
 function securityFix(fix) {
   if (fix === 'wallet') { selectTab('wallet'); window.scrollTo(0, 0); return; }
+  if (fix === 'access') { openAccessService(accessSummary(accessReview, accessToday()).attention[0]?.service.id); return; }
   const button = $('#add-passkey'); button.scrollIntoView({ block: 'center' }); button.focus({ preventScroll: true });
 }
 function renderSecurityTimes() {
@@ -263,13 +265,14 @@ function renderSecurity() {
     const mark = document.createElement('span'); mark.className = 'sec-mark'; mark.setAttribute('aria-hidden', 'true'); mark.textContent = c.state === 'done' ? '✓' : c.state === 'info' ? 'i' : '!';
     const body = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('p');
     title.textContent = `${c.title}${c.state === 'todo' ? ' — to do' : ''}`; detail.textContent = c.detail; body.append(title, detail);
-    if (c.fix) { const b = document.createElement('button'); b.type = 'button'; b.className = 'text-button'; b.textContent = c.fix === 'wallet' ? 'Open Crypto tools ↗' : 'Go to Add a passkey ↓'; b.addEventListener('click', () => securityFix(c.fix)); body.append(b); }
+    if (c.fix) { const b = document.createElement('button'); b.type = 'button'; b.className = 'text-button'; b.textContent = c.fix === 'wallet' ? 'Open Crypto tools ↗' : c.fix === 'access' ? 'Go to the access review ↓' : 'Go to Add a passkey ↓'; b.addEventListener('click', () => securityFix(c.fix)); body.append(b); }
     li.append(mark, body); list.append(li);
   }
   const ways = $('#sec-methods'); ways.replaceChildren();
   const all = [['Google', providers.includes('google.com')], ['Email & password', providers.includes('password')], [passkeys.length ? (passkeys.length === 1 ? '1 passkey' : `${passkeys.length} passkeys`) : 'Passkey', passkeys.length > 0]];
   for (const [label, on] of all) { const li = document.createElement('li'); li.className = on ? 'is-on' : 'is-off'; li.textContent = `${on ? '✓' : '—'} ${label}${on ? '' : ' · not set up'}`; ways.append(li); }
   renderSecurityTests();
+  renderAccessReview();
   renderSecurityTimes();
 }
 // Identity-gate tests recorded right here; the same records as Launch readiness (this browser only).
@@ -314,6 +317,105 @@ $('#sec-copy').addEventListener('click', async () => {
   catch { setText('#sec-status', 'Copying was blocked by the browser.'); }
 });
 setInterval(renderSecurityTimes, 15000);
+// Owner access review: the outside accounts that control FYNX, reviewed every ACCESS_DAYS days.
+// Fixed answers only (no passwords, codes or free text), saved in this browser and carried by the test report.
+let accessReview = {};
+const accessOpen = new Set();
+try { accessReview = cleanReview(JSON.parse(localStorage.getItem(ACCESS_KEY) || 'null'), accessToday()); } catch { accessReview = {}; }
+function saveAccessReview() { try { if (Object.keys(accessReview).length) localStorage.setItem(ACCESS_KEY, JSON.stringify(accessReview)); else localStorage.removeItem(ACCESS_KEY); } catch { /* kept until the page closes */ } }
+const ACCESS_ANSWERS = { twoStep: [['yes', 'On'], ['no', 'Off'], ['unsure', 'Not sure']], codes: [['yes', 'Saved'], ['no', 'Not saved'], ['unsure', 'Not sure']] };
+const ACCESS_BADGE = { risk: 'Gap', overdue: 'Overdue', never: 'Not reviewed', check: 'Finish checking', soon: 'Due soon', ok: 'Reviewed', unused: 'Not used yet' };
+function renderAccessBadge(sum) {
+  const tab = document.querySelector('[data-tab="security"]'); if (!tab) return;
+  let badge = document.getElementById('sec-tab-badge');
+  if (!badge) { badge = guideEl('span', 'tab-badge'); badge.id = 'sec-tab-badge'; badge.hidden = true; tab.append(badge); }
+  const n = sum.urgent.length;
+  badge.hidden = !n; badge.textContent = n ? String(n) : ''; badge.className = `tab-badge ${sum.risk ? 'is-overdue' : 'is-due-soon'}`;
+  if (n) tab.setAttribute('aria-label', `Account security, ${n} ${n === 1 ? 'account needs' : 'accounts need'} attention in the access review`); else tab.removeAttribute('aria-label');
+}
+function openAccessService(id) {
+  const target = id || ACCESS_SERVICES[0].id; accessOpen.add(target);
+  if ($('#tab-security').hidden) selectTab('security'); else renderAccessReview();
+  const row = document.querySelector(`#ar-list [data-service="${CSS.escape(target)}"]`);
+  row?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  row?.querySelector('summary')?.focus({ preventScroll: true });
+}
+function setAccess(id, patch, focus, message) {
+  accessReview = updateService(accessReview, id, patch); saveAccessReview(); accessOpen.add(id);
+  if (session && !$('#tab-security').hidden) renderSecurity(); else renderAccessReview();
+  renderLaunch();
+  if (focus) document.querySelector(`#ar-list [data-service="${CSS.escape(id)}"] ${focus}`)?.focus({ preventScroll: true });
+  if (message) setText('#ar-status', message);
+}
+function renderAccessReview() {
+  const list = document.getElementById('ar-list'); if (!list) return;
+  const today = accessToday(), sum = accessSummary(accessReview, today);
+  renderAccessBadge(sum);
+  const score = $('#ar-score'); score.replaceChildren();
+  score.append(el('strong', '', `${sum.fine}/${sum.total}`), el('span', '', sum.total && sum.fine === sum.total ? 'all reviewed' : 'reviewed'));
+  score.setAttribute('aria-label', `${sum.fine} of ${sum.total} accounts reviewed in the last ${ACCESS_DAYS} days`);
+  score.className = `sec-score ${sum.total && sum.fine === sum.total ? 'is-done' : ''}`;
+  setText('#ar-summary', sum.total && sum.fine === sum.total ? `Everything is reviewed. The next review is due by ${sum.nextDue}.` : [sum.risk && `${sum.risk} with a gap`, sum.overdue && `${sum.overdue} overdue`, sum.never && `${sum.never} not reviewed yet`, sum.check && `${sum.check} to finish checking`, sum.soon && `${sum.soon} due within two weeks`].filter(Boolean).join(' · '));
+  list.replaceChildren();
+  for (const r of sum.rows) {
+    const { service: s, entry: e } = r, li = el('li', `ar-row is-${r.counted || r.state === 'unused' ? r.state : 'optional'}`); li.dataset.service = s.id;
+    const det = el('details', 'ar-details'); det.open = accessOpen.has(s.id);
+    det.addEventListener('toggle', () => { if (det.open) accessOpen.add(s.id); else accessOpen.delete(s.id); });
+    const sumEl = el('summary', 'ar-summary'), head = el('div', 'ar-head');
+    head.append(el('strong', 'ar-name', s.name), el('span', `launch-mark ar-badge is-${!r.counted && r.state === 'never' ? 'unused' : r.state}`, !r.counted && r.state === 'never' ? 'Optional' : ACCESS_BADGE[r.state]));
+    sumEl.append(head, el('span', 'ar-state', !r.counted && r.state === 'never' ? 'Review it once you use it, or mark it Not used yet.' : r.title));
+    det.append(sumEl);
+    const body = el('div', 'ar-body');
+    body.append(el('p', 'ar-controls', s.controls), el('p', 'hint', `What to check: ${s.check}`));
+    const links = el('div', 'ar-links');
+    for (const [label, href] of s.links) { const a = el('a', 'text-button', `${label} ↗`); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; links.append(a); }
+    body.append(links);
+    if (!s.core) {
+      const lab = el('label', 'ar-unused'), box = el('input'); box.type = 'checkbox'; box.checked = !!e?.unused; box.className = 'ar-unused-box';
+      box.addEventListener('change', () => setAccess(s.id, { unused: box.checked }, '.ar-unused-box', box.checked ? `${s.name}: marked not used yet. It is left out of the review.` : `${s.name}: in use. Review it like the others.`));
+      lab.append(box, document.createTextNode(' Not used yet (leave it out of the review)')); body.append(lab);
+    }
+    if (!e?.unused) {
+      const grid = el('div', 'ar-grid');
+      for (const [field, title] of [['twoStep', s.id === 'github' ? 'Two-factor authentication' : '2-step verification'], ['codes', 'Recovery or backup codes saved offline']]) {
+        const wrap = el('div', 'ar-field'), group = el('div', 'launch-results'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', `${s.name}: ${title}`);
+        wrap.append(el('span', 'ar-label', title));
+        for (const [value, label] of ACCESS_ANSWERS[field]) {
+          const b = el('button', `launch-result ar-answer result-${value === 'yes' ? 'pass' : value === 'no' ? 'fail' : 'skip'}`, label); b.type = 'button'; b.dataset.field = field; b.dataset.value = value;
+          b.setAttribute('aria-pressed', String(e?.[field] === value));
+          b.addEventListener('click', () => setAccess(s.id, { [field]: e?.[field] === value ? '' : value }, `[data-field="${field}"][data-value="${value}"]`, `${s.name}: ${title.toLowerCase()} ${e?.[field] === value ? 'cleared' : `recorded as ${label.toLowerCase()}`}.`));
+          group.append(b);
+        }
+        wrap.append(group); grid.append(wrap);
+      }
+      const pw = el('div', 'ar-field'), pid = `ar-people-${s.id}`, pl = el('label', 'ar-label', 'People with access'); pl.htmlFor = pid;
+      const people = el('input', 'ar-people'); people.id = pid; people.type = 'number'; people.min = '0'; people.max = '99'; people.step = '1'; people.inputMode = 'numeric'; people.value = e?.people ?? '';
+      people.addEventListener('change', () => {
+        const v = people.value.trim(), n = Number(v);
+        if (v && !(Number.isInteger(n) && n >= 0 && n <= 99)) { setText('#ar-status', 'Type a whole number from 0 to 99.'); people.value = e?.people ?? ''; return; }
+        setAccess(s.id, { people: v === '' ? null : n }, '.ar-people', v === '' ? `${s.name}: people count cleared.` : `${s.name}: ${n} ${n === 1 ? 'person' : 'people'} with access recorded.`);
+      });
+      pw.append(pl, people, el('span', 'hint', s.people)); grid.append(pw);
+      const dw = el('div', 'ar-field'), did = `ar-date-${s.id}`, dl = el('label', 'ar-label', 'Last reviewed'); dl.htmlFor = did;
+      const date = el('input', 'ar-date'); date.id = did; date.type = 'date'; date.min = '2024-01-01'; date.max = today; date.value = e?.reviewed || '';
+      date.addEventListener('change', () => {
+        if (date.value && (date.value > today || date.value < '2024-01-01')) { setText('#ar-status', 'Choose a date from 2024 up to today.'); date.value = e?.reviewed || ''; return; }
+        setAccess(s.id, { reviewed: date.value }, '.ar-date', date.value ? `${s.name}: last reviewed ${date.value}.` : `${s.name}: review date cleared.`);
+      });
+      const now = el('button', 'button secondary ar-today', 'Reviewed today'); now.type = 'button';
+      now.addEventListener('click', () => setAccess(s.id, { reviewed: 'today' }, '.ar-today', `${s.name}: reviewed today. Next review by ${new Date(Date.parse(`${today}T00:00:00Z`) + ACCESS_DAYS * 86400000).toISOString().slice(0, 10)}.`));
+      const row = el('div', 'ar-date-row'); row.append(date, now);
+      dw.append(dl, row); grid.append(dw);
+      body.append(grid);
+    }
+    det.append(body); li.append(det); list.append(li);
+  }
+}
+$('#ar-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(accessSummaryText(accessReview, accessToday())); setText('#ar-status', 'Access review copied. It has account names and answers only: no addresses, passwords or codes.'); }
+  catch { setText('#ar-status', 'Copying was blocked by the browser.'); }
+});
+
 // Real-money sending on Base: the owner's own switch and limits, stored by the server after a fresh sign-in.
 function renderNetworkNote() {
   const network = selectedNetwork(), m = mainnetPolicy();
@@ -1448,6 +1550,9 @@ function openPrivacyRequest(id) {
 }
 renderPrivacyBadge();
 setInterval(renderPrivacyBadge, 60 * 60000);
+const renderAccessTabBadge = () => renderAccessBadge(accessSummary(accessReview, accessToday()));
+renderAccessTabBadge();
+setInterval(renderAccessTabBadge, 60 * 60000);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function renderPrivacyLog(focus) {
   const today = localToday(), s = logSummary(privacyLog, today);
@@ -1696,9 +1801,10 @@ function renderLaunchOverview() {
   stats.append(mine); box.append(stats);
   box.append(launchPaceBlock());
   const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), askAgain = outsideAskAgain(), share = outsideShare().slice(0, 2);
+  const access = accessSummary(accessReview, accessToday()).urgent.slice(0, 2);
   const run = testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null;
-  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', run || next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
-  if (run || next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length) {
+  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', run || next.length || privacy.next.length || access.length || chase.next.length || askAgain.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
+  if (run || next.length || privacy.next.length || access.length || chase.next.length || askAgain.next.length || share.length) {
     const list = el('ol');
     // A test session that is under way comes first: the owner is in the middle of it.
     if (run) {
@@ -1712,6 +1818,12 @@ function renderLaunchOverview() {
       const li = el('li'); const b = el('button', `text-button launch-next-link is-${item.state}`); b.type = 'button';
       b.append(el('span', 'launch-next-gate', `Privacy request · ${item.label}`), el('span', '', `${item.title}${item.ref ? ` (${item.ref})` : ''}: answer by ${item.due}`));
       b.addEventListener('click', () => openPrivacyRequest(item.id)); li.append(b); list.append(li);
+    }
+    // Then accounts that control FYNX with a security gap or an overdue review (Account security → access review).
+    for (const item of access) {
+      const li = el('li'); const b = el('button', `text-button launch-next-link ${item.state === 'risk' ? 'is-overdue' : 'is-due-soon'}`); b.type = 'button';
+      b.append(el('span', 'launch-next-gate', `Access review · ${item.service.id === 'inbox' ? 'Team inbox' : item.service.name}`), el('span', '', item.state === 'risk' ? `${item.title}: fix it, then record it in Account security.` : `${item.title}: check who has access and record it.`));
+      b.addEventListener('click', () => openAccessService(item.service.id)); li.append(b); list.append(li);
     }
     // Then outside requests that have had no answer for CHASE_DAYS: they also have a date.
     for (const item of chase.next) {
@@ -2348,7 +2460,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan)] });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan), ...accessReportLines(accessReview, accessToday())] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -2411,12 +2523,14 @@ function previewReport(text) {
   const rqIn = parseRequestReport(text), rqCount = Object.keys(rqIn.log.entries).length;
   const evIn = parseEvidenceReport(text), evCount = Object.keys(evIn.log.entries).length;
   const tmIn = parseTimingReport(text, launchPlan), tmCount = tmIn.count;
-  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const arIn = parseAccessReport(text, accessToday()), arCount = arIn.count;
+  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount && !arCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
   const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
   const rqm = mergeRequests(outsideRequests, rqIn.log), evm = mergeEvidence(outsideEvidence, evIn.log), tmm = mergeTimings(testTimings, tmIn.log, launchPlan);
-  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm };
+  const arm = mergeAccessReviews(accessReview, arIn.review, accessToday());
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm, access: arm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -2536,15 +2650,28 @@ function previewReport(text) {
     if (tl.children.length) box.append(tl);
     box.append(guideEl('p', 'hint', 'Only the step, the minutes and when each result was recorded travel. “Forget measured times” does not travel: do it on each device.'));
   }
+  if (arCount || arIn.unknown) {
+    const asum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', arm.added.length, 'new here'], ['is-update', arm.updated.length, 'changed later than this browser'], ['is-same', arm.same.length, 'already here'], ['is-kept', arm.kept.length, 'kept: this browser changed it later'], ['is-kept', arIn.unknown, `line${arIn.unknown === 1 ? '' : 's'} not understood`]]) if (n) asum.append(guideEl('li', cls, `${n} ${label}`));
+    box.append(guideEl('h4', '', `${arCount} access review answer${arCount === 1 ? '' : 's'} found in the report`), asum);
+    const al = guideEl('ul', 'launch-import-list'), states = accessSummary(arm.review, accessToday()).rows;
+    for (const kind of ['added', 'updated', 'kept']) for (const id of arm[kind]) {
+      const r = states.find(x => x.service.id === id), inc = arIn.review[id]; if (!r || !inc) continue;
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', r.service.name), guideEl('small', '', `${inc.unused ? 'Not used yet' : inc.reviewed ? `Reviewed ${inc.reviewed}` : 'Not reviewed'}${kind === 'kept' ? ' · this browser’s answers are newer and stay' : ''}`));
+      li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); al.append(li);
+    }
+    if (al.children.length) box.append(al);
+  }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi, access: ari } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
@@ -2556,8 +2683,9 @@ function previewReport(text) {
     if (asks) { outsideRequests = rqi.log; saveOutsideRequests(); }
     if (evTicks) { outsideEvidence = evi.log; saveOutsideEvidence(); }
     if (timesIn) { testTimings = tmi.log; saveTestTimings(); }
+    if (accessIn) { accessReview = ari.review; saveAccessReview(); renderAccessTabBadge(); renderSecurity(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times, the access review and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });

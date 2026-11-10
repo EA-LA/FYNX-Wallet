@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-10 18:30 UTC — [autopilot] Owner workspace: review the accounts that control FYNX
+
+- Account security → new **"Accounts that control FYNX"** box. It lists the accounts that could change FYNX without ever signing in to your workspace: your owner Google account, the Firebase / Google Cloud project, Google Cloud billing, GitHub, the team inbox, and (once you use them) Transak, Alchemy and CoinGecko.
+- For each one: what it controls, exactly what to check, and buttons that open its own security or "who has access" page. Then record 2-step verification (on / off / not sure), whether recovery codes are saved offline, how many people have access, and the date you reviewed it ("Reviewed today").
+- Each account shows a clear state: **Gap** (2-step off or no recovery codes), **Overdue** (more than 90 days since the last review), Not reviewed, Due soon, or Reviewed with the next due date. A score shows how many are done.
+- The Security checkup gets one more line for this. Gaps and overdue reviews appear in Launch readiness → "Your next steps", and a small number on the Account security tab tells you something needs a look.
+- "Copy access review" gives a short summary to share (no addresses, passwords or codes). Your answers travel to your other devices inside the test report, like your other results.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Account security tab, after signing in).
+
 ## 2026-11-10 14:45 UTC — [autopilot] Owner workspace: your measured test times now move between your devices
 
 - Launch readiness → the test report (Copy test report / Download report) now carries a **"Measured test times"** section: how long each launch test took in your finished test sessions. Only the step, the minutes and when the result was recorded go in; no notes.

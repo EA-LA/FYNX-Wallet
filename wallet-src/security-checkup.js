@@ -58,7 +58,8 @@ export function idleLeft(lastActivity, now = Date.now()) {
 export const minutesText = ms => { const m = Math.ceil(ms / 60000); return m <= 1 ? 'under a minute' : `${m} minutes`; };
 
 // The checkup list. Each check: id, state ('done' | 'todo' | 'info'), title, detail and an optional fix action.
-export function checkup({ emailVerified = false, providers = [], passkeys = [], wallet = null } = {}) {
+// access: an optional extra check (the owner access review), placed before the information line.
+export function checkup({ emailVerified = false, providers = [], passkeys = [], wallet = null, access = null } = {}) {
   const keys = Array.isArray(passkeys) ? passkeys.length : 0;
   const methods = signInMethods({ providers, passkeys });
   const hasPassword = (providers || []).includes('password'), hasGoogle = (providers || []).includes('google.com');
@@ -92,6 +93,7 @@ export function checkup({ emailVerified = false, providers = [], passkeys = [], 
       detail: 'This page keeps your sign-in in memory only and signs out after 15 minutes without activity or when the tab closes.',
     },
   ];
+  if (access) checks.splice(checks.length - 1, 0, access);
   const scored = checks.filter(c => c.state !== 'info');
   return { checks, done: scored.filter(c => c.state === 'done').length, total: scored.length };
 }
