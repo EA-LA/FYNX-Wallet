@@ -190,12 +190,17 @@ export function missingAfterAnswer(id, request, entry, today) {
   if (answered === null) return null;
   const st = evidenceState(id, entry);
   if (st.state === 'complete') return null;
-  const days = now === null ? 0 : Math.max(0, now - answered), askOn = dayString(answered + CHASE_DAYS), due = days >= CHASE_DAYS;
+  // Count from whichever came last: their answer or the last piece that arrived (a party still sending
+  // documents is not chased). A piece dated after today is ignored.
+  const lastDay = st.lastReceived ? dayNumber(st.lastReceived) : null;
+  const last = lastDay !== null && lastDay > answered && (now === null || lastDay <= now) ? st.lastReceived : '';
+  const from = last ? lastDay : answered, since = last ? `the last piece arrived on ${last}` : `their answer of ${request.answered}`;
+  const days = now === null ? 0 : Math.max(0, now - from), askOn = dayString(from + CHASE_DAYS), due = days >= CHASE_DAYS;
   const pieces = plural(st.missing.length, 'piece');
   const label = due
-    ? `${pieces} still missing ${plural(days, 'day')} after their answer of ${request.answered}: ask again for ${st.missing.length === 1 ? 'it' : 'them'}`
-    : `${pieces} still missing since their answer of ${request.answered} · ask again from ${askOn} if ${st.missing.length === 1 ? 'it has' : 'they have'} not arrived`;
-  return { id, due, days, askOn, answered: request.answered, missing: st.missing, nothingTicked: st.state === 'none', label };
+    ? `${pieces} still missing ${plural(days, 'day')} after ${since}: ask again for ${st.missing.length === 1 ? 'it' : 'them'}`
+    : `${pieces} still missing since ${since} · ask again from ${askOn} if ${st.missing.length === 1 ? 'it has' : 'they have'} not arrived`;
+  return { id, due, days, askOn, answered: request.answered, countedFrom: last || request.answered, lastArrived: last, missing: st.missing, nothingTicked: st.state === 'none', label };
 }
 // Open requests answered CHASE_DAYS or more ago with evidence still missing, longest first, for
 // "Your next steps". `open`: request ids whose checklist step is still open.

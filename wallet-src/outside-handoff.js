@@ -235,8 +235,11 @@ export function outsideBrief(plan, records = {}, partyId, answers = {}, { date =
     L.push('', `### ${shortStep(r.step)} (\`${r.key}\`)`, '', `Checklist step: ${clean(r.step.text)}`, '');
     const d = sent[r.key], ev = evidence[r.key];
     if (ev?.state !== 'complete') {
-      const since = d?.answered ? dayNumber(date.toISOString().slice(0, 10)) - dayNumber(d.answered) : 0;
-      if (d?.sent && d.answered && since >= ASK_AGAIN_DAYS) L.push(`Your answer of ${d.answered} is noted, thank you. Reminder: ${since} days later these points are still needed to close this step:`, '');
+      // Counted from the last piece that arrived when that came after their answer.
+      const today = dayNumber(date.toISOString().slice(0, 10)), lastDay = ev?.lastReceived ? dayNumber(ev.lastReceived) : null;
+      const fromLast = Boolean(d?.answered) && lastDay !== null && lastDay > dayNumber(d.answered) && lastDay <= today;
+      const since = d?.answered ? today - (fromLast ? lastDay : dayNumber(d.answered)) : 0;
+      if (d?.sent && d.answered && since >= ASK_AGAIN_DAYS) L.push(`Your answer of ${d.answered} is noted, thank you${fromLast ? `, as is what you sent up to ${ev.lastReceived}` : ''}. Reminder: ${since} days later these points are still needed to close this step:`, '');
       else if (d?.sent && d.answered) L.push(`Your answer of ${d.answered} is noted, thank you. These are the points still needed to close this step:`, '');
       else if (d?.sent) L.push(`Reminder: we first sent this request on ${d.sent}.`, '');
     }

@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-08",
+  "updated": "2026-11-10",
   "product": "FYNX Wallet",
   "operator": "FYNX finance world inc.",
   "marketPlan": "United States first; expand internationally only where the final product is permitted and supported.",
@@ -31,7 +31,11 @@
           "by": "you",
           "text": "On your phone, open the public website, join the waitlist with a test address ending in @example.com and confirm the success message.",
           "done": false,
-          "tab": "public"
+          "tab": "public",
+          "minutes": 5,
+          "needs": [
+            "phone"
+          ]
         },
         {
           "id": "find-remove",
@@ -41,7 +45,8 @@
             "website/join-phone"
           ],
           "done": false,
-          "tab": "registrations"
+          "tab": "registrations",
+          "minutes": 5
         }
       ]
     },
@@ -64,20 +69,26 @@
           "id": "google-desktop",
           "by": "you",
           "text": "Sign in with Google in a normal (not private) desktop browser. Note the browser and version.",
-          "done": false
+          "done": false,
+          "minutes": 3
         },
         {
           "id": "email-reset",
           "by": "you",
           "text": "Use “Set or reset an email password”, open the email, set a password, then sign in with email and password.",
-          "done": false
+          "done": false,
+          "minutes": 8,
+          "needs": [
+            "inbox"
+          ]
         },
         {
           "id": "passkey-add",
           "by": "you",
           "text": "Account security → Add a passkey on this computer and confirm it appears in the list.",
           "done": false,
-          "tab": "security"
+          "tab": "security",
+          "minutes": 3
         },
         {
           "id": "passkey-signin",
@@ -86,14 +97,19 @@
           "after": [
             "identity/passkey-add"
           ],
-          "done": false
+          "done": false,
+          "minutes": 3
         },
         {
           "id": "passkey-phone",
           "by": "you",
           "text": "Add a passkey on your iPhone or iPad in Safari and sign in with it.",
           "done": false,
-          "tab": "security"
+          "tab": "security",
+          "minutes": 8,
+          "needs": [
+            "phone"
+          ]
         },
         {
           "id": "passkey-remove",
@@ -103,19 +119,25 @@
             "identity/passkey-add"
           ],
           "done": false,
-          "tab": "security"
+          "tab": "security",
+          "minutes": 5
         },
         {
           "id": "idle",
           "by": "you",
           "text": "Leave the workspace untouched for 15 minutes and confirm it signs you out.",
-          "done": false
+          "done": false,
+          "minutes": 16
         },
         {
           "id": "other-account",
           "by": "you",
           "text": "Try to sign in with a Google account that is not the owner and confirm access is refused.",
-          "done": false
+          "done": false,
+          "minutes": 4,
+          "needs": [
+            "other-google"
+          ]
         }
       ]
     },
@@ -190,7 +212,11 @@
           "by": "you",
           "text": "Restore a test wallet from its recovery phrase in that wallet’s own app (never on FYNX) and confirm the same address appears in Crypto tools.",
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 15,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "embedded-review",
@@ -228,14 +254,22 @@
           "id": "test-funds",
           "by": "you",
           "text": "In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed in Base’s documentation.",
-          "done": false
+          "done": false,
+          "minutes": 15,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "verify-wallet",
           "by": "you",
           "text": "Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve. Confirm the wallet shows as verified.",
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 5,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "reject-sign",
@@ -245,14 +279,23 @@
             "signing/verify-wallet"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 3,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "receive-qr",
           "by": "you",
           "text": "Scan the Receive QR code with a phone wallet and confirm the address and network match exactly.",
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 5,
+          "needs": [
+            "test-wallet",
+            "phone"
+          ]
         },
         {
           "id": "send-eth",
@@ -263,7 +306,11 @@
             "signing/verify-wallet"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 8,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "send-usdc",
@@ -273,7 +320,11 @@
             "signing/send-eth"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 10,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "reject-send",
@@ -283,7 +334,11 @@
             "signing/verify-wallet"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 3,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "ledger",
@@ -293,14 +348,22 @@
             "signing/send-eth"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 10,
+          "needs": [
+            "ledger"
+          ]
         },
         {
           "id": "mainnet-check",
           "by": "you",
           "text": "Switch to Base mainnet and confirm sending and swapping stay disabled.",
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 3,
+          "needs": [
+            "test-wallet"
+          ]
         }
       ]
     },
@@ -333,7 +396,11 @@
             "signing/test-funds"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 10,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "lookup",
@@ -343,7 +410,8 @@
             "signing/send-eth"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 5
         },
         {
           "id": "history",
@@ -390,7 +458,8 @@
           "id": "partner",
           "by": "you",
           "text": "Create a Transak partner account and get its staging (test) API key and access token. Never paste them into chat or GitHub.",
-          "done": false
+          "done": false,
+          "minutes": 30
         },
         {
           "id": "allowlist",
@@ -408,7 +477,8 @@
           "after": [
             "fiat/partner"
           ],
-          "done": false
+          "done": false,
+          "minutes": 15
         },
         {
           "id": "redeploy",
@@ -428,7 +498,11 @@
             "fiat/allowlist"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 20,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "failures",
@@ -438,7 +512,11 @@
             "fiat/sandbox-test"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 15,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "approval",
@@ -476,7 +554,11 @@
             "signing/verify-wallet"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 5,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "swap-eth",
@@ -486,7 +568,11 @@
             "swaps/quote"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 8,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "swap-usdc",
@@ -496,7 +582,11 @@
             "swaps/swap-eth"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 12,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "revoke",
@@ -506,7 +596,11 @@
             "swaps/swap-usdc"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 5,
+          "needs": [
+            "test-wallet"
+          ]
         },
         {
           "id": "ledger",
@@ -516,7 +610,11 @@
             "swaps/swap-eth"
           ],
           "done": false,
-          "tab": "wallet"
+          "tab": "wallet",
+          "minutes": 10,
+          "needs": [
+            "ledger"
+          ]
         },
         {
           "id": "review",
@@ -598,7 +696,8 @@
           "id": "check-run",
           "by": "you",
           "text": "Open the GitHub Actions page and confirm the latest “Verify and publish FYNX Wallet” run is green.",
-          "done": false
+          "done": false,
+          "minutes": 2
         }
       ]
     },
@@ -660,7 +759,11 @@
           "after": [
             "operations/inbox"
           ],
-          "done": false
+          "done": false,
+          "minutes": 30,
+          "needs": [
+            "team"
+          ]
         }
       ]
     },

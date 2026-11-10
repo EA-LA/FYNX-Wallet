@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-10 06:45 UTC — [autopilot] Owner workspace: plan a test session that fits your time
+
+- Launch readiness → new **"Plan a test session"** box. Pick how long you have (15 minutes to 1.5 hours) and tick what you have with you (a test wallet, your phone or iPad, a Ledger, your email inbox, a second Google account, your team). FYNX picks the open launch tests that fit, puts any failed test first for a retest, and keeps the right order (for example, a passkey is added before you sign in with it). It also says what was left out and why.
+- Press **Start this session** to get a numbered list: the test you are on is highlighted, and you mark each one Passed, Failed or Not applicable right there. Results are the same ones the checklist and your test report use. It shows how many minutes are left, and "Copy session results" gives a short results-only summary to share.
+- A session in progress is the first item in "Your next steps", and it is still there after the automatic 15-minute sign-out.
+- Every one of your 33 tests now has a time estimate (and what it needs). The full checklist document shows it too, e.g. "about 5 min; needs: phone or iPad".
+- Outside hand-offs: the "ask again for missing pieces" reminder now waits 14 days after the *last piece that arrived*, not only after their first answer, so you do not chase someone who is still sending documents.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab, after signing in).
+
 ## 2026-11-10 02:30 UTC — [autopilot] Owner workspace: watch a stuck wallet by itself, and date the evidence you receive
 
 - Crypto tools → Track → "Check the wallet's numbers": when something is waiting, you can tick **"Re-check this wallet every 30 seconds while something is waiting"**. FYNX reads the wallet again on its own and says what changed since the last check ("Number 5 went through; number 6 is still waiting"). It pauses when the page is hidden, when you are doing something else, or when you switch network, and switches itself off once nothing is waiting. It only reads the network: nothing is signed, sped up or cancelled.

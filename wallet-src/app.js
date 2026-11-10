@@ -25,6 +25,7 @@ import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSub
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
+import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -1658,9 +1659,17 @@ function renderLaunchOverview() {
   mine.firstChild.append(el('strong', '', `${o.yoursDone}/${o.yours}`), el('span', '', `your tests and decisions done${o.failed ? ` · ${o.failed} failed` : ''}`));
   stats.append(mine); box.append(stats);
   const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), askAgain = outsideAskAgain(), share = outsideShare().slice(0, 2);
-  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
-  if (next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length) {
+  const run = testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null;
+  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', run || next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
+  if (run || next.length || privacy.next.length || chase.next.length || askAgain.next.length || share.length) {
     const list = el('ol');
+    // A test session that is under way comes first: the owner is in the middle of it.
+    if (run) {
+      const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
+      b.append(el('span', 'launch-next-gate', `Test session · ${run.recorded} of ${run.total} recorded`), el('span', '', run.current ? `Continue with: ${shortStep(run.current.step)}` : 'Every test is recorded: finish the session and copy the results.'));
+      b.addEventListener('click', () => { const box = $('#test-session'); box?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); (box?.querySelector('.ts-row.is-current .launch-result') || box?.querySelector('#ts-finish'))?.focus({ preventScroll: true }); });
+      li.append(b); list.append(li);
+    }
     // A privacy answer that is due comes first: it has a date, launch steps do not.
     for (const item of privacy.next) {
       const li = el('li'); const b = el('button', `text-button launch-next-link is-${item.state}`); b.type = 'button';
@@ -1678,7 +1687,7 @@ function renderLaunchOverview() {
     for (const item of askAgain.next) {
       const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
       const entry = stepIndex(launchPlan).get(item.stepKey), n = item.missing.length;
-      b.append(el('span', 'launch-next-gate', `Ask again for missing pieces · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: answered ${item.answered}, ${n} ${n === 1 ? 'piece' : 'pieces'} still missing after ${item.days} days`));
+      b.append(el('span', 'launch-next-gate', `Ask again for missing pieces · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: answered ${item.answered}${item.lastArrived ? `, last piece arrived ${item.lastArrived}` : ''}, ${n} ${n === 1 ? 'piece' : 'pieces'} still missing after ${item.days} days`));
       b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey, true)); li.append(b); list.append(li);
     }
     // Then requests whose evidence has all come back while the step is still open: share the documents.
@@ -1820,7 +1829,7 @@ function outsideBox(previewOpen = false) {
   }
   wrap.append(pick);
   wrap.append(el('p', 'lo-out-who', `Who: ${s.contact.text}`));
-  wrap.append(el('p', 'hint lo-req-hint', `Record the day you send each request and the day the answer arrives. After ${CHASE_DAYS} days without an answer the request shows “Send a reminder” here and in Your next steps, and the copied list says when you first asked. The same happens when they answered but pieces of evidence are still missing ${CHASE_DAYS} days later. Dates only, kept in this browser and carried in your test report.`));
+  wrap.append(el('p', 'hint lo-req-hint', `Record the day you send each request and the day the answer arrives. After ${CHASE_DAYS} days without an answer the request shows “Send a reminder” here and in Your next steps, and the copied list says when you first asked. The same happens when they answered but pieces of evidence are still missing ${CHASE_DAYS} days after their answer (or after the last piece that arrived, if that is later). Dates only, kept in this browser and carried in your test report.`));
   const ol = el('ul', 'lo-out-steps');
   for (const r of s.rows) {
     const li = el('li', `lo-out-step is-${r.state}`);
@@ -2014,6 +2023,154 @@ function gateBlockedLine(item) {
   });
   return line;
 }
+// Test session planner: one sitting's worth of the owner's open tests, in a sensible order.
+let testSession = null;
+try { testSession = cleanSession(JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'), launchPlan); } catch { testSession = null; }
+const sessionDraft = { minutes: 30, have: new Set(testSession?.have || ['test-wallet']) };
+let sessionStatus = '';
+function saveTestSession() { try { if (testSession) localStorage.setItem(SESSION_KEY, JSON.stringify(testSession)); else localStorage.removeItem(SESSION_KEY); } catch { sessionStatus = 'This browser blocked saving. The session lasts until you close the page.'; } }
+function sessionNeeds(needs) {
+  const wrap = el('span', 'ts-needs');
+  for (const n of needs) wrap.append(el('span', 'ts-need', needShort[n]));
+  return wrap;
+}
+async function copySession(text, done) {
+  try { await navigator.clipboard.writeText(text); sessionStatus = done; }
+  catch { sessionStatus = 'Copying was blocked by the browser. Use Copy test report further down instead.'; }
+  renderTestSession();
+}
+function recordSessionStep(key, result) {
+  const entry = launchIndex.get(key); if (!entry) return;
+  const prev = launchRecords[key] || { result: '', note: '', at: 0 }, rec = launchRecords[key];
+  const fresh = Boolean(rec?.result) && (rec.at || 0) >= (testSession?.started || 0);
+  const next = { ...prev, result: fresh && rec.result === result ? '' : result, at: Date.now() };
+  if (!next.result && !next.note) delete launchRecords[key]; else launchRecords[key] = next;
+  saveLaunchRecords();
+  const p = sessionProgress(testSession, launchPlan, launchRecords);
+  sessionStatus = next.result ? `${resultLabels[next.result]}: ${shortStep(entry.step)}. ${p.complete ? 'Every test in this session is recorded.' : `${p.total - p.recorded} to go.`}` : `Result cleared: ${shortStep(entry.step)}.`;
+  renderLaunch(); renderCryptoTests();
+  const box = $('#test-session');
+  (box?.querySelector('.ts-row.is-current .launch-result') || box?.querySelector('#ts-finish') || box?.querySelector(`[data-key="${CSS.escape(key)}"] .launch-result`))?.focus({ preventScroll: false });
+}
+function renderSessionPlanner(box) {
+  box.append(el('div', 'lo-head'));
+  box.firstChild.append(el('h3', '', 'Plan a test session'), el('p', 'hint', 'Say how long you have and what is at hand. FYNX picks your open tests that fit, failed ones first for a retest, in the order the checklist suggests (a passkey is added before you sign in with it). Times are estimates.'));
+  const form = el('div', 'ts-form');
+  const lenSet = el('fieldset', 'ts-set'); lenSet.append(el('legend', '', 'How long do you have?'));
+  const chips = el('div', 'ts-chips');
+  for (const m of LENGTHS) {
+    const b = el('button', 'launch-chip', m < 60 ? `${m} min` : `${m / 60 === 1 ? '1 hour' : `${m / 60} hours`}`); b.type = 'button'; b.setAttribute('aria-pressed', String(sessionDraft.minutes === m));
+    b.addEventListener('click', () => { sessionDraft.minutes = m; renderTestSession(); $('#test-session')?.querySelector('.ts-chips [aria-pressed="true"]')?.focus(); });
+    chips.append(b);
+  }
+  lenSet.append(chips);
+  const haveSet = el('fieldset', 'ts-set'); haveSet.append(el('legend', '', 'What do you have with you?'));
+  const list = el('div', 'ts-have');
+  for (const [n, label] of Object.entries(NEEDS)) {
+    const l = el('label', 'ts-check'), c = el('input'); c.type = 'checkbox'; c.checked = sessionDraft.have.has(n); c.dataset.need = n;
+    c.addEventListener('change', () => { if (c.checked) sessionDraft.have.add(n); else sessionDraft.have.delete(n); renderTestSession(); $('#test-session')?.querySelector(`[data-need="${n}"]`)?.focus(); });
+    l.append(c, el('span', '', label)); list.append(l);
+  }
+  haveSet.append(list); form.append(lenSet, haveSet); box.append(form);
+  const planned = planSession(launchPlan, launchRecords, { minutes: sessionDraft.minutes, have: [...sessionDraft.have] });
+  if (!planned.openTests) { box.append(el('p', 'muted', 'All your tests are recorded. Copy the test report below and share it so the checklist evidence can be updated.')); return; }
+  const head = el('p', 'ts-total');
+  head.append(el('strong', '', planned.steps.length ? `${planned.steps.length} ${planned.steps.length === 1 ? 'test' : 'tests'} · about ${planned.total} of ${planned.minutes} minutes` : 'Nothing fits this session yet'), el('span', 'muted', ` · ${planned.openTests} open ${planned.openTests === 1 ? 'test' : 'tests'} in all`));
+  box.append(head);
+  if (planned.steps.length) {
+    const ol = el('ol', 'ts-plan');
+    for (const s of planned.steps) {
+      const li = el('li', `ts-plan-row${s.retest ? ' is-failed' : ''}`);
+      const b = el('button', 'text-button lo-link'); b.type = 'button';
+      b.append(el('span', 'lo-meta', `${s.retest ? 'Retest · ' : ''}${s.gate.title} · about ${s.minutes} min`), el('span', 'lo-text', shortStep(s.step)));
+      b.addEventListener('click', () => openStep(s.key));
+      li.append(b); if (s.needs.length) li.append(sessionNeeds(s.needs)); ol.append(li);
+    }
+    box.append(ol);
+  } else box.append(el('p', 'muted', planned.gear.length ? 'Your open tests need something you have not ticked above, or more time.' : 'Your open tests need more time than this, or wait on steps by others first.'));
+  const out = [];
+  if (planned.gear.length) out.push(['gear', `${planned.gear.length} need something you did not tick`, planned.gear.map(s => `${shortStep(s.step)} (needs ${s.missing.map(n => needShort[n]).join(', ')})`)]);
+  if (planned.noTime.length) out.push(['time', `${planned.noTime.length} did not fit the time`, planned.noTime.map(s => `${shortStep(s.step)} (about ${s.minutes} min)`)]);
+  if (planned.waiting.length) out.push(['waiting', `${planned.waiting.length} wait on another step first`, planned.waiting.map(s => `${shortStep(s.step)} (after: ${s.on.map(o => shortStep(o.step)).join('; ')})`)]);
+  if (out.length) {
+    const d = el('details', 'ts-out'); d.append(el('summary', '', `Left out: ${out.map(o => o[1]).join(' · ')}`));
+    for (const [, title, rows] of out) { d.append(el('h4', '', title)); const ul = el('ul'); for (const r of rows) ul.append(el('li', '', r)); d.append(ul); }
+    box.append(d);
+  }
+  if (planned.elsewhere) box.append(el('p', 'hint', `${planned.elsewhere} of your open steps are decisions, sign-offs or paperwork rather than tests. They are answered in the decision worksheet below or in the checklist.`));
+  const actions = el('div', 'actions');
+  const start = el('button', 'button', 'Start this session'); start.type = 'button'; start.id = 'ts-start'; start.disabled = !planned.steps.length;
+  start.addEventListener('click', () => {
+    testSession = startSession(planned, { minutes: sessionDraft.minutes, have: [...sessionDraft.have] }); saveTestSession();
+    sessionStatus = `Session started: ${planned.steps.length} ${planned.steps.length === 1 ? 'test' : 'tests'}. Record each result here as you go.`;
+    renderLaunch(); $('#test-session')?.querySelector('.ts-row.is-current .launch-result')?.focus();
+  });
+  const copy = el('button', 'button secondary', 'Copy plan'); copy.type = 'button'; copy.disabled = !planned.steps.length;
+  copy.addEventListener('click', () => copySession(planMarkdown(planned, { have: [...sessionDraft.have] }), 'Plan copied. Paste it into your notes to keep beside you.'));
+  actions.append(start, copy); box.append(actions);
+}
+function renderSessionRun(box) {
+  const p = sessionProgress(testSession, launchPlan, launchRecords);
+  const head = el('div', 'lo-head');
+  head.append(el('h3', '', testSession.finished ? 'Test session finished' : 'Test session in progress'), el('p', 'hint', `Started ${new Date(testSession.started).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · planned ${testSession.minutes} minutes. Results are the same as the checklist below and stay in this browser. Add notes (browser, device, transaction ID) in the checklist with “Add a note”.`));
+  box.append(head);
+  box.append(progressBar(p.recorded, p.total, `${p.recorded} of ${p.total} tests recorded`));
+  const line = el('p', 'ts-total');
+  line.append(el('strong', '', `${p.recorded} of ${p.total} recorded`), el('span', 'muted', ` · ${p.passed} passed · ${p.failed} failed · ${p.skipped} not applicable${p.complete ? '' : ` · about ${p.minutesLeft} min left`}`));
+  box.append(line);
+  const ol = el('ol', 'ts-run');
+  for (const r of p.rows) {
+    const current = !testSession.finished && p.current?.key === r.key;
+    const li = el('li', `ts-row${current ? ' is-current' : ''}${r.recorded ? ` is-${r.result}` : ''}`); li.dataset.key = r.key;
+    const top = el('div', 'ts-row-top');
+    top.append(el('span', 'lo-meta', `${current ? 'Now · ' : ''}${r.gate.title} · about ${r.minutes} min`), el('span', 'launch-mark', r.recorded ? resultLabels[r.result] : current ? 'Up next' : 'To do'));
+    li.append(top, el('p', 'launch-step-text', r.step.text));
+    if (r.needs.length) li.append(sessionNeeds(r.needs));
+    const controls = el('div', 'launch-step-controls');
+    const group = el('div', 'launch-results'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Result: ${shortStep(r.step)}`);
+    for (const result of RESULTS) {
+      const b = el('button', `launch-result result-${result}`, resultLabels[result]); b.type = 'button';
+      b.setAttribute('aria-pressed', String(r.recorded && r.result === result));
+      b.addEventListener('click', () => recordSessionStep(r.key, result)); group.append(b);
+    }
+    controls.append(group);
+    if (r.step.tab) {
+      const go = el('button', 'text-button launch-go', `Open ${tabLabels[r.step.tab]} ↗`); go.type = 'button';
+      go.addEventListener('click', () => { if (r.step.tab === 'public') window.open('./', '_blank', 'noopener'); else { selectTab(r.step.tab); window.scrollTo(0, 0); } });
+      controls.append(go);
+    }
+    if (r.key === DRILL_STEP) { const go = el('button', 'text-button launch-go', 'Run it with the practice guide ↓'); go.type = 'button'; go.addEventListener('click', () => openDrill()); controls.append(go); }
+    const note = el('button', 'text-button launch-go', launchRecords[r.key]?.note ? 'Edit note in the checklist ↓' : 'Add a note in the checklist ↓'); note.type = 'button';
+    note.addEventListener('click', () => { openStep(r.key); document.querySelector(`#launch-checklist [data-step="${CSS.escape(r.key)}"] .launch-note`)?.focus({ preventScroll: true }); });
+    controls.append(note); li.append(controls); ol.append(li);
+  }
+  box.append(ol);
+  const actions = el('div', 'actions');
+  if (!testSession.finished) {
+    const finish = el('button', p.complete ? 'button' : 'button secondary', p.complete ? 'Finish session' : 'Finish early'); finish.type = 'button'; finish.id = 'ts-finish';
+    finish.addEventListener('click', () => { testSession = { ...testSession, finished: Date.now() }; saveTestSession(); sessionStatus = `Session finished: ${p.passed} passed, ${p.failed} failed, ${p.skipped} not applicable${p.total - p.recorded ? `, ${p.total - p.recorded} not recorded` : ''}.`; renderTestSession(); $('#ts-copy')?.focus(); });
+    actions.append(finish);
+  }
+  const copy = el('button', testSession.finished ? 'button' : 'button secondary', 'Copy session results'); copy.type = 'button'; copy.id = 'ts-copy';
+  copy.addEventListener('click', () => copySession(sessionSummary(testSession, launchPlan, launchRecords), 'Session results copied (results only, no notes). Share them, or the full test report, so the checklist evidence can be updated.'));
+  const again = el('button', 'text-button', testSession.finished ? 'Plan another session' : 'Stop and plan again'); again.type = 'button';
+  again.addEventListener('click', () => {
+    if (!testSession.finished && p.recorded && !window.confirm('Stop this session? The results you recorded are kept.')) return;
+    sessionDraft.minutes = testSession.minutes; sessionDraft.have = new Set(testSession.have); testSession = null; saveTestSession();
+    sessionStatus = 'Session closed. Your recorded results are kept.'; renderTestSession(); $('#ts-start')?.focus();
+  });
+  actions.append(copy, again); box.append(actions);
+  if (testSession.finished && p.failed) box.append(el('p', 'hint', 'Failed tests come first in your next session, for a retest once the problem is fixed.'));
+}
+function renderTestSession() {
+  const box = $('#test-session'); if (!box) return;
+  const wasOpen = box.querySelector('.ts-out')?.open;
+  box.replaceChildren();
+  if (testSession) renderSessionRun(box); else renderSessionPlanner(box);
+  const out = box.querySelector('.ts-out'); if (out && wasOpen) out.open = true;
+  const status = el('p', 'status'); status.id = 'ts-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = sessionStatus; sessionStatus = '';
+  box.append(status);
+}
 function renderLaunchFilters() {
   const nav = $('#launch-filters'); nav.replaceChildren();
   for (const key of Object.keys(groupLabels)) {
@@ -2084,7 +2241,7 @@ function stepRow(gate, step) {
 function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   const open = new Set([...document.querySelectorAll('#launch-checklist details[open]')].map(d => d.dataset.gate));
   if (keepOpen) open.add(keepOpen);
-  renderLaunchOverview(); renderLaunchOrder(); renderLaunchFilters();
+  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderLaunchFilters();
   const list = $('#launch-checklist'); list.replaceChildren();
   for (const item of launchPlan.items) {
     if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;
