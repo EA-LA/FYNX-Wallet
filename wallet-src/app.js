@@ -28,6 +28,7 @@ import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultO
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
+import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -483,7 +484,7 @@ let lastPortfolio = null, lastHistory = null, lastReconcile = null;
 const historyAuto = { key: '', attempts: 0, cancelled: false, timer: 0, generation: -1, dueAt: 0 };
 function clearPortfolio() {
   lastPortfolio = null; lastHistory = null; lastReconcile = null; clearReconcile();
-  $('#pf-rows').replaceChildren(); $('#pf-history-list').replaceChildren(); show('#pf-table', false); show('#pf-total', false);
+  $('#pf-rows').replaceChildren(); $('#pf-history-list').replaceChildren(); show('#pf-table', false); show('#pf-total', false); show('#hx-tools', false); historyEditing = '';
   for (const id of ['#pf-total', '#pf-prices', '#pf-status']) setText(id, '');
 }
 $('#pf-load').addEventListener('click', event => run(event.currentTarget, async checkSession => {
@@ -520,19 +521,109 @@ $('#pf-history').addEventListener('click', event => run(event.currentTarget, asy
 }, '#pf-status'));
 async function loadHistory(chainId, checkSession, auto = false) {
   const data = await serverCall({ action: 'history', chainId }, '#pf-status'); checkSession(); if (!data) return false;
-  const list = $('#pf-history-list'); list.replaceChildren();
-  if (!data.items.length) list.append(el('li', 'pf-empty', `No ETH or USDC transfers on ${data.network} for this wallet yet.`));
-  for (const item of data.items) {
-    const li = el('li', `pf-tx is-${item.direction}`), main = el('div');
-    const other = item.direction === 'in' ? item.from : item.to;
-    main.append(el('strong', '', `${item.direction === 'in' ? 'Received' : 'Sent'} ${amountText(item.amount)} ${item.token}`), el('span', 'hint', `${item.direction === 'in' ? 'From' : 'To'} ${other ? `${other.slice(0, 6)}…${other.slice(-4)}` : 'unknown'} · ${item.time ? new Date(item.time).toLocaleString() : `block ${item.block ?? '—'}`}`));
+  lastHistory = data; renderHistory();
+  setText('#pf-status', `${auto ? 'History loaded again automatically: ' : ''}${data.items.length} transfer${data.items.length === 1 ? '' : 's'} on ${data.network}${data.more ? ' (newest 100 shown)' : ''}.`);
+  renderReconcile();
+  return true;
+}
+// History tools (wallet-src/history-tools.js): filter, exact totals, months, the wallets you deal with, your own names
+// for them (this browser only), CSV and a summary without addresses. Read-only: nothing is signed or sent.
+const NAMES_KEY = 'fynx-owner-wallet-names-v1';
+let walletNames = {}, historyEditing = '';
+try { walletNames = cleanLabels(JSON.parse(localStorage.getItem(NAMES_KEY) || '{}')); } catch { walletNames = {}; }
+function saveWalletNames() { try { if (Object.keys(walletNames).length) localStorage.setItem(NAMES_KEY, JSON.stringify(walletNames)); else localStorage.removeItem(NAMES_KEY); return true; } catch { return false; } }
+const historyFilter = () => ({ direction: $('#hx-direction').value, token: $('#hx-token').value, query: $('#hx-query').value, labels: walletNames });
+const shortId = a => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : 'unknown');
+const utcDay = iso => (iso ? iso.slice(0, 10) : '—');
+function renderHistory() {
+  const data = lastHistory, list = $('#pf-history-list'); list.replaceChildren();
+  if (!data) { show('#hx-tools', false); return; }
+  const all = cleanTransfers(data.items), filter = historyFilter(), shown = filterTransfers(all, filter);
+  show('#hx-tools', all.length > 0);
+  if (!all.length) list.append(el('li', 'pf-empty', `No ETH or USDC transfers on ${data.network} for this wallet yet.`));
+  else if (!shown.length) list.append(el('li', 'pf-empty', 'No transfers match these filters.'));
+  for (const item of shown) {
+    const li = el('li', `pf-tx is-${item.direction}`), main = el('div'), name = labelOf(walletNames, item.other);
+    main.append(el('strong', '', `${item.direction === 'in' ? 'Received' : 'Sent'} ${item.amount} ${item.token}`), el('span', 'hint', `${item.direction === 'in' ? 'From' : 'To'} ${name ? `${name} (${shortId(item.other)})` : shortId(item.other)} · ${item.time ? new Date(item.time).toLocaleString() : `block ${item.block ?? '—'}`}`));
     const link = el('a', 'text-button', 'View ↗'); link.href = `${data.explorer}/tx/${item.hash}`; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.setAttribute('aria-label', `View transaction ${item.hash.slice(0, 10)} on the explorer`);
     li.append(el('span', 'pf-dir', item.direction === 'in' ? '↓' : '↑'), main, link); li.firstChild.setAttribute('aria-hidden', 'true'); list.append(li);
   }
-  setText('#pf-status', `${auto ? 'History loaded again automatically: ' : ''}${data.items.length} transfer${data.items.length === 1 ? '' : 's'} on ${data.network}${data.more ? ' (newest 100 shown)' : ''}.`);
-  lastHistory = data; renderReconcile();
-  return true;
+  if (!all.length) return;
+  setText('#hx-count', `${isFiltered(filter) ? `Showing ${shown.length} of ${all.length}` : `${all.length}`} transfer${all.length === 1 && !isFiltered(filter) ? '' : 's'} on ${data.network}${data.more ? ' · the newest 100 are loaded, older ones are not counted' : ''}.`);
+  const body = $('#hx-totals'); body.replaceChildren();
+  const rows = historyTotals(shown);
+  if (!rows.length) { const tr = el('tr'), td = el('td', '', 'Nothing to add up.'); td.colSpan = 4; tr.append(td); body.append(tr); }
+  for (const r of rows) {
+    const tr = el('tr');
+    for (const [label, text] of [['Asset', r.token], ['Received', `${r.received} (${r.countIn})`], ['Sent', `${r.sent} (${r.countOut})`], ['Net', r.net]]) { const td = el('td', '', text); td.dataset.label = label; tr.append(td); }
+    body.append(tr);
+  }
+  const months = $('#hx-months'); months.replaceChildren();
+  for (const m of byMonth(shown)) {
+    const li = el('li'); li.append(el('strong', '', m.label), el('span', 'hint', `${m.count} transfer${m.count === 1 ? '' : 's'} · ${m.tokens.map(t => `${t.token} in ${t.received} / out ${t.sent}`).join(' · ')}`)); months.append(li);
+  }
+  const people = counterparties(shown, walletNames);
+  setText('#hx-people-title', `Wallets you transact with (${people.length})`);
+  const plist = $('#hx-people'); plist.replaceChildren();
+  for (const p of people) {
+    const li = el('li', `hx-person${p.once ? ' is-once' : ''}`), main = el('div');
+    const head = el('strong', '', p.label || p.short);
+    main.append(head);
+    if (p.label) main.append(el('span', 'hint hx-addr', p.address));
+    else if (p.address) main.append(el('span', 'hint hx-addr', p.address));
+    main.append(el('span', 'hint', `${p.received} received · ${p.sent} sent · ${p.tokens.map(t => `${t.token} net ${t.net}`).join(' · ')} · ${p.first && p.last && utcDay(p.first) !== utcDay(p.last) ? `${utcDay(p.first)} to ${utcDay(p.last)}` : utcDay(p.last)} (UTC)`));
+    if (p.once) main.append(el('span', 'hx-once', p.sent ? 'Single transfer: check this address is one you meant to use' : 'Single transfer'));
+    const side = el('div', 'hx-side');
+    if (p.address) {
+      if (historyEditing === p.address.toLowerCase()) {
+        const form = el('form', 'hx-name-form'), id = `hx-name-${p.address.slice(2, 10)}`;
+        const label = el('label', 'visually-hidden-label', `Your name for ${p.short}`); label.htmlFor = id;
+        const input = el('input'); input.id = id; input.maxLength = 40; input.value = p.label; input.autocomplete = 'off'; input.placeholder = 'e.g. Ledger test account';
+        const save = el('button', 'button secondary', 'Save'); save.type = 'submit';
+        const cancel = el('button', 'text-button', 'Cancel'); cancel.type = 'button';
+        const finish = message => { historyEditing = ''; renderHistory(); setText('#hx-status', message); const again = [...$('#hx-people').querySelectorAll('[data-address]')].find(b => b.dataset.address === p.address.toLowerCase()); again?.focus(); };
+        cancel.addEventListener('click', () => finish(''));
+        input.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); finish(''); } });
+        form.addEventListener('submit', event => {
+          event.preventDefault();
+          const result = setLabel(walletNames, p.address, input.value);
+          if (result.error) { setText('#hx-status', result.error); input.focus(); return; }
+          walletNames = result.labels;
+          finish(saveWalletNames() ? (labelOf(walletNames, p.address) ? `Saved the name for ${p.short} in this browser.` : `Removed the name for ${p.short}.`) : 'This browser blocked saving. The name lasts until you reload.');
+        });
+        form.append(label, input, save, cancel); side.append(form);
+        setTimeout(() => input.focus(), 0);
+      } else {
+        const edit = el('button', 'text-button', p.label ? 'Rename' : 'Name this wallet'); edit.type = 'button'; edit.dataset.address = p.address.toLowerCase();
+        edit.setAttribute('aria-label', `${p.label ? 'Rename' : 'Name'} wallet ${p.short}`);
+        edit.addEventListener('click', () => { historyEditing = p.address.toLowerCase(); setText('#hx-status', ''); renderHistory(); });
+        side.append(edit);
+      }
+    }
+    li.append(main, side); plist.append(li);
+  }
+  $('#hx-forget').hidden = !Object.keys(walletNames).length;
 }
+for (const id of ['#hx-direction', '#hx-token']) $(id).addEventListener('change', () => { historyEditing = ''; renderHistory(); });
+$('#hx-query').addEventListener('input', () => { historyEditing = ''; renderHistory(); });
+$('#hx-clear').addEventListener('click', () => { $('#hx-direction').value = 'all'; $('#hx-token').value = 'all'; $('#hx-query').value = ''; historyEditing = ''; renderHistory(); $('#hx-direction').focus(); });
+$('#hx-csv').addEventListener('click', () => {
+  if (!lastHistory) return;
+  const shown = filterTransfers(cleanTransfers(lastHistory.items), historyFilter());
+  const url = URL.createObjectURL(new Blob([historyCSV(shown, lastHistory, { labels: walletNames, known: pilotRegister.entries })], { type: 'text/csv;charset=utf-8' })), a = document.createElement('a');
+  a.href = url; a.download = historyCsvName(lastHistory); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setText('#hx-status', `Downloaded ${shown.length} transfer${shown.length === 1 ? '' : 's'} as a spreadsheet (exact amounts, full addresses and transaction IDs). Keep it private.`);
+});
+$('#hx-copy').addEventListener('click', async () => {
+  if (!lastHistory) return;
+  const filter = historyFilter(), shown = filterTransfers(cleanTransfers(lastHistory.items), filter);
+  try { await navigator.clipboard.writeText(historySummary(shown, lastHistory, { filter, more: lastHistory.more })); setText('#hx-status', 'Summary copied: totals and months only, no wallet addresses or transaction IDs.'); }
+  catch { setText('#hx-status', 'Copying was blocked by the browser. Use “Download spreadsheet” instead.'); }
+});
+$('#hx-forget').addEventListener('click', () => {
+  if (!window.confirm('Forget every wallet name you saved in this browser?')) return;
+  walletNames = {}; saveWalletNames(); historyEditing = ''; renderHistory(); setText('#hx-status', 'Wallet names forgotten in this browser.'); $('#hx-query').focus();
+});
 // Automatic re-load (wallet-src/reconcile.js historyRetry): only for confirmed transactions the provider has not listed
 // yet, after a short wait, at most twice for the same transactions. Paused while the page is hidden or busy; stops on sign-out.
 function stopHistoryAuto(reset = true) {

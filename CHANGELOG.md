@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-11 02:16 UTC — [autopilot] Owner workspace: transaction history you can filter, add up, name and download
+
+- Crypto tools → Portfolio & history: after "Load history", a new tools box appears above the list of transfers.
+- **Filter** the history: received only / sent only, ETH or USDC, and a search box that finds a wallet address, a transaction ID or a name you gave a wallet. "Clear filters" resets it.
+- **Totals** for what is shown: received, sent and net per asset, exact to the last digit, with the number of transfers.
+- **By month** (UTC): how many transfers and how much went in and out each month.
+- **Wallets you transact with**: every wallet on the other side, with transfers each way, net per asset and dates. Give any wallet your own name (for example "Ledger test account"); the name then shows in the list, the search and the spreadsheet. Names are saved in this browser only; addresses, emails, keys and recovery phrases are refused as names. A wallet you sent to only once is marked so you can double-check it.
+- **Download spreadsheet (.csv)**: the filtered transfers with exact amounts, full addresses, transaction IDs, explorer links, your names and whether FYNX sent it — safe to open in Excel or Google Sheets. **Copy summary** gives totals and months only, with no addresses or IDs.
+- Read-only: nothing is signed, sent or changed on any network, and no backend change is needed.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools tab → Portfolio & history, after signing in and loading the history).
+
 ## 2026-11-10 18:30 UTC — [autopilot] Owner workspace: review the accounts that control FYNX
 
 - Account security → new **"Accounts that control FYNX"** box. It lists the accounts that could change FYNX without ever signing in to your workspace: your owner Google account, the Firebase / Google Cloud project, Google Cloud billing, GitHub, the team inbox, and (once you use them) Transak, Alchemy and CoinGecko.
