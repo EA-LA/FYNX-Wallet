@@ -25,6 +25,7 @@ import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSub
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
+import { progressUpdate, updateMarkdown, updateHeadline, PERIODS as UPDATE_PERIODS } from './progress-update.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
@@ -1946,6 +1947,7 @@ function renderLaunchOverview() {
     wrap.append(list);
   } else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
   box.append(wrap);
+  renderLaunchUpdate();
   renderLaunchDates();
 }
 // Launch order: what can be done now, what frees the most other work, and what still waits on another step.
@@ -2297,6 +2299,73 @@ function renderLaunchDates() {
   });
   actions.append(ics, copy); box.append(actions, status,
     el('p', 'hint', 'The calendar file holds only fixed words (request types, party names, step and service names). Your references and notes stay in this browser.'));
+}
+// "Progress update": a plain-language note on the last 7, 14 or 30 days for the team, an adviser or an
+// investor. Fixed words, dates and counts only (wallet-src/progress-update.js); notes and references stay out.
+let updateDays = 7, updatePreviewOpen = false;
+function currentUpdate() {
+  let drillState = null; try { drillState = drill; } catch { drillState = null; }
+  return progressUpdate({ plan: launchPlan, records: launchRecords, answers: decisionAnswers, requests: outsideRequests, privacy: privacyLog, drill: drillState, dates: ownerDates(), timings: testTimings, days: updateDays, today: localToday() });
+}
+function renderLaunchUpdate(focusSel = '') {
+  const box = document.getElementById('launch-update'); if (!box) return;
+  const u = currentUpdate(), status = el('p', 'hint ld-status'); status.id = 'pu-status'; status.setAttribute('role', 'status');
+  box.replaceChildren();
+  const head = el('div', 'lo-head');
+  head.append(el('h3', '', 'Progress update'), el('p', 'hint', 'A short note on how the launch is going, ready to paste into an email or chat for your team, an adviser or an investor. It is written from what this browser has recorded: test results, outside requests, dates and counts.'));
+  box.append(head);
+  const pick = el('div', 'pu-periods'); pick.setAttribute('role', 'group'); pick.setAttribute('aria-label', 'Period');
+  for (const d of UPDATE_PERIODS) {
+    const b = el('button', `pu-period${d === updateDays ? ' is-on' : ''}`, `Last ${d} days`); b.type = 'button'; b.dataset.days = String(d);
+    b.setAttribute('aria-pressed', String(d === updateDays));
+    b.addEventListener('click', () => { updateDays = d; renderLaunchUpdate(`[data-days="${d}"]`); });
+    pick.append(b);
+  }
+  box.append(pick, el('p', 'pu-headline', updateHeadline(u)));
+  const facts = el('ul', 'pace-facts pu-facts');
+  const fact = (big, small) => { const li = el('li'); li.append(el('strong', '', big), el('span', '', small)); facts.append(li); };
+  const moved = u.overall.percent - u.overall.startPercent;
+  fact(`${u.overall.percent}%`, moved > 0 ? `done, up from ${u.overall.startPercent}%` : 'done, no change in this period');
+  fact(String(u.finished.length), `${u.finished.length === 1 ? 'step' : 'steps'} finished${u.failed.length ? ` · ${u.failed.length} to retest` : ''}`);
+  const waiting = u.outside.reduce((n, p) => n + p.rows.filter(r => r.state !== 'answered').length, 0), answered = u.outside.reduce((n, p) => n + p.rows.filter(r => r.state === 'answered').length, 0);
+  fact(String(waiting), `${waiting === 1 ? 'request' : 'requests'} waiting on outside parties${answered ? ` · ${answered} answered` : ''}`);
+  fact(String(u.coming.length), `${u.coming.length === 1 ? 'date' : 'dates'} overdue or in the next 14 days`);
+  box.append(facts);
+  if (u.finished.length) {
+    const list = el('ul', 'pu-done'); list.setAttribute('aria-label', `Finished in the last ${u.days} days`);
+    for (const f of u.finished.slice(0, 5)) {
+      const li = el('li'); const b = el('button', 'text-button lo-link'); b.type = 'button';
+      b.append(el('span', 'lo-meta', `${f.result === 'skip' ? 'Not applicable' : 'Passed'} · ${shortDay(new Date(f.at).toISOString().slice(0, 10))} · ${f.gate}`), el('span', 'lo-text', f.text));
+      b.addEventListener('click', () => openStep(f.key)); li.append(b); list.append(li);
+    }
+    box.append(list);
+    if (u.finished.length > 5) box.append(el('p', 'hint', `and ${u.finished.length - 5} more in the full update.`));
+  } else box.append(el('p', 'muted pu-empty', `Nothing finished in the last ${u.days} days. Record results in the checklist below (or plan a test session) and they show up here.`));
+  const text = () => updateMarkdown(currentUpdate());
+  const actions = el('div', 'od-actions');
+  const copy = el('button', 'button secondary', 'Copy update'); copy.type = 'button'; copy.id = 'pu-copy';
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(text()); status.textContent = 'Update copied. It contains fixed words, dates and counts only: no notes, references, email or wallet addresses.'; }
+    catch { status.textContent = 'Copying was blocked by the browser. Use Download instead.'; }
+  });
+  const short = el('button', 'text-button', 'Copy one-line summary'); short.type = 'button'; short.id = 'pu-short';
+  short.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(updateHeadline(currentUpdate())); status.textContent = 'One-line summary copied.'; }
+    catch { status.textContent = 'Copying was blocked by the browser.'; }
+  });
+  const dl = el('button', 'text-button', 'Download (.md)'); dl.type = 'button'; dl.id = 'pu-download';
+  dl.addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([text()], { type: 'text/markdown;charset=utf-8' })), a = document.createElement('a');
+    a.href = url; a.download = `fynx-progress-update-${localToday()}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = 'Update downloaded.';
+  });
+  actions.append(copy, short, dl);
+  const preview = el('details', 'lo-part pu-preview'); preview.append(el('summary', '', 'Preview the update'));
+  const pre = el('pre', 'lo-eng-pre'); preview.append(pre);
+  preview.addEventListener('toggle', () => { updatePreviewOpen = preview.open; if (preview.open) pre.textContent = text(); });
+  if (updatePreviewOpen) { preview.open = true; pre.textContent = text(); }
+  box.append(actions, preview, status, el('p', 'hint', 'Results recorded on another device count once you bring them in with “Bring in results from another device” below. The update never claims a launch date or that FYNX is live.'));
+  if (focusSel) box.querySelector(focusSel)?.focus();
 }
 function openOutsideRequest(partyId, stepKey, toEvidence = false) {
   outsideParty = partyId; renderLaunchOrder();

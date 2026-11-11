@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-11 10:20 UTC — [autopilot] Owner workspace: a ready-to-send progress update
+
+- Launch readiness tab (https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness): a new **Progress update** box, between the overview and Your dates.
+- Pick **Last 7 days**, **Last 14 days** or **Last 30 days**. It writes a short note on how the launch is going: how far along it is and how much that moved in the period, which steps you finished, which tests need a retest, your next steps, what each outside party (lawyer, payment provider, security reviewer, data provider) has been asked and answered, dates overdue or coming up in the next two weeks, waitlist privacy request counts and incident-practice follow-ups.
+- **Copy update** (for an email, Slack or a Google Doc), **Copy one-line summary** (for a quick chat message) or **Download (.md)**. A preview shows exactly what will be sent.
+- The finished steps in the box are links that take you to the step in the checklist.
+- Only fixed words, dates and counts go in: your notes, references, email and wallet addresses never do, and it never claims a launch date or that FYNX is live.
+
 ## 2026-11-11 06:45 UTC — [autopilot] Owner workspace: all your dates in one place, and in your calendar
 
 - Launch readiness tab: a new **Your dates** box right under the overview. It gathers everything in the workspace that has a date, soonest first, with anything overdue at the top in red:
