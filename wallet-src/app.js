@@ -31,6 +31,7 @@ import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultO
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
+import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
@@ -168,6 +169,7 @@ function clearPrivateWorkspace() {
   show('#workspace', false); show('#signin', true);
 }
 function updateWalletControls() {
+  try { renderRecipientCheck(); } catch { /* runs again once the page has finished loading */ }
   const connected = !!connection?.address && !!session;
   $('#verify-wallet').disabled = busy || !connected;
   for (const id of ['#refresh-balance', '#copy-address', '#review-transfer']) $(id).disabled = busy || !verifiedAddress || connection?.address !== verifiedAddress;
@@ -543,11 +545,15 @@ function renderHistory() {
   if (!data) { show('#hx-tools', false); return; }
   const all = cleanTransfers(data.items), filter = historyFilter(), shown = filterTransfers(all, filter);
   show('#hx-tools', all.length > 0);
+  const suspects = poisoningSuspects(all, recipientContext()), flagged = suspectSet(suspects);
+  renderPoisoning(suspects, data);
   if (!all.length) list.append(el('li', 'pf-empty', `No ETH or USDC transfers on ${data.network} for this wallet yet.`));
   else if (!shown.length) list.append(el('li', 'pf-empty', 'No transfers match these filters.'));
   for (const item of shown) {
-    const li = el('li', `pf-tx is-${item.direction}`), main = el('div'), name = labelOf(walletNames, item.other);
+    const suspect = item.direction === 'in' && flagged.has(String(item.other || '').toLowerCase());
+    const li = el('li', `pf-tx is-${item.direction}${suspect ? ' is-suspect' : ''}`), main = el('div'), name = labelOf(walletNames, item.other);
     main.append(el('strong', '', `${item.direction === 'in' ? 'Received' : 'Sent'} ${item.amount} ${item.token}`), el('span', 'hint', `${item.direction === 'in' ? 'From' : 'To'} ${name ? `${name} (${shortId(item.other)})` : shortId(item.other)} · ${item.time ? new Date(item.time).toLocaleString() : `block ${item.block ?? '—'}`}`));
+    if (suspect) main.append(el('span', 'hx-flag', 'Look-alike sender: do not copy this address'));
     const link = el('a', 'text-button', 'View ↗'); link.href = `${data.explorer}/tx/${item.hash}`; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.setAttribute('aria-label', `View transaction ${item.hash.slice(0, 10)} on the explorer`);
     li.append(el('span', 'pf-dir', item.direction === 'in' ? '↓' : '↑'), main, link); li.firstChild.setAttribute('aria-hidden', 'true'); list.append(li);
   }
@@ -575,6 +581,7 @@ function renderHistory() {
     if (p.label) main.append(el('span', 'hint hx-addr', p.address));
     else if (p.address) main.append(el('span', 'hint hx-addr', p.address));
     main.append(el('span', 'hint', `${p.received} received · ${p.sent} sent · ${p.tokens.map(t => `${t.token} net ${t.net}`).join(' · ')} · ${p.first && p.last && utcDay(p.first) !== utcDay(p.last) ? `${utcDay(p.first)} to ${utcDay(p.last)}` : utcDay(p.last)} (UTC)`));
+    if (p.address && flagged.has(p.address.toLowerCase())) main.append(el('span', 'hx-flag', 'Look-alike: not a wallet you use'));
     if (p.once) main.append(el('span', 'hx-once', p.sent ? 'Single transfer: check this address is one you meant to use' : 'Single transfer'));
     const side = el('div', 'hx-side');
     if (p.address) {
@@ -606,7 +613,47 @@ function renderHistory() {
     li.append(main, side); plist.append(li);
   }
   $('#hx-forget').hidden = !Object.keys(walletNames).length;
+  renderRecipientCheck();
 }
+// Look-alike ("address poisoning") activity in the loaded history (wallet-src/address-check.js). Read-only.
+function renderPoisoning(suspects, data) {
+  const list = $('#hx-poison-list'); list.replaceChildren();
+  show('#hx-poison', suspects.length > 0);
+  if (!suspects.length) return;
+  setText('#hx-poison-title', `Look-alike activity (${suspects.length})`);
+  for (const sx of suspects) {
+    const li = el('li'), like = sx.lookalikeOf;
+    li.append(el('strong', '', like ? `${sx.short} imitates ${like.label ? `“${like.label}” (${like.short})` : like.short}` : `${sx.short} sent you a zero-value transfer`));
+    li.append(el('span', 'hint hx-addr', sx.address));
+    li.append(el('span', 'hint', `${sx.received} incoming transfer${sx.received === 1 ? '' : 's'}${sx.zeroValue ? ` · ${sx.zeroValue} worth exactly 0` : ''}${sx.last ? ` · last ${utcDay(sx.last)} (UTC)` : ''} · on ${data.network}`));
+    const link = el('a', 'text-button', 'View newest on the explorer ↗'); link.href = `${data.explorer}/tx/${sx.hashes[0]}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    li.append(link); list.append(li);
+  }
+}
+// Recipient check under the Step 3 address box: format, built-in checksum, contracts, look-alikes, known wallets.
+// Information only: it never fills in, changes or blocks the transfer; the transfer review keeps its own checks.
+function recipientContext() {
+  let register = []; try { register = pilotRegister?.entries || []; } catch { register = []; }
+  return { chainId: connection?.network?.id ?? Number($('#network-choice')?.value), own: connection?.address ? [connection.address] : [], labels: walletNames, transfers: lastHistory ? cleanTransfers(lastHistory.items) : [], register, historyLoaded: Boolean(lastHistory) };
+}
+let lastRecipientSay = '';
+function renderRecipientCheck() {
+  const box = $('#rcpt-check'), input = $('#recipient');
+  if (!box || !input) return;
+  const result = checkRecipient(input.value, recipientContext());
+  box.hidden = result.state === 'empty';
+  if (result.state === 'empty') { setText('#rcpt-say', ''); lastRecipientSay = ''; return; }
+  box.className = `rcpt-check is-${result.state}`;
+  const badge = { invalid: 'Check', danger: 'Stop', caution: 'Careful', known: 'Known' }[result.state];
+  setText('#rcpt-badge', badge); setText('#rcpt-title', result.title);
+  const list = $('#rcpt-lines'); list.replaceChildren();
+  for (const line of result.lines) list.append(el('li', `is-${line.tone}`, line.text));
+  setText('#rcpt-grouped', result.grouped || ''); show('#rcpt-grouped-wrap', Boolean(result.grouped));
+  // Speak only when the verdict changes, not on every keystroke.
+  const say = `Recipient check: ${badge}. ${result.title}.`;
+  if (say !== lastRecipientSay && result.state !== 'invalid') { lastRecipientSay = say; setText('#rcpt-say', say); }
+}
+$('#recipient').addEventListener('input', renderRecipientCheck);
 for (const id of ['#hx-direction', '#hx-token']) $(id).addEventListener('change', () => { historyEditing = ''; renderHistory(); });
 $('#hx-query').addEventListener('input', () => { historyEditing = ''; renderHistory(); });
 $('#hx-clear').addEventListener('click', () => { $('#hx-direction').value = 'all'; $('#hx-token').value = 'all'; $('#hx-query').value = ''; historyEditing = ''; renderHistory(); $('#hx-direction').focus(); });

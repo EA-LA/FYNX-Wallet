@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-11 18:20 UTC — [autopilot] Owner workspace: recipient check and look-alike scam warnings in Crypto tools
+
+- **Step 3 (Send)** now checks the recipient address as you paste it, before you review anything: a green **Known** note for wallets you named, own or sent to before (with how many times and when), an amber **Careful** note for a new recipient (send a small amount first), and a red **Stop** for a typo in the address's capital letters, a burn address, a token or swap contract (lost if you send to it) or a **look-alike** of a wallet you use.
+- Look-alikes are the "address poisoning" scam: someone sends you a tiny or zero transfer from an address that starts and ends like a wallet you really use, hoping you copy the wrong one from your history later. FYNX now spots them.
+- The address is also shown in groups of four (0x 036C bD53 …) so you can compare it with your wallet or Ledger screen.
+- **Portfolio & history**: a red "Look-alike activity" box lists any look-alike senders and zero-value transfers in the loaded history, and those rows and wallets are marked "do not copy this address".
+- Information only: it never changes or blocks a transfer; the existing review and limits stay exactly as they were.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html → Crypto tools → Step 3 and Portfolio & history (sign in first).
+
 ## 2026-11-11 14:40 UTC — [autopilot] Owner workspace: see everything that's been finished, week by week
 
 - Launch readiness has a new **"What's been finished"** panel: every finished launch step with its date, grouped by week, newest first. It shows your own test results and the work engineering and outside parties have finished, with a filter for each.
