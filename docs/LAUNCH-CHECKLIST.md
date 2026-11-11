@@ -1,6 +1,6 @@
 # FYNX Wallet launch checklist
 
-Updated 2026-11-10. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
+Updated 2026-11-11. Operator name supplied: **FYNX finance world inc.**; registration and permissions remain unverified.
 
 FYNX is its own product. Owner crypto tools support Ethereum Sepolia and Base Sepolia test transactions, plus read-only Base mainnet. Public access stays on the waitlist. No MoonPay integration is planned.
 
@@ -35,8 +35,8 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (2 of 4 recorded as done):**
 
-- [x] Engineering: Public website and waitlist published from GitHub Pages.
-- [x] Engineering: Registrations saved with consent, notice version and a 365-day expiry.
+- [x] Engineering: Public website and waitlist published from GitHub Pages. _(done 2026-11-05)_
+- [x] Engineering: Registrations saved with consent, notice version and a 365-day expiry. _(done 2026-11-05)_
 - [ ] You: On your phone, open the public website, join the waitlist with a test address ending in @example.com and confirm the success message. _(about 5 min; needs: phone or iPad)_
 - [ ] You: In the Waitlist tab, find that test address, check its consent details, then remove it. _(about 5 min)_ _(after: On your phone, open the public website, join the waitlist with a test address ending in…)_
 
@@ -50,7 +50,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (1 of 9 recorded as done):**
 
-- [x] Engineering: Google, email/password and passkey sign-in built; virtual passkey and owner-only authorization tests pass.
+- [x] Engineering: Google, email/password and passkey sign-in built; virtual passkey and owner-only authorization tests pass. _(done 2026-11-05)_
 - [ ] You: Sign in with Google in a normal (not private) desktop browser. Note the browser and version. _(about 3 min)_
 - [ ] You: Use “Set or reset an email password”, open the email, set a password, then sign in with email and password. _(about 8 min; needs: email inbox)_
 - [ ] You: Account security → Add a passkey on this computer and confirm it appears in the list. _(about 3 min)_
@@ -85,7 +85,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (1 of 4 recorded as done):**
 
-- [x] Engineering: Version one connects an existing wallet; FYNX never creates, stores or asks for recovery words.
+- [x] Engineering: Version one connects an existing wallet; FYNX never creates, stores or asks for recovery words. _(done 2026-11-05)_
 - [ ] You: Decide: is connecting your own wallet (for example MetaMask or Ledger) enough for launch, or must FYNX create wallets inside the app? Write your decision in the note.
 - [ ] You: Restore a test wallet from its recovery phrase in that wallet’s own app (never on FYNX) and confirm the same address appears in Crypto tools. _(about 15 min; needs: test wallet)_
 - [ ] Outside party: Only if FYNX must create wallets: independent review of key generation, encrypted storage, backup, export and recovery before any build. _(after: Decide: is connecting your own wallet (for example MetaMask or Ledger) enough for launch,…)_
@@ -100,8 +100,8 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (2 of 11 recorded as done):**
 
-- [x] Engineering: ETH and USDC transfers with review, simulation, limits and receipts passed on an isolated Base Sepolia copy.
-- [x] Engineering: Sending on Base mainnet is blocked; only test networks can sign.
+- [x] Engineering: ETH and USDC transfers with review, simulation, limits and receipts passed on an isolated Base Sepolia copy. _(done 2026-11-05)_
+- [x] Engineering: Sending on Base mainnet is blocked; only test networks can sign. _(done 2026-11-05)_
 - [ ] You: In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed in Base’s documentation. _(about 15 min; needs: test wallet)_
 - [ ] You: Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve. Confirm the wallet shows as verified. _(about 5 min; needs: test wallet)_
 - [ ] You: Repeat, but reject the ownership signature in the wallet. Confirm the page says nothing was approved. _(about 3 min; needs: test wallet)_ _(after: Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve)_
@@ -122,13 +122,13 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (3 of 8 recorded as done):**
 
-- [x] Engineering: Live ETH and USDC balances on Ethereum Sepolia, Base Sepolia and Base (read-only).
-- [x] Engineering: Session transaction list and transaction lookup.
+- [x] Engineering: Live ETH and USDC balances on Ethereum Sepolia, Base Sepolia and Base (read-only). _(done 2026-11-05)_
+- [x] Engineering: Session transaction list and transaction lookup. _(done 2026-11-05)_
 - [ ] You: Compare the balances shown in Crypto tools with the block explorer on both test networks. _(about 10 min; needs: test wallet)_ _(after: Send, receive and signing → In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed…)_
 - [ ] You: Paste a transaction ID into “Track confirmation” and confirm the status matches the explorer. _(about 5 min)_ _(after: Send, receive and signing → Send 0.001 test ETH to a second address you control)_
 - [ ] Engineering: Complete transaction history from an indexing provider.
 - [ ] Engineering: Production network connection with a backup provider if the first fails.
-- [x] Engineering: Handle replaced, dropped and reorganised transactions: Track shows confirmations and explains each case (read-only checks, tested in tests/tx-tracker.test.mjs).
+- [x] Engineering: Handle replaced, dropped and reorganised transactions: Track shows confirmations and explains each case (read-only checks, tested in tests/tx-tracker.test.mjs). _(done 2026-11-07)_
 - [ ] Outside party: Market prices from a licensed data provider.
 
 ## Buy and sell through cards or bank accounts
@@ -141,7 +141,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (1 of 8 recorded as done):**
 
-- [x] Engineering: Transak sandbox checkout and order check built; stays off until credentials are added.
+- [x] Engineering: Transak sandbox checkout and order check built; stays off until credentials are added. _(done 2026-11-05)_
 - [ ] You: Create a Transak partner account and get its staging (test) API key and access token. Never paste them into chat or GitHub. _(about 30 min)_
 - [ ] Outside party: Transak approves the backend’s fixed IP address (needs a static outbound address set up first). _(after: Create a Transak partner account and get its staging (test) API key and access token)_
 - [ ] You: Put the staging key in Google Cloud Secret Manager (FYNX_TRANSAK_SANDBOX), following docs/PROVIDER-SETUP.md. _(about 15 min)_ _(after: Create a Transak partner account and get its staging (test) API key and access token)_
@@ -160,7 +160,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (1 of 7 recorded as done):**
 
-- [x] Engineering: ETH ↔ USDC swaps with slippage, price-impact, expiry and minimum-received limits passed on an isolated Base Sepolia copy.
+- [x] Engineering: ETH ↔ USDC swaps with slippage, price-impact, expiry and minimum-received limits passed on an isolated Base Sepolia copy. _(done 2026-11-05)_
 - [ ] You: Crypto tools → Base Sepolia → get a quote for 0.001 ETH → USDC and check the minimum received. _(about 5 min; needs: test wallet)_ _(after: Send, receive and signing → In a wallet that holds no real money, get free Base Sepolia test ETH from a faucet listed…; Send, receive and signing → Crypto tools → Base Sepolia → Connect wallet → Review ownership message → approve)_
 - [ ] You: Complete that swap in your wallet and confirm both balances on the explorer. _(about 8 min; needs: test wallet)_ _(after: Crypto tools → Base Sepolia → get a quote for 0.001 ETH → USDC and check the minimum…)_
 - [ ] You: Swap a small amount of USDC back to ETH: approve the exact amount, request a fresh quote, swap. _(about 12 min; needs: test wallet)_ _(after: Complete that swap in your wallet and confirm both balances on the explorer)_
@@ -178,7 +178,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (1 of 5 recorded as done):**
 
-- [x] Engineering: Owner-only authorization, App Check, replay protection, dependency checks and an internal review.
+- [x] Engineering: Owner-only authorization, App Check, replay protection, dependency checks and an internal review. _(done 2026-11-05)_
 - [ ] You: Choose a dedicated web address and a separate Firebase project for the production wallet.
 - [ ] Engineering: Security headers, secrets and access permissions on that dedicated setup; retest App Check in normal browsers. _(after: Choose a dedicated web address and a separate Firebase project for the production wallet)_
 - [ ] You: Choose and hire an independent security reviewer for signing and sign-in.
@@ -194,8 +194,8 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (2 of 3 recorded as done):**
 
-- [x] Engineering: Website updates publish only after tests, generated-file checks and dependency audits pass.
-- [x] Engineering: Each release publishes a revision and file-hash manifest.
+- [x] Engineering: Website updates publish only after tests, generated-file checks and dependency audits pass. _(done 2026-11-05)_
+- [x] Engineering: Each release publishes a revision and file-hash manifest. _(done 2026-11-05)_
 - [ ] You: Open the GitHub Actions page and confirm the latest “Verify and publish FYNX Wallet” run is green. _(about 2 min)_
 
 ## Monitoring, backups and incident recovery
@@ -208,7 +208,7 @@ This is an evidence-based work list, not a certification or legal opinion. “Im
 
 **Steps (1 of 7 recorded as done):**
 
-- [x] Engineering: Audit retention, rate limits, connection checks and a written incident procedure.
+- [x] Engineering: Audit retention, rate limits, connection checks and a written incident procedure. _(done 2026-11-05)_
 - [ ] You: Name who reads fynxteam5@gmail.com every day, and a backup person.
 - [ ] You: Choose where alerts go (email or phone) for failures, sign-in problems and billing.
 - [ ] Engineering: Set up those alerts in Google Cloud and send a test alert. _(after: Choose where alerts go (email or phone) for failures, sign-in problems and billing)_

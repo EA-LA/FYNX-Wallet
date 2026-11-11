@@ -5,13 +5,14 @@
 // Only fixed words travel into the update: gate titles, checklist step text, party names, request types and
 // counts or dates. Notes, references, names typed into worksheets, email and wallet addresses stay out.
 // Pure helpers shared by the owner workspace and tests.
-import { stepKey, stepState, shortStep, overview, nextActions, resultLabels } from './launch-tracker.js';
+import { stepKey, stepState, shortStep, overview, nextActions, resultLabels, byLabels } from './launch-tracker.js';
 import { partyStatus } from './outside-handoff.js';
 import { requestId, requestState as outsideState } from './outside-requests.js';
 import { requestState as privacyState, dayNumber, dayString } from './privacy-requests.js';
 import { followUpProgress } from './incident-drill.js';
 import { launchPace } from './test-timing.js';
 import { KINDS as DATE_KINDS } from './owner-dates.js';
+import { checklistDoneIn } from './launch-history.js';
 
 export const PERIODS = [7, 14, 30];
 export const AHEAD_DAYS = 14;
@@ -45,7 +46,9 @@ export function progressUpdate({ plan, records = {}, answers = {}, requests = { 
   }
   finished.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
   failed.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
-  const startDone = o.done - finished.length;
+  // Steps the checklist itself recorded as done in the period (engineering, outside parties, owner sign-offs).
+  const checklist = checklistDoneIn(plan, { today, days }).map(e => ({ key: e.key, gate: e.gate, text: e.text, by: e.by, date: e.date }));
+  const startDone = o.done - finished.length - checklist.length;
   const startPercent = o.total ? Math.round(startDone / o.total * 100) : 0;
 
   const next = nextActions(plan, records, 3).map(({ gate, step, failed: f, waiting }) => ({ key: stepKey(gate.id, step.id), gate: gate.title, text: shortStep(step), failed: f, waiting }));
@@ -84,7 +87,7 @@ export function progressUpdate({ plan, records = {}, answers = {}, requests = { 
   return {
     days, from, to: today, product: plan.product,
     overall: { done: o.done, total: o.total, percent: o.percent, startDone, startPercent, yours: o.yours, yoursDone: o.yoursDone, failed: o.failed, gates: o.gates, gatesDone: o.counts.done },
-    finished, failed, next, outside, notAsked, privacy: pv, followUps: { open: fu.total - fu.done, total: fu.total }, drills, coming,
+    finished, checklist, failed, next, outside, notAsked, privacy: pv, followUps: { open: fu.total - fu.done, total: fu.total }, drills, coming,
     pace: { forecast: pace.forecast, reason: pace.reason, open: pace.open, perWeek: pace.perWeek, last28: pace.last28 },
   };
 }
@@ -95,7 +98,8 @@ export function updateHeadline(u) {
   const moved = u.overall.percent - u.overall.startPercent;
   parts[0] += moved > 0 ? `, up ${moved} ${moved === 1 ? 'point' : 'points'} in the last ${u.days} days.` : `, unchanged in the last ${u.days} days.`;
   const bits = [];
-  bits.push(u.finished.length ? `${plural(u.finished.length, 'step')} finished` : 'no steps finished');
+  bits.push(u.finished.length ? `${plural(u.finished.length, 'owner step')} finished` : 'no owner steps finished');
+  if (u.checklist?.length) bits.push(`${u.checklist.length} engineering or outside ${u.checklist.length === 1 ? 'step' : 'steps'} recorded done`);
   if (u.failed.length) bits.push(`${plural(u.failed.length, 'test')} to retest`);
   const waiting = u.outside.reduce((n, p) => n + p.rows.filter(r => r.state !== 'answered').length, 0);
   if (waiting) bits.push(`${plural(waiting, 'request')} waiting on outside parties`);
@@ -125,10 +129,15 @@ export function updateMarkdown(u, { generated = new Date() } = {}) {
   L.push(`- ${u.overall.done} of ${u.overall.total} launch steps done (${u.overall.percent}%)${u.overall.percent !== u.overall.startPercent ? `, up from ${u.overall.startPercent}% at the start of the period` : ''}. ${u.overall.gatesDone} of ${u.overall.gates} release gates fully done.`);
   L.push(`- Owner tests and decisions: ${u.overall.yoursDone} of ${u.overall.yours} done${u.overall.failed ? `, ${u.overall.failed} failed and waiting for a retest` : ''}.`);
   L.push(`- ${paceSentence(u)}`, '');
-  L.push(`## Finished in the last ${u.days} days`, '');
+  L.push(`## Owner steps finished in the last ${u.days} days`, '');
   if (u.finished.length) for (const f of u.finished) L.push(`- ${md(f.gate)}: ${md(f.text)} (${resultLabels[f.result]}, ${utcDay(f.at)})`);
   else L.push('- Nothing finished in this period.');
   L.push('');
+  if (u.checklist?.length) {
+    L.push(`## Recorded done in the checklist in the last ${u.days} days`, '');
+    for (const c of u.checklist) L.push(`- ${byLabels[c.by]} · ${md(c.gate)}: ${md(c.text)} (${c.date})`);
+    L.push('');
+  }
   if (u.failed.length) {
     L.push('## Needs a retest', '');
     for (const f of u.failed) L.push(`- ${md(f.gate)}: ${md(f.text)}${f.at ? ` (failed ${utcDay(f.at)}${f.recent ? ', this period' : ''})` : ''}`);

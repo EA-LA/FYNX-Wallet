@@ -26,6 +26,7 @@ import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainn
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
 import { progressUpdate, updateMarkdown, updateHeadline, PERIODS as UPDATE_PERIODS } from './progress-update.js';
+import { launchHistory, historyHeadline, historyMarkdown, weekTitle, entryLabel, WHO as HISTORY_WHO, whoLabels } from './launch-history.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
@@ -1948,6 +1949,7 @@ function renderLaunchOverview() {
   } else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
   box.append(wrap);
   renderLaunchUpdate();
+  renderLaunchHistory();
   renderLaunchDates();
 }
 // Launch order: what can be done now, what frees the most other work, and what still waits on another step.
@@ -2326,7 +2328,8 @@ function renderLaunchUpdate(focusSel = '') {
   const fact = (big, small) => { const li = el('li'); li.append(el('strong', '', big), el('span', '', small)); facts.append(li); };
   const moved = u.overall.percent - u.overall.startPercent;
   fact(`${u.overall.percent}%`, moved > 0 ? `done, up from ${u.overall.startPercent}%` : 'done, no change in this period');
-  fact(String(u.finished.length), `${u.finished.length === 1 ? 'step' : 'steps'} finished${u.failed.length ? ` · ${u.failed.length} to retest` : ''}`);
+  const doneCount = u.finished.length + u.checklist.length;
+  fact(String(doneCount), `${doneCount === 1 ? 'step' : 'steps'} finished${u.checklist.length ? ` (${u.finished.length} yours, ${u.checklist.length} engineering or outside)` : ''}${u.failed.length ? ` · ${u.failed.length} to retest` : ''}`);
   const waiting = u.outside.reduce((n, p) => n + p.rows.filter(r => r.state !== 'answered').length, 0), answered = u.outside.reduce((n, p) => n + p.rows.filter(r => r.state === 'answered').length, 0);
   fact(String(waiting), `${waiting === 1 ? 'request' : 'requests'} waiting on outside parties${answered ? ` · ${answered} answered` : ''}`);
   fact(String(u.coming.length), `${u.coming.length === 1 ? 'date' : 'dates'} overdue or in the next 14 days`);
@@ -2340,7 +2343,18 @@ function renderLaunchUpdate(focusSel = '') {
     }
     box.append(list);
     if (u.finished.length > 5) box.append(el('p', 'hint', `and ${u.finished.length - 5} more in the full update.`));
-  } else box.append(el('p', 'muted pu-empty', `Nothing finished in the last ${u.days} days. Record results in the checklist below (or plan a test session) and they show up here.`));
+  }
+  if (u.checklist.length) {
+    const list = el('ul', 'pu-done'); list.setAttribute('aria-label', `Recorded done in the checklist in the last ${u.days} days`);
+    for (const c of u.checklist.slice(0, 5)) {
+      const li = el('li'); const b = el('button', 'text-button lo-link'); b.type = 'button';
+      b.append(el('span', 'lo-meta', `${byLabels[c.by]} · recorded done ${shortDay(c.date)} · ${c.gate}`), el('span', 'lo-text', c.text));
+      b.addEventListener('click', () => openStep(c.key)); li.append(b); list.append(li);
+    }
+    box.append(list);
+    if (u.checklist.length > 5) box.append(el('p', 'hint', `and ${u.checklist.length - 5} more in the full update.`));
+  }
+  if (!u.finished.length && !u.checklist.length) box.append(el('p', 'muted pu-empty', `Nothing finished in the last ${u.days} days. Record results in the checklist below (or plan a test session) and they show up here.`));
   const text = () => updateMarkdown(currentUpdate());
   const actions = el('div', 'od-actions');
   const copy = el('button', 'button secondary', 'Copy update'); copy.type = 'button'; copy.id = 'pu-copy';
@@ -2365,6 +2379,84 @@ function renderLaunchUpdate(focusSel = '') {
   preview.addEventListener('toggle', () => { updatePreviewOpen = preview.open; if (preview.open) pre.textContent = text(); });
   if (updatePreviewOpen) { preview.open = true; pre.textContent = text(); }
   box.append(actions, preview, status, el('p', 'hint', 'Results recorded on another device count once you bring them in with “Bring in results from another device” below. The update never claims a launch date or that FYNX is live.'));
+  if (focusSel) box.querySelector(focusSel)?.focus();
+}
+// "What's been finished": every finished launch step with its date (checklist doneOn + this browser's
+// results), by week, with a running total. Fixed words and dates only (wallet-src/launch-history.js).
+let historyWho = 'all', historyAll = false, historyPreviewOpen = false;
+const HISTORY_WEEKS_SHOWN = 3;
+function currentHistory() { return launchHistory(launchPlan, launchRecords, { who: historyWho, today: localToday() }); }
+function historyRow(e) {
+  const li = el('li', `lh-row is-${e.by}`);
+  const b = el('button', 'text-button lo-link'); b.type = 'button';
+  b.append(el('span', 'lo-meta', `${e.date ? `${shortDay(e.date)} · ` : ''}${entryLabel(e)} · ${e.gate}`), el('span', 'lo-text', e.text));
+  b.addEventListener('click', () => openStep(e.key));
+  li.append(b); return li;
+}
+function renderLaunchHistory(focusSel = '') {
+  const box = document.getElementById('launch-history'); if (!box) return;
+  const h = currentHistory(), status = el('p', 'hint ld-status'); status.id = 'lh-status'; status.setAttribute('role', 'status');
+  box.replaceChildren();
+  const head = el('div', 'lo-head');
+  head.append(el('h3', '', 'What’s been finished'), el('p', 'hint', 'Every finished launch step with its date: engineering and outside-party work from the checklist, and your own tests from this browser. Open any line to see the step.'));
+  box.append(head, el('p', 'pu-headline', historyHeadline(h)));
+  const pick = el('div', 'pu-periods'); pick.setAttribute('role', 'group'); pick.setAttribute('aria-label', 'Show work by');
+  for (const w of HISTORY_WHO) {
+    const b = el('button', `pu-period${w === historyWho ? ' is-on' : ''}`, `${whoLabels[w]} (${h.counts[w] || 0})`); b.type = 'button'; b.dataset.who = w;
+    b.setAttribute('aria-pressed', String(w === historyWho));
+    b.addEventListener('click', () => { historyWho = w; historyAll = false; renderLaunchHistory(`[data-who="${w}"]`); });
+    pick.append(b);
+  }
+  box.append(pick);
+  // Running total, last 8 weeks (all parties).
+  const run = el('ol', 'lh-run'); run.setAttribute('aria-label', 'Launch steps done by the end of each week, last 8 weeks, oldest first');
+  for (const r of h.running) {
+    const li = el('li', `lh-week${r.current ? ' is-now' : ''}`);
+    const label = `${r.current ? 'This week' : weekTitle(r.week)}: ${r.done} of ${h.total} done (${r.percent}%)${r.added ? `, ${r.added} added` : ''}`;
+    li.setAttribute('aria-label', label); li.title = label;
+    const bar = el('span', 'lh-bar'); const fill = el('span', 'lh-fill'); fill.style.width = `${r.percent}%`; bar.append(fill);
+    li.append(el('span', 'lh-when', r.current ? 'This week' : shortDay(r.week)), bar, el('span', 'lh-num', `${r.percent}%${r.added ? ` · +${r.added}` : ''}`));
+    run.append(li);
+  }
+  const chart = el('details', 'pace-more lh-chart'); chart.open = true; chart.append(el('summary', '', 'Done by the end of each week'), run);
+  box.append(chart);
+  if (!h.shown) box.append(el('p', 'muted pu-empty', historyWho === 'you' ? 'None of your own steps are finished yet. Record Passed or Not applicable in the checklist below (or plan a test session) and they appear here with the date.' : `Nothing finished yet for ${whoLabels[historyWho].toLowerCase()}.`));
+  const weeks = historyAll ? h.weeks : h.weeks.slice(0, HISTORY_WEEKS_SHOWN);
+  for (const w of weeks) {
+    const sec = el('div', 'lh-group');
+    const parts = ['you', 'engineering', 'outside'].filter(k => w.by[k]).map(k => `${w.by[k]} ${whoLabels[k].toLowerCase()}`);
+    sec.append(el('h4', 'lh-title', `${weekTitle(w.week)} · ${w.entries.length} ${w.entries.length === 1 ? 'step' : 'steps'}${historyWho === 'all' && parts.length > 1 ? ` (${parts.join(', ')})` : ''}`));
+    const list = el('ul', 'pu-done'); for (const e of w.entries) list.append(historyRow(e)); sec.append(list); box.append(sec);
+  }
+  if (h.weeks.length > HISTORY_WEEKS_SHOWN) {
+    const more = el('button', 'text-button lh-more', historyAll ? 'Show fewer weeks' : `Show all ${h.weeks.length} weeks`); more.type = 'button'; more.setAttribute('aria-expanded', String(historyAll));
+    more.addEventListener('click', () => { historyAll = !historyAll; renderLaunchHistory('.lh-more'); });
+    box.append(more);
+  }
+  for (const [list, title] of [[h.undated, 'Finished, date not recorded'], [h.baseline, `Already done when the checklist started${h.started ? ` (${shortDay(h.started)})` : ''}`]]) {
+    if (!list.length) continue;
+    const d = el('details', 'lo-part lh-group'); d.append(el('summary', '', `${title} · ${list.length}`));
+    const ul = el('ul', 'pu-done'); for (const e of list) ul.append(historyRow(e)); d.append(ul); box.append(d);
+  }
+  const text = () => historyMarkdown(currentHistory(), { product: launchPlan.product });
+  const actions = el('div', 'od-actions');
+  const copy = el('button', 'button secondary', 'Copy history'); copy.type = 'button'; copy.id = 'lh-copy';
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(text()); status.textContent = `History copied (${whoLabels[historyWho].toLowerCase()}). Fixed words and dates only: no notes.`; }
+    catch { status.textContent = 'Copying was blocked by the browser. Use Download instead.'; }
+  });
+  const dl = el('button', 'text-button', 'Download (.md)'); dl.type = 'button'; dl.id = 'lh-download';
+  dl.addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([text()], { type: 'text/markdown;charset=utf-8' })), a = document.createElement('a');
+    a.href = url; a.download = `fynx-launch-history-${localToday()}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = 'History downloaded.';
+  });
+  actions.append(copy, dl);
+  const preview = el('details', 'lo-part pu-preview'); preview.append(el('summary', '', 'Preview the history'));
+  const pre = el('pre', 'lo-eng-pre'); preview.append(pre);
+  preview.addEventListener('toggle', () => { historyPreviewOpen = preview.open; if (preview.open) pre.textContent = text(); });
+  if (historyPreviewOpen) { preview.open = true; pre.textContent = text(); }
+  box.append(actions, preview, status, el('p', 'hint', 'Checklist dates are the day a step was recorded as done in the FYNX launch checklist. Your own dates are when you recorded the result in this browser; results from another device count once you bring them in below.'));
   if (focusSel) box.querySelector(focusSel)?.focus();
 }
 function openOutsideRequest(partyId, stepKey, toEvidence = false) {

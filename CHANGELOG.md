@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-11 14:40 UTC — [autopilot] Owner workspace: see everything that's been finished, week by week
+
+- Launch readiness has a new **"What's been finished"** panel: every finished launch step with its date, grouped by week, newest first. It shows your own test results and the work engineering and outside parties have finished, with a filter for each.
+- A small chart shows how much of the launch was done at the end of each week, so you can see the launch moving.
+- Steps that were already done when the checklist was first written are shown separately, so they are not counted as new progress.
+- Copy or download the history to send to your team, an adviser or an investor (step names and dates only, no notes).
+- The **Progress update** now also counts engineering and outside-party steps finished in the period, not only yours.
+- The full launch checklist now shows the date each finished step was done.
+- See it: https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness (sign in first).
+
 ## 2026-11-11 10:20 UTC — [autopilot] Owner workspace: a ready-to-send progress update
 
 - Launch readiness tab (https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness): a new **Progress update** box, between the overview and Your dates.

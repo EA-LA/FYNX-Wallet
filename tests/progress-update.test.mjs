@@ -33,7 +33,7 @@ test('the period picks owner steps finished inside it and the starting percentag
   assert.deepEqual(u.finished.map(f => f.key), ['identity/google-desktop', 'identity/email-reset']);
   const o = overview(plan, records);
   assert.equal(u.overall.done, o.done);
-  assert.equal(u.overall.startDone, o.done - 2);
+  assert.equal(u.overall.startDone, o.done - 2 - u.checklist.length);
   assert.ok(u.overall.startPercent <= u.overall.percent);
   assert.equal(u.from, '2026-11-05');
   const month = build(30);
@@ -80,7 +80,7 @@ test('the Markdown update leaves notes, references and follow-up text out', () =
   const text = updateMarkdown(build(7), { generated: new Date(NOW) });
   assert.match(text, /^# FYNX Wallet launch progress update/);
   assert.match(text, /Period: last 7 days \(2026-11-05 to 2026-11-11\)/);
-  assert.match(text, /## Finished in the last 7 days/);
+  assert.match(text, /## Owner steps finished in the last 7 days/);
   assert.match(text, /\(Passed, 2026-11-09\)/);
   assert.match(text, /\(Not applicable, 2026-11-08\)/);
   assert.match(text, /## Needs a retest/);
@@ -93,15 +93,18 @@ test('the Markdown update leaves notes, references and follow-up text out', () =
 });
 
 test('headline and pace sentences stay honest with no data', () => {
-  const empty = progressUpdate({ plan, records: {}, days: 14, today: TODAY, now: NOW });
-  assert.match(updateHeadline(empty), /unchanged in the last 14 days\. No steps finished\.$/);
+  const flat = structuredClone(plan);
+  for (const g of flat.items) for (const s of g.steps) if (s.done) s.doneOn = flat.started;
+  const empty = progressUpdate({ plan: flat, records: {}, days: 14, today: TODAY, now: NOW });
+  assert.match(updateHeadline(empty), /unchanged in the last 14 days\. No owner steps finished\.$/);
+  assert.equal(empty.checklist.length, 0, 'steps done when the checklist started are not progress');
   assert.match(paceSentence(empty), /no pace estimate/);
   const text = updateMarkdown(empty, { generated: new Date(NOW) });
   assert.match(text, /Nothing finished in this period/);
   assert.match(text, /No requests recorded as sent yet/);
   assert.doesNotMatch(text, /up from/);
   const u = build(7);
-  assert.match(updateHeadline(u), /up \d+ points? in the last 7 days\. 2 steps finished, 1 test to retest, 1 request waiting on outside parties, \d+ overdue dates?\./);
+  assert.match(updateHeadline(u), /up \d+ points? in the last 7 days\. 2 owner steps finished, (\d+ engineering or outside steps? recorded done, )?1 test to retest, 1 request waiting on outside parties, \d+ overdue dates?\./);
 });
 
 test('the workspace has the panel and wires it', async () => {
@@ -110,4 +113,20 @@ test('the workspace has the panel and wires it', async () => {
   const app = await readFile(new URL('../wallet-src/app.js', import.meta.url), 'utf8');
   assert.match(app, /renderLaunchUpdate\(\);/);
   assert.match(app, /fynx-progress-update-/);
+});
+
+test('steps the checklist records as done in the period count, the starting point does not', () => {
+  const p = structuredClone(plan);
+  const eng = [];
+  for (const g of p.items) for (const s of g.steps) if (s.done) s.doneOn = p.started;
+  for (const g of p.items) for (const s of g.steps) if (!s.done && s.by === 'engineering' && eng.length < 2) { s.done = true; s.doneOn = eng.length ? '2026-11-10' : '2026-10-01'; eng.push(`${g.id}/${s.id}`); }
+  const week = progressUpdate({ plan: p, records: {}, days: 7, today: TODAY, now: NOW });
+  assert.deepEqual(week.checklist.map(c => c.key), [eng[1]]);
+  assert.equal(week.checklist[0].by, 'engineering');
+  assert.equal(week.overall.startDone, week.overall.done - 1);
+  assert.match(updateHeadline(week), /No owner steps finished, 1 engineering or outside step recorded done\./);
+  const text = updateMarkdown(week, { generated: new Date(NOW) });
+  assert.match(text, /## Recorded done in the checklist in the last 7 days/);
+  assert.match(text, /- Engineering · .+ \(2026-11-10\)/);
+  assert.equal(progressUpdate({ plan: p, records: {}, days: 30, today: TODAY, now: NOW }).checklist.length, 1, 'October is outside 30 days back from 11 November');
 });

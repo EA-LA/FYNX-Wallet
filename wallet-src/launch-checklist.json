@@ -1,5 +1,6 @@
 {
-  "updated": "2026-11-10",
+  "updated": "2026-11-11",
+  "started": "2026-11-05",
   "product": "FYNX Wallet",
   "operator": "FYNX finance world inc.",
   "marketPlan": "United States first; expand internationally only where the final product is permitted and supported.",
@@ -18,13 +19,15 @@
           "id": "site-live",
           "by": "engineering",
           "text": "Public website and waitlist published from GitHub Pages.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "consent",
           "by": "engineering",
           "text": "Registrations saved with consent, notice version and a 365-day expiry.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "join-phone",
@@ -63,7 +66,8 @@
           "id": "virtual",
           "by": "engineering",
           "text": "Google, email/password and passkey sign-in built; virtual passkey and owner-only authorization tests pass.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "google-desktop",
@@ -199,7 +203,8 @@
           "id": "external",
           "by": "engineering",
           "text": "Version one connects an existing wallet; FYNX never creates, stores or asks for recovery words.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "decide",
@@ -242,13 +247,15 @@
           "id": "fork",
           "by": "engineering",
           "text": "ETH and USDC transfers with review, simulation, limits and receipts passed on an isolated Base Sepolia copy.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "mainnet-off",
           "by": "engineering",
           "text": "Sending on Base mainnet is blocked; only test networks can sign.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "test-funds",
@@ -380,13 +387,15 @@
           "id": "live",
           "by": "engineering",
           "text": "Live ETH and USDC balances on Ethereum Sepolia, Base Sepolia and Base (read-only).",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "journal",
           "by": "engineering",
           "text": "Session transaction list and transaction lookup.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "compare",
@@ -429,7 +438,8 @@
           "id": "replace",
           "by": "engineering",
           "text": "Handle replaced, dropped and reorganised transactions: Track shows confirmations and explains each case (read-only checks, tested in tests/tx-tracker.test.mjs).",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-07"
         },
         {
           "id": "prices",
@@ -452,7 +462,8 @@
           "id": "adapter",
           "by": "engineering",
           "text": "Transak sandbox checkout and order check built; stays off until credentials are added.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "partner",
@@ -543,7 +554,8 @@
           "id": "fork",
           "by": "engineering",
           "text": "ETH ↔ USDC swaps with slippage, price-impact, expiry and minimum-received limits passed on an isolated Base Sepolia copy.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "quote",
@@ -637,7 +649,8 @@
           "id": "internal",
           "by": "engineering",
           "text": "Owner-only authorization, App Check, replay protection, dependency checks and an internal review.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "domain",
@@ -684,13 +697,15 @@
           "id": "gated",
           "by": "engineering",
           "text": "Website updates publish only after tests, generated-file checks and dependency audits pass.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "manifest",
           "by": "engineering",
           "text": "Each release publishes a revision and file-hash manifest.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "check-run",
@@ -714,7 +729,8 @@
           "id": "procedure",
           "by": "engineering",
           "text": "Audit retention, rate limits, connection checks and a written incident procedure.",
-          "done": true
+          "done": true,
+          "doneOn": "2026-11-05"
         },
         {
           "id": "inbox",
