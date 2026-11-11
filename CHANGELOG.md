@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-11 06:45 UTC — [autopilot] Owner workspace: all your dates in one place, and in your calendar
+
+- Launch readiness tab: a new **Your dates** box right under the overview. It gathers everything in the workspace that has a date, soonest first, with anything overdue at the top in red:
+  - when each open **privacy request** must be answered (30 days after it arrived),
+  - when to **remind an outside party** (lawyer, payment provider, security reviewer, data provider) who has not answered a request you sent,
+  - when to **ask again for missing documents** after they answered,
+  - when each **account that controls FYNX** (Google, Firebase, billing, GitHub…) is due for its 90-day review.
+- Each line says how many days are left (or how late it is) and has an **Open** button that takes you straight to that item.
+- **Add to calendar (.ics)** downloads a calendar file you can open in Google Calendar, Apple Calendar or Outlook: each date becomes an all-day event with a 9:00 reminder (privacy answers also remind you 3 days early). Overdue items land on today. Download it again after changes and the same events are updated.
+- **Copy dates** copies the list as text.
+- Only fixed words go into the calendar file (request types, party, step and account names). Your own references and notes stay in this browser.
+- Nothing is sent anywhere; no backend change.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab, after signing in).
+
 ## 2026-11-11 02:16 UTC — [autopilot] Owner workspace: transaction history you can filter, add up, name and download
 
 - Crypto tools → Portfolio & history: after "Load history", a new tools box appears above the list of transfers.

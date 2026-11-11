@@ -24,6 +24,7 @@ import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retry
 import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
+import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
@@ -1625,7 +1626,7 @@ function saveOutsideRequests() { try { localStorage.setItem(OUTSIDE_KEY, JSON.st
 let outsideEvidence = { entries: {} };
 try { outsideEvidence = cleanEvidence(JSON.parse(localStorage.getItem(EVIDENCE_KEY) || '{}')); } catch { outsideEvidence = { entries: {} }; }
 function saveOutsideEvidence() { try { localStorage.setItem(EVIDENCE_KEY, JSON.stringify(outsideEvidence)); return true; } catch { return false; } }
-function savePrivacyLog() { try { localStorage.setItem(PRIVACY_KEY, JSON.stringify(privacyLog)); } catch { setText('#pr-status', 'This browser blocked saving. The log lasts until you close the page.'); } renderPrivacyBadge(); }
+function savePrivacyLog() { try { localStorage.setItem(PRIVACY_KEY, JSON.stringify(privacyLog)); } catch { setText('#pr-status', 'This browser blocked saving. The log lasts until you close the page.'); } renderPrivacyBadge(); renderLaunchDates(); }
 // Open/overdue privacy requests on the Waitlist tab button, so a due answer is visible from every tab.
 function renderPrivacyBadge() {
   const a = privacyAttention(privacyLog, localToday()), badge = $('#wl-tab-badge'), tab = document.querySelector('[data-tab="registrations"]');
@@ -1945,6 +1946,7 @@ function renderLaunchOverview() {
     wrap.append(list);
   } else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
   box.append(wrap);
+  renderLaunchDates();
 }
 // Launch order: what can be done now, what frees the most other work, and what still waits on another step.
 const launchIndex = stepIndex(launchPlan);
@@ -2238,6 +2240,63 @@ function outsideChase(limit = 2) {
 // Answered requests (open steps only) whose evidence is still incomplete CHASE_DAYS after the answer.
 function outsideAskAgain(limit = 2) {
   return missingAttention(outsideRequests, outsideEvidence, evidenceRows().filter(r => r.open).map(r => r.id), localToday(), { limit });
+}
+// "Your dates": privacy answers, outside reminders, evidence to ask again for and access reviews, soonest
+// first, with a calendar file. Fixed words only (no references, notes or typed text) go into the copy and
+// the .ics file, because calendars are usually synced to an outside service.
+const DATES_SHOWN = 6;
+let datesExpanded = false;
+const ownerLink = () => (location.protocol === 'https:' ? `${location.origin}${location.pathname}` : '');
+const ownerDates = () => collectDates({ privacy: privacyLog, requests: outsideRequests, evidence: outsideEvidence, openRequests: evidenceRows().filter(r => r.open), access: accessReview, today: localToday() });
+const shortDay = day => { const d = new Date(`${day}T12:00:00Z`); return Number.isNaN(d.getTime()) ? day : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }); };
+function openDateItem(item) {
+  if (item.kind === 'privacy') openPrivacyRequest(item.ref.id);
+  else if (item.kind === 'access') openAccessService(item.ref.serviceId);
+  else openOutsideRequest(item.ref.partyId, item.ref.stepKey, item.kind === 'evidence');
+}
+function renderLaunchDates() {
+  const box = document.getElementById('launch-dates'); if (!box) return;
+  const d = ownerDates(), status = el('p', 'hint ld-status'); status.setAttribute('role', 'status');
+  box.replaceChildren();
+  const head = el('div', 'lo-head');
+  head.append(el('h3', '', 'Your dates'), el('p', 'hint', 'Everything in this workspace that has a date: privacy answers, reminders to outside parties, evidence to ask for again and the 90-day access reviews. Add them to your calendar so nothing is missed between visits.'));
+  box.append(head);
+  const line = el('p', `od-headline ${d.overdue ? 'is-overdue' : d.today || d.soon ? 'is-due-soon' : ''}`, datesHeadline(d)); box.append(line);
+  if (!d.items.length) {
+    box.append(el('p', 'muted od-empty', 'Dates appear here when you log a privacy request (Waitlist tab), record the day you sent a request to an outside party (What can move now → Hand off to outside parties) or record an access review (Account security).'));
+    return;
+  }
+  const list = el('ol', 'od-list'), shown = datesExpanded ? d.items : d.items.slice(0, DATES_SHOWN);
+  for (const item of shown) {
+    const li = el('li', `od-row is-${item.state}`);
+    const when = el('div', 'od-when'); when.append(el('strong', '', shortDay(item.date)), el('span', '', item.when));
+    const body = el('div', 'od-body'); body.append(el('span', 'od-kind', DATE_KINDS[item.kind]), el('strong', 'od-title', item.title), el('span', 'od-detail', item.detail));
+    const go = el('button', 'text-button od-open', 'Open'); go.type = 'button';
+    go.setAttribute('aria-label', `Open: ${item.title}`);
+    go.addEventListener('click', () => openDateItem(item));
+    li.append(when, body, go); list.append(li);
+  }
+  box.append(list);
+  if (d.items.length > DATES_SHOWN) {
+    const more = el('button', 'text-button od-more', datesExpanded ? 'Show fewer' : `Show all ${d.items.length} dates`); more.type = 'button'; more.setAttribute('aria-expanded', String(datesExpanded));
+    more.addEventListener('click', () => { datesExpanded = !datesExpanded; renderLaunchDates(); document.querySelector('#launch-dates .od-more')?.focus(); });
+    box.append(more);
+  }
+  if (d.later) box.append(el('p', 'hint', `${d.later} more ${d.later === 1 ? 'date is' : 'dates are'} further than six months away.`));
+  const actions = el('div', 'od-actions');
+  const ics = el('button', 'button secondary', 'Add to calendar (.ics)'); ics.type = 'button'; ics.id = 'od-ics';
+  ics.addEventListener('click', () => {
+    const today = localToday(), url = URL.createObjectURL(new Blob([datesIcs(ownerDates(), { today, link: ownerLink() })], { type: 'text/calendar;charset=utf-8' })), a = document.createElement('a');
+    a.href = url; a.download = `fynx-owner-dates-${today}.ics`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = `Calendar file downloaded with ${d.items.length} ${d.items.length === 1 ? 'date' : 'dates'}. Open it to add them to your calendar; overdue items land on today. Download it again after changes: the same events are updated, finished ones are not removed by the file.`;
+  });
+  const copy = el('button', 'text-button', 'Copy dates'); copy.type = 'button'; copy.id = 'od-copy';
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(datesText(ownerDates(), localToday())); status.textContent = 'Dates copied (fixed words only: no references or notes).'; }
+    catch { status.textContent = 'Copying was blocked by the browser. Use Add to calendar instead.'; }
+  });
+  actions.append(ics, copy); box.append(actions, status,
+    el('p', 'hint', 'The calendar file holds only fixed words (request types, party names, step and service names). Your references and notes stay in this browser.'));
 }
 function openOutsideRequest(partyId, stepKey, toEvidence = false) {
   outsideParty = partyId; renderLaunchOrder();
