@@ -32,6 +32,7 @@ import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, star
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
+import { readRecipient, describeActivity, nameOffer, activityKey, ACTIVITY_FRESH_MS } from './recipient-activity.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
@@ -41,6 +42,9 @@ const show = (id, visible) => { $(id).hidden = !visible; };
 let auth, api, session, connection, challenge, review, pendingHash;
 let swapQuote = null, actionReview = null, checkoutReady = false, checkoutId = null;
 const journal = new Map();
+// Recipient check: network facts per network+address and the address the name offer is for (this page session only).
+const recipientFacts = new Map();
+let nameOfferFor = '';
 let lookupEntry = null; // the transaction last looked up by ID in the Track card (see renderLookup)
 let queueEntry = null; // the wallet last checked in "Check the wallet's numbers" (see renderQueue)
 const selectedNetwork = () => networkFor(Number($('#network-choice').value));
@@ -140,6 +144,7 @@ window.dispatchEvent(new Event('eip6963:requestProvider'));
 setTimeout(() => { if (!providers.size && window.ethereum) addProvider('injected', 'Browser wallet', window.ethereum); if (!providers.size) $('#wallet-choice').options[0].textContent = 'No wallet found. Open a wallet extension.'; }, 600);
 function clearWallet() {
   verifiedAddress = null; challenge = null; review = null; swapQuote = null; actionReview = null;
+  recipientFacts.clear(); setText('#rcpt-net-status', '');
   connection?.cancelAction();
   for (const id of ['#receive-qr', '#swap-quote', '#action-review', '#checkout-link']) show(id, false);
   checkoutId = null; $('#check-provider-order').disabled = true; setText('#fiat-order-status', '');
@@ -649,11 +654,85 @@ function renderRecipientCheck() {
   const list = $('#rcpt-lines'); list.replaceChildren();
   for (const line of result.lines) list.append(el('li', `is-${line.tone}`, line.text));
   setText('#rcpt-grouped', result.grouped || ''); show('#rcpt-grouped-wrap', Boolean(result.grouped));
+  renderRecipientNetwork(result); renderRecipientName(result);
   // Speak only when the verdict changes, not on every keystroke.
   const say = `Recipient check: ${badge}. ${result.title}.`;
   if (say !== lastRecipientSay && result.state !== 'invalid') { lastRecipientSay = say; setText('#rcpt-say', say); }
 }
 $('#recipient').addEventListener('input', renderRecipientCheck);
+// "Check this address on the network" (wallet-src/recipient-activity.js): code, transactions sent and holdings of the
+// typed recipient on the connected network, read through the connected wallet. Read-only; remembered for this page
+// session only (a reload or sign-out forgets it) and never changes or blocks the transfer.
+function recipientNetwork() { return connection?.address ? connection.network : null; }
+function renderRecipientNetwork(result) {
+  const box = $('#rcpt-net'), button = $('#rcpt-net-check');
+  if (!box) return;
+  // Not offered for typos (a failed built-in check): the address itself is wrong, so its network facts would mislead.
+  const valid = Boolean(result?.address && result.grouped) && result.state !== 'invalid';
+  box.hidden = !valid;
+  if (!valid) return;
+  const network = recipientNetwork();
+  const saved = network ? recipientFacts.get(activityKey(network.id, result.address)) : null;
+  const fresh = saved && Date.now() - saved.checkedAt < ACTIVITY_FRESH_MS;
+  button.textContent = !network ? 'Check this address on the network' : saved ? `Check again on ${network.name}` : `Check this address on ${network.name}`;
+  button.disabled = !network || busy;
+  setText('#rcpt-net-hint', network ? (saved ? '' : 'Reads code, transactions sent and holdings. Nothing is sent.') : 'Connect your wallet in Step 1 to check it on the network.');
+  show('#rcpt-net-result', Boolean(saved));
+  if (!saved) return;
+  const verdict = describeActivity(saved.facts, saved.network);
+  $('#rcpt-net-result').className = `rcpt-net-result is-${verdict.state}`;
+  setText('#rcpt-net-badge', { contract: 'Contract', delegated: 'Upgraded', active: 'In use', 'received-only': 'Receives only', unused: 'Unused' }[verdict.state]);
+  setText('#rcpt-net-title', verdict.title);
+  const list = $('#rcpt-net-lines'); list.replaceChildren();
+  for (const line of verdict.lines) list.append(el('li', `is-${line.tone}`, line.text));
+  setText('#rcpt-net-when', `Checked at ${new Date(saved.checkedAt).toLocaleTimeString()} on ${saved.network.name} (block ${saved.facts.block.toLocaleString('en-US')})${fresh ? '' : ' · more than 10 minutes ago, check again before sending'}.`);
+}
+$('#rcpt-net-check').addEventListener('click', event => {
+  const typed = checkRecipient($('#recipient').value, recipientContext());
+  if (!typed.address) return;
+  run(event.currentTarget, async checkSession => {
+    const current = connection;
+    if (!current?.address) throw new Error('Connect your wallet first.');
+    const epoch = await current.assertCurrent(), network = current.network;
+    const facts = await readRecipient(request => current.provider.request(request), typed.address, network);
+    checkSession(); await current.assertCurrent(epoch);
+    if (current !== connection) throw new Error('Wallet changed.');
+    recipientFacts.set(activityKey(network.id, typed.address), { facts, network, checkedAt: Date.now() });
+    const verdict = describeActivity(facts, network);
+    setText('#rcpt-net-status', `Network check: ${verdict.title}.`);
+  }, '#rcpt-net-status').then(() => { renderRecipientCheck(); $('#rcpt-net-check').focus(); });
+});
+// After a transfer from this page to a wallet without a name has confirmed, offer to name it right here, so the
+// recipient check (and the history) recognise it next time. Look-alikes stay flagged: only a confirmed transfer you
+// made yourself unlocks the offer, never a received one.
+function renderRecipientName(result) {
+  const box = $('#rcpt-name');
+  if (!box) return;
+  const network = recipientNetwork();
+  const offer = result?.address && result.state !== 'danger' && network ? nameOffer(journal.values(), result.address, network.id, walletNames) : null;
+  box.hidden = !offer;
+  if (!offer) { nameOfferFor = ''; return; }
+  if (nameOfferFor !== result.address) { nameOfferFor = result.address; $('#rcpt-name-input').value = ''; setText('#rcpt-name-status', ''); }
+  setText('#rcpt-name-text', `✓ Your transfer to this wallet confirmed on ${network.name}${offer.at ? ` (${new Date(offer.at).toLocaleTimeString()})` : ''}. Give it a name so FYNX recognises it next time.`);
+}
+function saveRecipientName() {
+  const address = nameOfferFor;
+  if (!address) return;
+  const result = setLabel(walletNames, address, $('#rcpt-name-input').value);
+  if (result.error) { setText('#rcpt-name-status', result.error); $('#rcpt-name-input').focus(); return; }
+  if (!labelOf(result.labels, address)) { setText('#rcpt-name-status', 'Type a short name first.'); $('#rcpt-name-input').focus(); return; }
+  walletNames = result.labels;
+  const saved = saveWalletNames();
+  const name = labelOf(walletNames, address);
+  if (lastHistory) renderHistory(); else renderRecipientCheck();
+  setText('#rcpt-say', saved ? `Saved the name “${name}” in this browser.` : `Named “${name}” until you reload: this browser blocked saving.`);
+  $('#recipient').focus();
+}
+$('#rcpt-name-save').addEventListener('click', saveRecipientName);
+$('#rcpt-name-input').addEventListener('keydown', event => {
+  if (event.key === 'Enter') { event.preventDefault(); saveRecipientName(); }
+  if (event.key === 'Escape') { event.preventDefault(); $('#rcpt-name-input').value = ''; $('#recipient').focus(); }
+});
 for (const id of ['#hx-direction', '#hx-token']) $(id).addEventListener('change', () => { historyEditing = ''; renderHistory(); });
 $('#hx-query').addEventListener('input', () => { historyEditing = ''; renderHistory(); });
 $('#hx-clear').addEventListener('click', () => { $('#hx-direction').value = 'all'; $('#hx-token').value = 'all'; $('#hx-query').value = ''; historyEditing = ''; renderHistory(); $('#hx-direction').focus(); });
@@ -921,7 +1000,7 @@ $('#send-transfer').addEventListener('click', event => run(event.currentTarget, 
   const hash = await connection.sendTransfer(current);
   checkSession(); pendingHash = hash;
   setText('#transaction-status', 'Submitted to the network. Confirmation is still pending.');
-  trackTransaction(hash, 'ETH transfer');
+  trackTransaction(hash, 'ETH transfer', current.tx?.to);
   $('#transaction-link').href = `${connection.network.explorer}/tx/${pendingHash}`;
   show('#transaction-link', true); show('#check-receipt', true);
 }));
@@ -942,7 +1021,7 @@ async function checkStatus(hash, checkSession) {
   checkSession(); await current.assertCurrent(epoch);
   if (current !== connection) throw new Error('Wallet changed.');
   const before = item?.status;
-  if (item) { item.status = result.status; item.result = result; item.checkedAt = Date.now(); if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce; if (result.call) item.call = result.call; renderJournal(); }
+  if (item) { item.status = result.status; item.result = result; item.checkedAt = Date.now(); if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce; if (result.call) item.call = result.call; renderJournal(); renderRecipientCheck(); }
   // Just turned out to be replaced: look up the speed-up / cancel that took its place once, by itself.
   if (item && result.status === 'replaced' && before !== 'replaced' && !item.replacement) {
     try { await lookUpReplacement(item, checkSession); } catch (error) { if (/session changed|Wallet changed|Sign in again/i.test(error.message || '')) throw error; item.replacementNote = `The replacement could not be looked up: ${errorMessage(error)}`; renderJournal(); }
@@ -1031,7 +1110,7 @@ $('#send-action').addEventListener('click', event => run(event.currentTarget, as
   if (!verifiedAddress || connection?.address !== verifiedAddress) throw new Error('Verify your wallet first.');
   const current = actionReview; actionReview = null; swapQuote = null; show('#action-review', false); show('#swap-quote', false);
   const hash = await connection.sendAction(current); checkSession(); pendingHash = hash;
-  trackTransaction(hash, current.displayAmount);
+  trackTransaction(hash, current.displayAmount, current.kind === 'token-transfer' ? current.recipient : null);
   setText('#transaction-status', current.kind === 'approval' ? 'Approval submitted, not a completed swap. Wait for confirmation, then request a new quote.' : 'Submitted. This is not yet a confirmed transaction.');
   $('#transaction-link').href = connection.network.explorer + '/tx/' + hash;
   show('#transaction-link', true); show('#check-receipt', true);
@@ -1095,8 +1174,9 @@ async function queueAutoTick() {
 setInterval(queueAutoTick, 5000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) queueAutoTick(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) autoCheckTick(); });
-function trackTransaction(hash, label) {
-  const entry = { hash, label, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null };
+function trackTransaction(hash, label, to = null) {
+  // `to`: the wallet a transfer pays (ETH or USDC), kept on this page only so the recipient check can offer a name once it confirms.
+  const entry = { hash, label, to: typeof to === 'string' ? to.toLowerCase() : null, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null };
   journal.set(hash, entry); renderJournal();
   // Remembered in this browser so a later reconciliation knows this transfer came from FYNX.
   pilotRegister = addSubmitted(pilotRegister, entry); savePilotRegister();

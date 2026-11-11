@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-11 22:20 UTC — [autopilot] Owner workspace: check a recipient on the network before sending, and name it after it worked
+
+- Crypto tools → Step 3 Send: under the recipient check there is now a **Check this address on the network** button. With your wallet connected it looks the address up on the selected network (nothing is sent) and tells you in plain words whether it is a contract (FYNX refuses those), an upgraded “smart account” wallet (also refused), a wallet in use (how many transactions it has sent), one that only receives, or one that has **never been used** — which is how a mistyped or invented address looks, so you are told to send a small amount first.
+- After your transfer to a new wallet confirms, the same box offers **Name this wallet**, so next time FYNX recognises it (and still warns about look-alikes). Names stay in this browser only.
+- Typo addresses do not get a network check; the result says when it was checked and asks for a re-check after 10 minutes.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Crypto tools → Step 3.
+
 ## 2026-11-11 18:20 UTC — [autopilot] Owner workspace: recipient check and look-alike scam warnings in Crypto tools
 
 - **Step 3 (Send)** now checks the recipient address as you paste it, before you review anything: a green **Known** note for wallets you named, own or sent to before (with how many times and when), an amber **Careful** note for a new recipient (send a small amount first), and a red **Stop** for a typo in the address's capital letters, a burn address, a token or swap contract (lost if you send to it) or a **look-alike** of a wallet you use.
