@@ -13,7 +13,8 @@ const plural = (n, w, many = `${w}s`) => `${n} ${n === 1 ? w : many}`;
 //            unanswered for 14+ days (chase) and with all evidence back while the step is open (share)
 //   session: test-session progress ({ recorded, total }) when a session is under way, else null
 //   wallet: optional Crypto tools tests ({ total, done, failed } from crypto-guide.js walletTests()) and
-//           lastSent ({ day: 'YYYY-MM-DD', when: optional short date for display, network }) of the newest transfer submitted from FYNX in this browser
+//           lastSent ({ day: 'YYYY-MM-DD', when: optional short date for display, network, status: optional fixed words
+//           from lastSentStatus() }) of the newest transfer submitted from FYNX in this browser
 export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = {}, session = null, wallet = null } = {}) {
   const o = { done: 0, total: 0, percent: 0, yours: 0, yoursDone: 0, failed: 0, ...overview };
   const d = { overdue: 0, today: 0, soon: 0, upcoming: 0, items: [], ...dates };
@@ -43,7 +44,8 @@ export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = 
   ];
   if (wallet) {
     const w = { total: 0, done: 0, failed: 0, lastSent: null, ...wallet }, open = Math.max(0, w.total - w.done);
-    const sent = w.lastSent && /^\d{4}-\d{2}-\d{2}$/.test(w.lastSent.day || '') ? `last sent ${w.lastSent.when || w.lastSent.day}${w.lastSent.network ? ` · ${w.lastSent.network}` : ''}` : 'no transfer sent from FYNX yet';
+    const ls = w.lastSent && /^\d{4}-\d{2}-\d{2}$/.test(w.lastSent.day || '') ? w.lastSent : null;
+    const sent = ls ? `last sent ${ls.when || ls.day}${ls.network ? ` · ${ls.network}` : ''}${ls.status ? ` · ${ls.status}` : ''}` : 'no transfer sent from FYNX yet';
     stats.push({
       id: 'wallet', value: `${w.done}/${w.total}`, label: 'wallet tests recorded',
       detail: w.failed ? `${w.failed} failed · ${sent}` : !w.total || !open ? `all recorded · ${sent}` : sent,
@@ -53,6 +55,14 @@ export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = 
   // The dated items that matter today: overdue, due today and the coming week, soonest first (the page shows a few).
   const urgent = (d.items || []).filter(i => i.state === 'overdue' || i.state === 'today' || i.state === 'soon');
   return { tone, headline, stats, urgent };
+}
+
+// Fixed words for what the last status check said about the newest transfer sent from FYNX (pilot register
+// outcome), e.g. "confirmed and settled" or "not checked yet". Unknown values say nothing.
+export function lastSentStatus(outcome, deep = false) {
+  if (!outcome) return 'result not checked yet';
+  if (outcome === 'confirmed') return deep ? 'confirmed and settled' : 'confirmed';
+  return ({ failed: 'failed on-chain', replaced: 'replaced in the wallet', dropped: 'dropped, nothing spent' })[outcome] || '';
 }
 
 // Plain text for "Copy today" (counts and fixed words only).

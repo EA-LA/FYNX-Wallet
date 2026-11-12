@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-12 22:15 UTC — [autopilot] Owner workspace: did the last transfer go through, and new requests while you were away
+
+- Dashboard tab → Today: the "wallet tests recorded" tile now says whether the last transfer sent from FYNX went through: confirmed, confirmed and settled, failed, replaced in the wallet, dropped (nothing spent) or not checked yet. Every status check in Crypto tools → Track remembers its final answer in this browser, so you no longer have to check again to know.
+- Dashboard tab → Today → "Since your last visit": now also lists new privacy requests that arrived while you were away (type, when received, the date to answer by, and whether it is already overdue) and requests sent to outside parties (lawyer, payment provider, reviewer, data provider) with the date sent. Each row opens the right list.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Dashboard tab after signing in).
+
 ## 2026-11-12 18:16 UTC — [autopilot] Owner workspace: answers while you were away, and a crypto tools tile on Today
 - Dashboard → "Since your last visit" now also lists outside parties that answered while you were away (for example "Lawyer · … (after 10 days)") and waitlist privacy requests that were answered (what was asked, the answer date, the outcome and whether it was late). Each line opens the right place: the outside hand-off list or the privacy request log.
 - These come first in the list, before engineering steps, so the answers you are waiting for are not hidden. Only the request ids are kept for the comparison, never references or notes. The first visit after this update starts the comparison; nothing old shows up as new.

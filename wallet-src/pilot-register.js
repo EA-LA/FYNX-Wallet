@@ -19,6 +19,15 @@ const LABEL = /^[\p{L}\p{N} .,:·()+\-–→/%]{1,80}$/u;
 
 export const reasonLabel = reason => REASONS[reason] || 'Marked as yours';
 
+// What a status check last said about a transfer submitted from FYNX. Only answers that will not go back to
+// "waiting" are kept (a confirmed one may still gain confirmations, so `deep` says it is past the target).
+export const OUTCOMES = Object.freeze({
+  confirmed: 'confirmed',
+  failed: 'failed on-chain',
+  replaced: 'replaced in the wallet',
+  dropped: 'dropped, nothing spent',
+});
+
 function cleanEntry(raw) {
   if (!raw || typeof raw.hash !== 'string' || !HASH.test(raw.hash)) return null;
   const chainId = Number(raw.chainId);
@@ -29,7 +38,15 @@ function cleanEntry(raw) {
   if (!Number.isFinite(at) || at <= 0) return null;
   const entry = { hash: raw.hash.toLowerCase(), chainId, kind, at };
   if (typeof raw.address === 'string' && ADDRESS.test(raw.address)) entry.address = raw.address.toLowerCase();
-  if (kind === 'page') entry.label = typeof raw.label === 'string' && LABEL.test(raw.label.trim()) ? raw.label.trim() : 'Transaction';
+  if (kind === 'page') {
+    entry.label = typeof raw.label === 'string' && LABEL.test(raw.label.trim()) ? raw.label.trim() : 'Transaction';
+    // The last settled answer from a read-only status check (Track or a lookup), when there was one.
+    const outcomeAt = Number(raw.outcomeAt);
+    if (OUTCOMES[raw.outcome] && Number.isFinite(outcomeAt) && outcomeAt > 0) {
+      entry.outcome = raw.outcome; entry.outcomeAt = outcomeAt;
+      if (raw.outcome === 'confirmed' && raw.deep === true) entry.deep = true;
+    }
+  }
   else { if (!REASONS[raw.reason]) return null; entry.reason = raw.reason; }
   return entry;
 }
@@ -50,6 +67,30 @@ export function addSubmitted(register, item, now = Date.now()) {
   const at = Number.isFinite(item?.submittedAt) ? item.submittedAt : now;
   return cleanRegister({ entries: [...(register?.entries || []), { hash: item?.hash, chainId: item?.network?.id, kind: 'page', label: item?.label, address: item?.address, at }] });
 }
+// Keep a status check's answer with the matching "page" entry (same network + ID). Waiting, not-found and
+// other unsettled answers change nothing, so an earlier settled answer is never wiped by a slow network.
+// Returns the same register object when nothing changed (the page then skips saving).
+export function recordOutcome(register, { hash, chainId, status, deep }, now = Date.now()) {
+  if (!OUTCOMES[status] || typeof hash !== 'string' || !HASH.test(hash)) return register;
+  const h = hash.toLowerCase(), id = Number(chainId);
+  const entries = register?.entries || [];
+  const at = entries.findIndex(e => e.kind === 'page' && e.hash === h && e.chainId === id);
+  if (at < 0) return register;
+  const old = entries[at], isDeep = status === 'confirmed' && deep === true;
+  if (old.outcome === status && Boolean(old.deep) === isDeep) return register;
+  const next = { ...old, outcome: status, outcomeAt: now };
+  if (isDeep) next.deep = true; else delete next.deep;
+  return cleanRegister({ entries: entries.map((e, i) => (i === at ? next : e)) });
+}
+
+// The newest transfer this browser submitted from FYNX, with what the last status check said about it.
+export function lastSubmitted(register) {
+  const page = (register?.entries || []).filter(e => e.kind === 'page');
+  if (!page.length) return null;
+  const last = page.reduce((a, b) => (b.at > a.at ? b : a));
+  return { hash: last.hash, chainId: last.chainId, at: last.at, label: last.label, outcome: last.outcome || null, outcomeAt: last.outcomeAt || null, deep: !!last.deep };
+}
+
 export function markKnown(register, { hash, chainId, reason }, now = Date.now()) {
   if (!REASONS[reason]) throw new Error('Choose why this transfer is yours.');
   if (typeof hash !== 'string' || !HASH.test(hash)) throw new Error('That is not a transaction ID.');

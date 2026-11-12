@@ -21,11 +21,11 @@ import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext, findByNonce, parseNonceSearch, offersNonceSearch, walletQueue, queuePageItems, queueSummary, pageMatch, queueAutoDue, queueChange } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retryText } from './reconcile.js';
-import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
+import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, recordOutcome, lastSubmitted, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
-import { todayBrief, briefText } from './today-brief.js';
+import { todayBrief, briefText, lastSentStatus } from './today-brief.js';
 import { VISIT_KEY, snapshot as visitSnapshot, startVisit, touchVisit, markSeen, sinceLastVisit, sinceHeadline, sinceText, agoLabel, daysText } from './last-visit.js';
 import { progressUpdate, updateMarkdown, updateHeadline, PERIODS as UPDATE_PERIODS } from './progress-update.js';
 import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, entryLabel, undatedLine, WHO as HISTORY_WHO, whoLabels } from './launch-history.js';
@@ -1052,6 +1052,7 @@ async function checkStatus(hash, checkSession) {
   checkSession(); await current.assertCurrent(epoch);
   if (current !== connection) throw new Error('Wallet changed.');
   const before = item?.status;
+  rememberOutcome(hash, current.network.id, result);
   if (item) { item.status = result.status; item.result = result; item.checkedAt = Date.now(); if (Number.isSafeInteger(result.nonce)) item.nonce = result.nonce; if (result.call) item.call = result.call; renderJournal(); renderRecipientCheck(); }
   // Just turned out to be replaced: look up the speed-up / cancel that took its place once, by itself.
   if (item && result.status === 'replaced' && before !== 'replaced' && !item.replacement) {
@@ -1065,6 +1066,13 @@ async function checkStatus(hash, checkSession) {
   return result;
 }
 
+// A settled answer about a transfer submitted from FYNX is kept with it in the pilot register, so Today can say
+// whether the last transfer went through without checking again (public facts only; this browser only).
+function rememberOutcome(hash, chainId, result) {
+  const next = recordOutcome(pilotRegister, { hash, chainId, status: result?.status, deep: result?.deep === true });
+  if (next === pilotRegister) return;
+  pilotRegister = next; savePilotRegister();
+}
 // Read-only: finds the transaction that replaced a submitted one (same wallet, same nonce) and keeps it
 // with the Track entry, so the list and the reconciliation can show where the transfer went.
 async function lookUpReplacement(item, checkSession) {
@@ -1083,6 +1091,7 @@ async function lookUpReplacement(item, checkSession) {
     item.replacement = found; item.replacementNote = null;
     // Remembered like a FYNX transfer, so a reconciliation in a later session still knows it.
     if (first) { pilotRegister = addSubmitted(pilotRegister, { hash: found.hash, label: `${item.label} (replacement)`.slice(0, 80), network: item.network, address: item.address, submittedAt: Date.now() }); savePilotRegister(); }
+    rememberOutcome(found.hash, item.network.id, found);
   } else item.replacementNote = found.detail;
   renderJournal();
   if (lastHistory && lastHistory.chainId === item.network.id) renderReconcile();
@@ -2158,11 +2167,10 @@ function currentTodayBrief() {
 }
 // Newest transfer this browser remembers submitting from FYNX (pilot register; public facts only).
 function lastSentFromFynx() {
-  const page = (pilotRegister?.entries || []).filter(e => e.kind === 'page');
-  if (!page.length) return null;
-  const last = page.reduce((a, b) => (b.at > a.at ? b : a));
+  const last = lastSubmitted(pilotRegister);
+  if (!last) return null;
   const day = localToday(new Date(last.at));
-  return { day, when: shortDay(day), network: registerNetwork(last.chainId) };
+  return { day, when: shortDay(day), network: registerNetwork(last.chainId), status: lastSentStatus(last.outcome, last.deep) };
 }
 // "Since your last visit": one small record in this browser (step keys and evidence piece ids only).
 let visitRecord = null, visitStarted = false;
@@ -2177,7 +2185,7 @@ function currentVisit() {
   saveVisit();
   return visitRecord;
 }
-const sinceInputs = () => ({ plan: launchPlan, records: launchRecords, dates: ownerDates(), privacy: privacyLog, outside: outsideRequests });
+const sinceInputs = () => ({ plan: launchPlan, records: launchRecords, dates: ownerDates(), privacy: privacyLog, outside: outsideRequests, today: localToday() });
 const RESULT_WORDS = { pass: 'Passed', fail: 'Failed', skip: 'Not applicable' };
 function sinceBlock() {
   const s = sinceLastVisit(currentVisit(), sinceInputs()), now = Date.now();
@@ -2202,11 +2210,13 @@ function sinceBlock() {
   for (const x of s.overdue) if (shown++ < SHOWN) row('Now overdue', `${shortDay(x.date)} · ${x.title}`, () => { if (x.kind !== 'privacy' && x.kind !== 'access') selectTab('launch'); openDateItem(x); }, `Open: ${x.title}`);
   for (const x of s.results.items) if (shown++ < SHOWN) row(x.result === 'fail' ? 'Failed' : RESULT_WORDS[x.result], x.text, () => { selectTab('launch'); openGate(x.gateId); }, `Open ${x.text}`);
   for (const a of s.asks) if (shown++ < SHOWN) row('Answered', `${a.party} · ${a.stepText} (${daysText(a.days)})`, () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'), `Open the ${a.party} request: ${a.stepText}`);
+  for (const p of s.logged) if (shown++ < SHOWN) row('New request', `${p.type}: received ${shortDay(p.received)}${p.answered ? ` · answered ${shortDay(p.answered)}` : p.due ? ` · answer by ${shortDay(p.due)}` : ''}${p.overdue ? ' · overdue' : ''}`, () => goTo('registrations', '#wl-requests'), `Open the privacy request log: ${p.type}, received ${p.received}`);
+  for (const x of s.sent) if (shown++ < SHOWN) row('Sent', `${x.party} · ${x.stepText} (sent ${shortDay(x.sent)})`, () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'), `Open the ${x.party} request: ${x.stepText}`);
   for (const p of s.privacy) if (shown++ < SHOWN) row('Privacy', `${p.type}: answered ${shortDay(p.answered)} · ${p.outcome}${p.late ? ' · late' : ''}`, () => goTo('registrations', '#wl-requests'), `Open the privacy request log: ${p.type}, answered ${p.answered}`);
   for (const e of s.evidence) if (shown++ < SHOWN) row('Evidence', `${e.party}: ${e.pieces.length} of ${e.total} for “${e.stepText}”`, () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'));
   for (const x of s.steps) if (shown++ < SHOWN) row('Done', `${x.gate} · ${x.text}`, () => { selectTab('launch'); openGate(x.gateId); }, `Open ${x.text}`);
   wrap.append(list);
-  const rows = s.overdue.length + s.results.items.length + s.steps.length + s.asks.length + s.privacy.length + s.evidence.length;
+  const rows = s.overdue.length + s.results.items.length + s.steps.length + s.asks.length + s.privacy.length + s.evidence.length + s.logged.length + s.sent.length;
   if (rows > SHOWN) {
     const more = el('button', 'text-button', `See everything in What's been finished (${rows - SHOWN} more)`); more.type = 'button';
     more.addEventListener('click', () => goTo('launch', '#launch-history')); wrap.append(more);

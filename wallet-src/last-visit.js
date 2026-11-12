@@ -39,8 +39,14 @@ export function snapshot(plan, evidence, { privacy, outside } = {}) {
     for (const p of entry?.got || []) if (valid.has(p)) pieces.push(`${id}#${p}`);
   }
   const out = { done: done.sort(), pieces: pieces.sort() };
-  if (privacy) out.privacy = (privacy.entries || []).filter(e => e?.answered && okKey(e.id)).map(e => e.id).sort();
-  if (outside) out.asks = Object.entries(outside.entries || {}).filter(([id, e]) => e?.answered && okKey(id)).map(([id]) => id).sort();
+  if (privacy) {
+    out.privacy = (privacy.entries || []).filter(e => e?.answered && okKey(e.id)).map(e => e.id).sort();
+    out.logged = (privacy.entries || []).filter(e => okKey(e?.id)).map(e => e.id).sort();
+  }
+  if (outside) {
+    out.asks = Object.entries(outside.entries || {}).filter(([id, e]) => e?.answered && okKey(id)).map(([id]) => id).sort();
+    out.sent = Object.entries(outside.entries || {}).filter(([id, e]) => e?.sent && okKey(id)).map(([id]) => id).sort();
+  }
   return out;
 }
 
@@ -52,6 +58,8 @@ const cleanSnap = raw => {
   // (otherwise every request answered long ago would show up as new once).
   if (Array.isArray(raw.privacy)) out.privacy = list(raw.privacy);
   if (Array.isArray(raw.asks)) out.asks = list(raw.asks);
+  if (Array.isArray(raw.logged)) out.logged = list(raw.logged);
+  if (Array.isArray(raw.sent)) out.sent = list(raw.sent);
   return out;
 };
 
@@ -98,9 +106,10 @@ export function markSeen(stored, { now, snap, day }) {
 //   plan, records: launch checklist and this browser's results (results carry `at`, the time recorded)
 //   evidence: outside evidence log; dates: owner-dates.js collectDates() items
 //   privacy: the privacy request log; outside: the outside request dates (both describe what was answered)
-export function sinceLastVisit(stored, { plan, records = {}, dates = {}, privacy = null, outside = null } = {}) {
+//   today: the owner's local day (YYYY-MM-DD), used to say whether a newly logged privacy request is overdue
+export function sinceLastVisit(stored, { plan, records = {}, dates = {}, privacy = null, outside = null, today = '' } = {}) {
   const v = cleanVisit(stored);
-  if (!v || !v.baseline) return { first: true, total: 0, steps: [], results: { pass: 0, fail: 0, skip: 0, items: [] }, evidence: [], overdue: [], privacy: [], asks: [] };
+  if (!v || !v.baseline) return { first: true, total: 0, steps: [], results: { pass: 0, fail: 0, skip: 0, items: [] }, evidence: [], overdue: [], privacy: [], asks: [], logged: [], sent: [] };
   const { baseline } = v, opening = v.opening || v.current, until = v.startedAt || v.last;
   const index = new Map();
   for (const gate of plan?.items || []) for (const step of gate.steps || []) index.set(stepKey(gate.id, step.id), { gate, step });
@@ -159,9 +168,26 @@ export function sinceLastVisit(stored, { plan, records = {}, dates = {}, privacy
   }
   asks.sort((a, b) => b.answered.localeCompare(a.answered) || a.party.localeCompare(b.party));
 
+  // New between the visits (for example brought in from another device's test report): privacy requests
+  // logged and outside requests sent. A request already answered is listed once, under "answered".
+  const answeredNow = new Set(privacyAnswered.map(p => p.id));
+  const logged = fresh('logged').filter(id => !answeredNow.has(id)).map(id => privacyEntries.get(id)).filter(e => e && dayNumber(e.received) !== null).map(e => {
+    const st = privacyState(e, today || e.received);
+    return { id: e.id, type: typeLabel(e.type), received: e.received, due: st.due || '', answered: e.answered || '', overdue: st.state === 'overdue' };
+  }).sort((a, b) => b.received.localeCompare(a.received) || a.id.localeCompare(b.id));
+  const answeredAsks = new Set(asks.map(a => a.id)), sent = [];
+  for (const id of fresh('sent')) {
+    const e = outside?.entries?.[id];
+    if (!e?.sent || answeredAsks.has(id)) continue;
+    const { partyId, stepKey: target } = splitId(id), party = PARTIES.find(p => p.id === partyId), t = index.get(target);
+    if (!party || !t) continue;
+    sent.push({ id, party: party.name, step: target, stepText: shortStep(t.step), sent: e.sent, answered: e.answered || '' });
+  }
+  sent.sort((a, b) => b.sent.localeCompare(a.sent) || a.party.localeCompare(b.party));
+
   const pieces = evidence.reduce((n, e) => n + e.pieces.length, 0);
-  const total = steps.length + results.items.length + pieces + overdue.length + privacyAnswered.length + asks.length;
-  return { first: false, at: baseline.at, day: baseline.day, seen: !!v.seen, total, steps, results, evidence, pieces, overdue, privacy: privacyAnswered, asks };
+  const total = steps.length + results.items.length + pieces + overdue.length + privacyAnswered.length + asks.length + logged.length + sent.length;
+  return { first: false, at: baseline.at, day: baseline.day, seen: !!v.seen, total, steps, results, evidence, pieces, overdue, privacy: privacyAnswered, asks, logged, sent };
 }
 
 // How long ago the last visit was, in plain words.
@@ -190,8 +216,10 @@ export function sinceHeadline(s) {
     const r = s.results, how = [r.pass && `${r.pass} passed`, r.fail && `${r.fail} failed`, r.skip && `${r.skip} not applicable`].filter(Boolean);
     parts.push(`${plural(r.items.length, 'of your results', 'of your results')} recorded (${how.join(', ')})`);
   }
+  if (s.sent?.length) parts.push(`${plural(s.sent.length, 'outside request')} sent`);
   if (s.asks?.length) parts.push(`${plural(s.asks.length, 'outside request')} answered`);
   if (s.pieces) parts.push(`${plural(s.pieces, 'piece')} of outside evidence ticked as received`);
+  if (s.logged?.length) parts.push(`${plural(s.logged.length, 'new privacy request')} logged${s.logged.some(p => p.overdue) ? ` (${s.logged.filter(p => p.overdue).length} overdue)` : ''}`);
   if (s.privacy?.length) parts.push(`${plural(s.privacy.length, 'privacy request')} answered${s.privacy.some(p => p.late) ? ` (${s.privacy.filter(p => p.late).length} late)` : ''}`);
   if (s.overdue.length) parts.push(`${plural(s.overdue.length, 'date')} became overdue`);
   return parts.join(' · ');
@@ -207,6 +235,8 @@ export function sinceText(s, now) {
   for (const x of s.steps) lines.push(`- Done in the checklist: ${x.gate} · ${x.text}`);
   for (const x of s.results.items) lines.push(`- Your result: ${x.result === 'pass' ? 'Passed' : x.result === 'fail' ? 'Failed' : 'Not applicable'} · ${x.text}`);
   for (const a of s.asks || []) lines.push(`- ${a.party} answered on ${a.answered} (${daysText(a.days)}): ${a.stepText}`);
+  for (const x of s.sent || []) lines.push(`- Request sent to ${x.party} on ${x.sent}: ${x.stepText}`);
+  for (const p of s.logged || []) lines.push(`- New privacy request received ${p.received}: ${p.type}${p.answered ? ` · answered ${p.answered}` : p.due ? ` · answer by ${p.due}` : ''}${p.overdue ? ' · overdue' : ''}`);
   for (const p of s.privacy || []) lines.push(`- Privacy request answered on ${p.answered}: ${p.type} · ${p.outcome}${p.late ? ' · late' : ''}`);
   for (const e of s.evidence) lines.push(`- ${e.party} evidence for “${e.stepText}”: ${e.pieces.length} of ${e.total}`);
   for (const d of s.overdue) lines.push(`- Now overdue: ${d.date} · ${d.title}`);
