@@ -26,6 +26,7 @@ import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainn
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
 import { todayBrief, briefText } from './today-brief.js';
+import { VISIT_KEY, snapshot as visitSnapshot, startVisit, touchVisit, markSeen, sinceLastVisit, sinceHeadline, sinceText, agoLabel } from './last-visit.js';
 import { progressUpdate, updateMarkdown, updateHeadline, PERIODS as UPDATE_PERIODS } from './progress-update.js';
 import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, entryLabel, undatedLine, WHO as HISTORY_WHO, whoLabels } from './launch-history.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
@@ -2153,6 +2154,52 @@ function currentTodayBrief() {
     session: testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null,
   });
 }
+// "Since your last visit": one small record in this browser (step keys and evidence piece ids only).
+let visitRecord = null, visitStarted = false;
+const visitArgs = () => ({ now: Date.now(), snap: visitSnapshot(launchPlan, outsideEvidence), day: localToday() });
+function saveVisit() { try { localStorage.setItem(VISIT_KEY, JSON.stringify(visitRecord)); } catch { /* storage blocked: the line still works for this page */ } }
+function currentVisit() {
+  if (!visitStarted) {
+    let stored = null; try { stored = JSON.parse(localStorage.getItem(VISIT_KEY) || 'null'); } catch { stored = null; }
+    visitRecord = startVisit(stored, visitArgs()); visitStarted = true;
+    addEventListener('pagehide', () => { visitRecord = touchVisit(visitRecord, visitArgs()); saveVisit(); });
+  } else visitRecord = touchVisit(visitRecord, visitArgs());
+  saveVisit();
+  return visitRecord;
+}
+const RESULT_WORDS = { pass: 'Passed', fail: 'Failed', skip: 'Not applicable' };
+function sinceBlock() {
+  const s = sinceLastVisit(currentVisit(), { plan: launchPlan, records: launchRecords, dates: ownerDates() }), now = Date.now();
+  const wrap = el('section', `tb-since${s.total ? ' has-news' : ''}`); wrap.setAttribute('aria-labelledby', 'tb-since-title');
+  const top = el('div', 'tb-since-head'), h = el('h3', '', s.first ? 'Since your last visit' : `${s.seen ? 'Since you marked it as seen' : 'Since your last visit'} · ${agoLabel(s.at, now)}`); h.id = 'tb-since-title';
+  top.append(h);
+  if (!s.first && s.total) {
+    const seen = el('button', 'text-button tb-seen', 'Mark as seen'); seen.type = 'button'; seen.id = 'tb-seen';
+    seen.addEventListener('click', () => { visitRecord = markSeen(visitRecord, visitArgs()); saveVisit(); todayStatus = 'Marked as seen. New changes will show here from now on.'; renderTodayBrief(); document.getElementById('tb-since-title')?.setAttribute('tabindex', '-1'); document.getElementById('tb-since-title')?.focus(); });
+    top.append(seen);
+  }
+  wrap.append(top, el('p', 'tb-since-line', sinceHeadline(s)));
+  if (s.first || !s.total) return wrap;
+  const list = el('ul', 'tb-since-list');
+  const row = (kind, text, open, label) => {
+    const li = el('li'); li.append(el('span', `tb-since-kind is-${kind.toLowerCase().replace(/[^a-z]+/g, '-')}`, kind));
+    if (open) { const b = el('button', 'text-button tb-since-open', text); b.type = 'button'; if (label) b.setAttribute('aria-label', label); b.addEventListener('click', open); li.append(b); }
+    else li.append(el('span', '', text));
+    list.append(li);
+  };
+  const SHOWN = 6; let shown = 0;
+  for (const x of s.overdue) if (shown++ < SHOWN) row('Now overdue', `${shortDay(x.date)} · ${x.title}`, () => { if (x.kind !== 'privacy' && x.kind !== 'access') selectTab('launch'); openDateItem(x); }, `Open: ${x.title}`);
+  for (const x of s.results.items) if (shown++ < SHOWN) row(x.result === 'fail' ? 'Failed' : RESULT_WORDS[x.result], x.text, () => { selectTab('launch'); openGate(x.gateId); }, `Open ${x.text}`);
+  for (const x of s.steps) if (shown++ < SHOWN) row('Done', `${x.gate} · ${x.text}`, () => { selectTab('launch'); openGate(x.gateId); }, `Open ${x.text}`);
+  for (const e of s.evidence) if (shown++ < SHOWN) row('Evidence', `${e.party}: ${e.pieces.length} of ${e.total} for “${e.stepText}”`, () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'));
+  wrap.append(list);
+  const rows = s.overdue.length + s.results.items.length + s.steps.length + s.evidence.length;
+  if (rows > SHOWN) {
+    const more = el('button', 'text-button', `See everything in What's been finished (${rows - SHOWN} more)`); more.type = 'button';
+    more.addEventListener('click', () => goTo('launch', '#launch-history')); wrap.append(more);
+  }
+  return wrap;
+}
 function renderTodayBrief() {
   const box = document.getElementById('today-brief'); if (!box) return;
   const b = currentTodayBrief(), today = localToday();
@@ -2173,7 +2220,7 @@ function renderTodayBrief() {
     btn.addEventListener('click', () => TODAY_TARGETS[s.id]?.());
     li.append(btn); stats.append(li);
   }
-  box.append(stats);
+  box.append(stats, sinceBlock());
   const cols = el('div', 'tb-cols');
   const datesCol = el('div', 'tb-col'); datesCol.append(el('h3', '', 'Dated items'));
   if (b.urgent.length) {
@@ -2206,7 +2253,8 @@ function renderTodayBrief() {
   const actions = el('div', 'od-actions tb-actions'), status = el('p', 'hint tb-status', todayStatus); status.setAttribute('role', 'status');
   const copy = el('button', 'text-button', 'Copy today'); copy.type = 'button'; copy.id = 'tb-copy';
   copy.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(briefText(currentTodayBrief(), { today: localToday() })); todayStatus = 'Copied: counts and fixed words only, no notes or references.'; }
+    const since = sinceText(sinceLastVisit(visitRecord, { plan: launchPlan, records: launchRecords, dates: ownerDates() }), Date.now());
+    try { await navigator.clipboard.writeText(briefText(currentTodayBrief(), { today: localToday() }) + (since ? `\n\n${since}` : '')); todayStatus = 'Copied: counts and fixed words only, no notes or references.'; }
     catch { todayStatus = 'Copying was blocked by the browser.'; }
     status.textContent = todayStatus;
   });

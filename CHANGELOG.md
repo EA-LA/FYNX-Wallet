@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-12 14:45 UTC — [autopilot] Owner workspace: "Since your last visit" on the Dashboard tab
+- Dashboard → "Today · What needs you" now has a "Since your last visit" box that says how long you were away and what changed in the meantime: launch steps the checklist recorded done (and by whom), your own test results recorded since then (including ones brought in from your phone or iPad), outside evidence ticked as received, and dated items that became overdue.
+- Each line opens the step, date or hand-off list it is about; if there is more than fits, a link takes you to "What's been finished". "Mark as seen" starts the comparison again from now.
+- A reload or switching tabs within 30 minutes keeps the same comparison, so it does not disappear while you work. The first time you open it in a browser it says there is nothing to compare yet.
+- "Copy today" includes the box (fixed words and step names only, never your notes). Nothing is sent anywhere: it is kept in this browser only.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Dashboard tab).
+
 ## 2026-11-12 10:55 UTC — [autopilot] Owner workspace: a "What needs you" summary on the Dashboard tab
 - Dashboard (the tab you land on after signing in) now opens with "Today · What needs you": one plain sentence with the most pressing thing (something overdue, due today, a test session under way, a failed test to retest…), then five tiles: launch steps done, your tests and decisions, dates in the next 7 days, open privacy requests and outside answers you are waiting for. Each tile takes you straight to the place where it is handled.
 - Under the tiles: the overdue and upcoming dated items (with Open buttons) and your next steps, the same list as in Launch readiness. "Copy today" copies the summary (counts and fixed words only, no notes).
