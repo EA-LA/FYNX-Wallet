@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-12 02:20 UTC — [autopilot] Owner workspace: blocked-by-USDC warning and automatic recipient check on paste
+- Crypto tools → Step 3 Send: when you paste a full wallet address, FYNX now checks it on the network by itself (once per address). You can turn this off with the new "Check pasted addresses automatically" box.
+- The check now also asks the USDC contract whether Circle (the company behind USDC) has blocked that address. If it has, a red "USDC blocked" warning appears at the top: a USDC transfer there would fail and still cost a fee.
+- Nothing is sent or signed by these checks; the transfer review and limits are unchanged.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (sign in → Crypto tools → Step 3).
+
 ## 2026-11-11 22:20 UTC — [autopilot] Owner workspace: check a recipient on the network before sending, and name it after it worked
 
 - Crypto tools → Step 3 Send: under the recipient check there is now a **Check this address on the network** button. With your wallet connected it looks the address up on the selected network (nothing is sent) and tells you in plain words whether it is a contract (FYNX refuses those), an upgraded “smart account” wallet (also refused), a wallet in use (how many transactions it has sent), one that only receives, or one that has **never been used** — which is how a mistyped or invented address looks, so you are told to send a small amount first.

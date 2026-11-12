@@ -32,7 +32,7 @@ import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, star
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
-import { readRecipient, describeActivity, nameOffer, activityKey, ACTIVITY_FRESH_MS } from './recipient-activity.js';
+import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS } from './recipient-activity.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
@@ -44,6 +44,12 @@ let swapQuote = null, actionReview = null, checkoutReady = false, checkoutId = n
 const journal = new Map();
 // Recipient check: network facts per network+address and the address the name offer is for (this page session only).
 const recipientFacts = new Map();
+// Addresses already checked automatically after a paste (network:address), so each is read at most once per session.
+const recipientAuto = new Set();
+let recipientPasted = false;
+const RCPT_AUTO_KEY = 'fynx.owner.recipientAutoCheck';
+let recipientAutoOn = true;
+try { recipientAutoOn = localStorage.getItem(RCPT_AUTO_KEY) !== 'off'; } catch { recipientAutoOn = true; }
 let nameOfferFor = '';
 let lookupEntry = null; // the transaction last looked up by ID in the Track card (see renderLookup)
 let queueEntry = null; // the wallet last checked in "Check the wallet's numbers" (see renderQueue)
@@ -144,7 +150,7 @@ window.dispatchEvent(new Event('eip6963:requestProvider'));
 setTimeout(() => { if (!providers.size && window.ethereum) addProvider('injected', 'Browser wallet', window.ethereum); if (!providers.size) $('#wallet-choice').options[0].textContent = 'No wallet found. Open a wallet extension.'; }, 600);
 function clearWallet() {
   verifiedAddress = null; challenge = null; review = null; swapQuote = null; actionReview = null;
-  recipientFacts.clear(); setText('#rcpt-net-status', '');
+  recipientFacts.clear(); recipientAuto.clear(); recipientPasted = false; setText('#rcpt-net-status', '');
   connection?.cancelAction();
   for (const id of ['#receive-qr', '#swap-quote', '#action-review', '#checkout-link']) show(id, false);
   checkoutId = null; $('#check-provider-order').disabled = true; setText('#fiat-order-status', '');
@@ -655,11 +661,18 @@ function renderRecipientCheck() {
   for (const line of result.lines) list.append(el('li', `is-${line.tone}`, line.text));
   setText('#rcpt-grouped', result.grouped || ''); show('#rcpt-grouped-wrap', Boolean(result.grouped));
   renderRecipientNetwork(result); renderRecipientName(result);
+  maybeAutoCheck(result);
   // Speak only when the verdict changes, not on every keystroke.
   const say = `Recipient check: ${badge}. ${result.title}.`;
   if (say !== lastRecipientSay && result.state !== 'invalid') { lastRecipientSay = say; setText('#rcpt-say', say); }
 }
+$('#recipient').addEventListener('paste', () => { recipientPasted = true; });
 $('#recipient').addEventListener('input', renderRecipientCheck);
+$('#rcpt-net-auto').checked = recipientAutoOn;
+$('#rcpt-net-auto').addEventListener('change', event => {
+  recipientAutoOn = event.currentTarget.checked;
+  try { localStorage.setItem(RCPT_AUTO_KEY, recipientAutoOn ? 'on' : 'off'); } catch { /* kept until the page closes */ }
+});
 // "Check this address on the network" (wallet-src/recipient-activity.js): code, transactions sent and holdings of the
 // typed recipient on the connected network, read through the connected wallet. Read-only; remembered for this page
 // session only (a reload or sign-out forgets it) and never changes or blocks the transfer.
@@ -681,16 +694,19 @@ function renderRecipientNetwork(result) {
   if (!saved) return;
   const verdict = describeActivity(saved.facts, saved.network);
   $('#rcpt-net-result').className = `rcpt-net-result is-${verdict.state}`;
-  setText('#rcpt-net-badge', { contract: 'Contract', delegated: 'Upgraded', active: 'In use', 'received-only': 'Receives only', unused: 'Unused' }[verdict.state]);
+  if (verdict.usdcBlocked) $('#rcpt-net-result').classList.add('is-blocked');
+  setText('#rcpt-net-badge', verdict.usdcBlocked ? 'USDC blocked' : { contract: 'Contract', delegated: 'Upgraded', active: 'In use', 'received-only': 'Receives only', unused: 'Unused' }[verdict.state]);
   setText('#rcpt-net-title', verdict.title);
   const list = $('#rcpt-net-lines'); list.replaceChildren();
   for (const line of verdict.lines) list.append(el('li', `is-${line.tone}`, line.text));
   setText('#rcpt-net-when', `Checked at ${new Date(saved.checkedAt).toLocaleTimeString()} on ${saved.network.name} (block ${saved.facts.block.toLocaleString('en-US')})${fresh ? '' : ' · more than 10 minutes ago, check again before sending'}.`);
 }
-$('#rcpt-net-check').addEventListener('click', event => {
+function checkRecipientOnNetwork(button, auto = false) {
   const typed = checkRecipient($('#recipient').value, recipientContext());
   if (!typed.address) return;
-  run(event.currentTarget, async checkSession => {
+  if (auto && connection?.network) recipientAuto.add(activityKey(connection.network.id, typed.address));
+  if (auto) setText('#rcpt-net-hint', 'Checking the pasted address on the network…');
+  return run(button, async checkSession => {
     const current = connection;
     if (!current?.address) throw new Error('Connect your wallet first.');
     const epoch = await current.assertCurrent(), network = current.network;
@@ -699,9 +715,19 @@ $('#rcpt-net-check').addEventListener('click', event => {
     if (current !== connection) throw new Error('Wallet changed.');
     recipientFacts.set(activityKey(network.id, typed.address), { facts, network, checkedAt: Date.now() });
     const verdict = describeActivity(facts, network);
-    setText('#rcpt-net-status', `Network check: ${verdict.title}.`);
-  }, '#rcpt-net-status').then(() => { renderRecipientCheck(); $('#rcpt-net-check').focus(); });
-});
+    setText('#rcpt-net-status', `${auto ? 'Checked automatically after paste' : 'Network check'}: ${verdict.title}.`);
+  }, '#rcpt-net-status').then(() => { renderRecipientCheck(); if (!auto) $('#rcpt-net-check').focus(); });
+}
+$('#rcpt-net-check').addEventListener('click', event => checkRecipientOnNetwork(event.currentTarget));
+// Pasting a full address runs the same read-only check once (Crypto tools → Step 3 "Check pasted addresses
+// automatically"). Typing never triggers it, and keyboard focus stays in the address box.
+function maybeAutoCheck(result) {
+  const pasted = recipientPasted; recipientPasted = false;
+  const network = recipientNetwork();
+  if (!pasteCheckDue({ enabled: recipientAutoOn, pasted, result, network, attempted: recipientAuto, busy })) return;
+  if (recipientFacts.has(activityKey(network.id, result.address))) return;
+  queueMicrotask(() => checkRecipientOnNetwork($('#rcpt-net-check'), true));
+}
 // After a transfer from this page to a wallet without a name has confirmed, offer to name it right here, so the
 // recipient check (and the history) recognise it next time. Look-alikes stay flagged: only a confirmed transfer you
 // made yourself unlocks the offer, never a received one.

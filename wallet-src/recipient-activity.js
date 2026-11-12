@@ -17,18 +17,22 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export const activityKey = (chainId, address) => `${Number(chainId)}:${String(address || '').toLowerCase()}`;
 
 // Reads, for one address: its code (wallet, contract or upgraded wallet), how many transactions it has sent (nonce),
-// its ETH balance and, when the network has USDC, its USDC balance. Throws a plain sentence on an unreadable answer.
+// its ETH balance and, when the network has USDC, its USDC balance and whether USDC's issuer has blocked it
+// (FiatToken isBlacklisted). Throws a plain sentence on an unreadable answer.
 export async function readRecipient(request, address, network = {}) {
   if (!ADDRESS.test(String(address || ''))) throw new Error('Enter a full wallet address first.');
   const a = address.toLowerCase();
   const usdc = ADDRESS.test(network.usdc || '') ? network.usdc.toLowerCase() : null;
-  const [code, nonceHex, balanceHex, blockHex, usdcHex] = await Promise.all([
+  const word = `${a.slice(2).padStart(64, '0')}`;
+  const [code, nonceHex, balanceHex, blockHex, usdcHex, blockedHex] = await Promise.all([
     request({ method: 'eth_getCode', params: [a, 'latest'] }),
     request({ method: 'eth_getTransactionCount', params: [a, 'latest'] }),
     request({ method: 'eth_getBalance', params: [a, 'latest'] }),
     request({ method: 'eth_blockNumber', params: [] }),
     // balanceOf(address): selector 0x70a08231 + the address padded to 32 bytes. A failure only hides the USDC line.
-    usdc ? request({ method: 'eth_call', params: [{ to: usdc, data: `0x70a08231${a.slice(2).padStart(64, '0')}` }, 'latest'] }).catch(() => null) : Promise.resolve(null),
+    usdc ? request({ method: 'eth_call', params: [{ to: usdc, data: `0x70a08231${word}` }, 'latest'] }).catch(() => null) : Promise.resolve(null),
+    // isBlacklisted(address): selector 0xfe575a87. A failure (or an odd answer) means "not known", never "blocked".
+    usdc ? request({ method: 'eth_call', params: [{ to: usdc, data: `0xfe575a87${word}` }, 'latest'] }).catch(() => null) : Promise.resolve(null),
   ]);
   const sent = big(nonceHex), eth = big(balanceHex), block = big(blockHex);
   if (typeof code !== 'string' || !/^0x[0-9a-fA-F]*$/.test(code) || sent === null || eth === null || block === null || sent > 10n ** 12n) {
@@ -41,12 +45,36 @@ export async function readRecipient(request, address, network = {}) {
     address: a, chainId: Number(network.id) || null, block: Number(block),
     kind: bare ? 'wallet' : delegated ? 'delegated' : 'contract',
     delegate: delegated ? `0x${delegated[1].toLowerCase()}` : null,
-    sent: Number(sent), eth, usdc: usdcUnits,
+    sent: Number(sent), eth, usdc: usdcUnits, usdcBlocked: blockedAnswer(blockedHex),
   };
+}
+
+// A Solidity bool comes back as one 32-byte word: ...0 (false) or ...1 (true). Anything else is "not known" (null).
+export function blockedAnswer(value) {
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value)) return null;
+  const n = BigInt(value);
+  return n === 1n ? true : n === 0n ? false : null;
+}
+
+// The USDC issuer's block list, as lines for the verdict. Only a clear "yes" is reported as blocked.
+function blockedLines(facts, where, testnet) {
+  if (facts.usdcBlocked !== true) return [];
+  const token = testnet ? 'test USDC' : 'USDC';
+  return [
+    { tone: 'bad', text: `Circle, the company that issues USDC, has blocked this address on ${where}. The USDC contract refuses every ${token} transfer to or from it, so a transfer would fail and still cost a network fee.` },
+    { tone: 'info', text: 'Do not send USDC here. ETH is not affected by this list, but a blocked address is a strong sign that something is wrong: ask the person why before sending anything.' },
+  ];
 }
 
 // Plain-language verdict for the facts above: { state, title, lines: [{ tone, text }] }.
 export function describeActivity(facts, network = {}) {
+  const verdict = describeWallet(facts, network);
+  if (!verdict) return null;
+  const blocked = blockedLines(facts, network.name || 'this network', Boolean(network.testnet));
+  return blocked.length ? { ...verdict, usdcBlocked: true, title: `USDC blocked · ${verdict.title}`, lines: [...blocked, ...verdict.lines] } : { ...verdict, usdcBlocked: false };
+}
+
+function describeWallet(facts, network = {}) {
   const where = network.name || 'this network';
   const test = network.testnet ? ' Many real wallets have never been used on a test network, so this is common here.' : '';
   if (!facts) return null;
@@ -91,4 +119,13 @@ export function nameOffer(items, address, chainId, labels = {}) {
   const done = [...(items || [])].filter(i => i && typeof i.to === 'string' && i.to.toLowerCase() === a && Number(i.network?.id) === Number(chainId) && i.result?.status === 'confirmed')
     .sort((x, y) => (y.submittedAt || 0) - (x.submittedAt || 0));
   return done.length ? { hash: done[0].hash, at: done[0].checkedAt || done[0].submittedAt || null } : null;
+}
+
+// Automatic network check after a full address is pasted (optional, on by default): at most one read per network and
+// address for this page session, only for a well-formed address that passed the built-in checks, only with a wallet
+// connected and nothing else running. A manual "Check again" is always available.
+export function pasteCheckDue({ enabled, pasted, result, network, attempted, busy } = {}) {
+  if (!enabled || !pasted || busy || !network?.id) return false;
+  if (!result?.address || !result.grouped || result.state === 'invalid' || result.state === 'empty') return false;
+  return !attempted?.has?.(activityKey(network.id, result.address));
 }
