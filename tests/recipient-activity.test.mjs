@@ -181,3 +181,47 @@ test('owner page offers the paste auto-check switch and shows the blocked badge'
   assert.match(app, /verdict\.usdcBlocked \? 'USDC blocked'/);
   assert.match(app, /recipientAuto\.clear\(\)/, 'sign-out and wallet change forget the automatic checks');
 });
+
+test('own wallet block list: one read-only isBlacklisted call on the pinned USDC contract', async () => {
+  const { readOwnBlock } = await import('../wallet-src/recipient-activity.js');
+  const yes = fakeRequest({ blocked: 1n });
+  assert.equal(await readOwnBlock(yes.request, WHO, BASE_SEPOLIA), true);
+  assert.equal(yes.calls.length, 1);
+  assert.deepEqual(yes.calls[0], { method: 'eth_call', params: [{ to: BASE_SEPOLIA.usdc.toLowerCase(), data: `0xfe575a87${'0'.repeat(24)}${WHO.slice(2).toLowerCase()}` }, 'latest'] });
+  assert.equal(await readOwnBlock(fakeRequest({ blocked: 0n }).request, WHO, BASE), false);
+  // A failed, odd or missing answer is "not known", never "blocked".
+  assert.equal(await readOwnBlock(fakeRequest({ blockedFails: true }).request, WHO, BASE_SEPOLIA), null);
+  assert.equal(await readOwnBlock(fakeRequest({ blocked: 2n }).request, WHO, BASE_SEPOLIA), null);
+  assert.equal(await readOwnBlock(fakeRequest({ blocked: '0x1' }).request, WHO, BASE_SEPOLIA), null);
+  const none = fakeRequest({ blocked: 1n });
+  assert.equal(await readOwnBlock(none.request, WHO, { ...BASE_SEPOLIA, usdc: undefined }), null);
+  assert.equal(await readOwnBlock(none.request, 'not-an-address', BASE_SEPOLIA), null);
+  assert.equal(none.calls.length, 0, 'no read without USDC or a full address');
+});
+
+test('own wallet block list: plain words for balances, send and swap', async () => {
+  const { ownBlockNotice } = await import('../wallet-src/recipient-activity.js');
+  const blocked = ownBlockNotice(true, BASE_SEPOLIA, 'balances');
+  assert.equal(blocked.tone, 'bad');
+  assert.match(blocked.text, /blocked your connected wallet on Base Sepolia/);
+  assert.match(blocked.text, /test USDC/);
+  assert.match(blocked.text, /ETH is not affected/);
+  assert.doesNotMatch(ownBlockNotice(true, BASE, 'balances').text, /test USDC/);
+  assert.equal(ownBlockNotice(false, BASE, 'balances').tone, 'good');
+  assert.equal(ownBlockNotice(null, BASE, 'balances').tone, 'info');
+  assert.match(ownBlockNotice(null, BASE, 'balances').text, /Could not read/);
+  assert.match(ownBlockNotice(true, BASE, 'send').text, /refuse this transfer/);
+  assert.match(ownBlockNotice(true, BASE, 'swap').text, /swap/);
+  for (const where of ['send', 'swap']) { assert.equal(ownBlockNotice(false, BASE, where), null); assert.equal(ownBlockNotice(null, BASE, where), null); }
+  const noUsdc = { ...BASE_SEPOLIA, usdc: undefined };
+  assert.match(ownBlockNotice(null, noUsdc, 'balances').text, /no USDC in FYNX/);
+  assert.equal(ownBlockNotice(true, noUsdc, 'send'), null);
+});
+
+test('owner page: block-list lines exist in Step 2, 3 and 4 and are read with the balances', () => {
+  const html = readFileSync(new URL('../owner.html', import.meta.url), 'utf8');
+  for (const id of ['usdc-block', 'send-block', 'swap-block']) assert.match(html, new RegExp(`id="${id}"[^>]*hidden`));
+  const app = readFileSync(new URL('../wallet-src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /readOwnBlock\(request => current\.provider\.request\(request\), current\.address, current\.network\)/);
+  assert.match(app, /ownBlock = null; renderOwnBlock\(\)/, 'cleared with the wallet');
+});

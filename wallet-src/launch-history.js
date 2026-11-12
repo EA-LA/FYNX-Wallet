@@ -71,7 +71,9 @@ const totalSteps = plan => (plan.items || []).reduce((n, g) => n + (g.steps || [
 
 // The history as weeks (newest first), filtered by who did the work, plus counts for the filter buttons and
 // a running total of finished steps (all parties) at the end of each of the last `weeks` weeks.
-export function launchHistory(plan, records = {}, { who = 'all', today, weeks = 8 } = {}) {
+// `arrivals` (optional): dated outside-party evidence from outside-evidence.js evidenceArrivals(); shown in its
+// week for Everyone and Outside parties. Evidence is not a finished step, so it never changes the counts.
+export function launchHistory(plan, records = {}, { who = 'all', today, weeks = 8, arrivals = [] } = {}) {
   if (!WHO.includes(who)) who = 'all';
   const all = historyEntries(plan, records), total = totalSteps(plan);
   const counts = { all: all.length, you: 0, engineering: 0, outside: 0 };
@@ -85,6 +87,13 @@ export function launchHistory(plan, records = {}, { who = 'all', today, weeks = 
     if (!groups.has(w)) groups.set(w, { week: w, end: isoDay(dayMs(w) + 6 * DAY), entries: [], by: { you: 0, engineering: 0, outside: 0 } });
     const g = groups.get(w); g.entries.push(e); g.by[e.by] += 1;
   }
+  const evidence = who === 'all' || who === 'outside' ? (arrivals || []).filter(a => a && validDate(a.date)) : [];
+  for (const a of evidence) {
+    const w = weekOf(a.date);
+    if (!groups.has(w)) groups.set(w, { week: w, end: isoDay(dayMs(w) + 6 * DAY), entries: [], by: { you: 0, engineering: 0, outside: 0 } });
+    const g = groups.get(w); (g.arrivals ||= []).push(a);
+  }
+  for (const g of groups.values()) g.arrivals ||= [];
   const list = [...groups.values()].sort((a, b) => b.week.localeCompare(a.week));
 
   // Running total: everything dated on or before the end of each week; the starting point and undated
@@ -99,11 +108,18 @@ export function launchHistory(plan, records = {}, { who = 'all', today, weeks = 
     running.push({ week: start, end, done, added, percent: total ? Math.round(done / total * 100) : 0, current: i === 0 });
   }
   const progress = all.filter(e => e.date && !e.baseline).length;
-  return { who, total, done: all.length, percent: total ? Math.round(all.length / total * 100) : 0, counts, weeks: list, undated, baseline, started: validDate(plan.started) ? plan.started : '', startDone: all.filter(e => e.baseline).length, progress, running, shown: picked.length };
+  return { who, total, done: all.length, percent: total ? Math.round(all.length / total * 100) : 0, counts, weeks: list, undated, baseline, started: validDate(plan.started) ? plan.started : '', startDone: all.filter(e => e.baseline).length, progress, running, shown: picked.length, arrivals: evidence.length };
 }
 
 const fmt = d => { const t = new Date(dayMs(d)); return `${t.getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][t.getUTCMonth()]} ${t.getUTCFullYear()}`; };
 export const weekTitle = w => `Week of ${fmt(w)}`;
+// "3 steps", "2 evidence arrivals" or "1 step, 1 evidence arrival" for a week heading.
+export function weekCount(w) {
+  const n = w.entries.length, a = (w.arrivals || []).length, parts = [];
+  if (n || !a) parts.push(`${n} ${n === 1 ? 'step' : 'steps'}`);
+  if (a) parts.push(`${a} evidence ${a === 1 ? 'arrival' : 'arrivals'}`);
+  return parts.join(', ');
+}
 export const entryLabel = e => e.source === 'checklist' ? `${byLabels[e.by]} · recorded done in the checklist` : `You · ${e.result === 'skip' ? 'Not applicable' : 'Passed'} in this browser`;
 
 export function historyHeadline(h) {
@@ -121,8 +137,13 @@ export function historyMarkdown(h, { product = 'FYNX Wallet', generated = new Da
   L.push('');
   if (!h.weeks.length && !h.undated.length && !h.baseline.length) L.push('Nothing finished yet for this selection.', '');
   for (const w of h.weeks) {
-    L.push(`## ${weekTitle(w.week)} (${w.entries.length} ${w.entries.length === 1 ? 'step' : 'steps'})`, '');
+    L.push(`## ${weekTitle(w.week)} (${weekCount(w)})`, '');
     for (const e of w.entries) L.push(`- ${e.date} · ${byLabels[e.by]} · ${md(e.gate)}: ${md(e.text)}${e.source === 'result' && e.result === 'skip' ? ' (not applicable)' : ''}`);
+    if (w.arrivals.length) {
+      if (w.entries.length) L.push('');
+      L.push('Evidence that arrived:', '');
+      for (const a of w.arrivals) L.push(`- ${a.date} · ${md(a.party)} · for “${md(a.stepText)}”: ${a.pieces.length} of ${a.total} (${a.pieces.map(md).join('; ')})${a.unlocks?.some(u => !u.done) ? `; then unlocks ${a.unlocks.filter(u => !u.done).map(u => `“${md(u.text)}”`).join(', ')}` : ''}`);
+    }
     L.push('');
   }
   if (h.baseline.length) {
@@ -135,7 +156,7 @@ export function historyMarkdown(h, { product = 'FYNX Wallet', generated = new Da
     for (const e of h.undated) L.push(`- ${byLabels[e.by]} · ${md(e.gate)}: ${md(e.text)}`);
     L.push('');
   }
-  L.push('Checklist dates are the day the step was recorded as done in the FYNX launch checklist. Owner results are the time they were recorded in one browser. No notes are included. FYNX Wallet is not launched; public sign-up stays on the waitlist.');
+  L.push('Checklist dates are the day the step was recorded as done in the FYNX launch checklist. Evidence dates are the “Arrived” dates entered in one browser; evidence alone does not mark a step done. Owner results are the time they were recorded in one browser. No notes are included. FYNX Wallet is not launched; public sign-up stays on the waitlist.');
   return L.join('\n');
 }
 

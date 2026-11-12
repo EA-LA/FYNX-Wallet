@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-12 06:50 UTC — [autopilot] Owner workspace: your own wallet's USDC block-list status, and evidence arrivals in "What's been finished"
+- Crypto tools → Step 2 Balances: when your balances load, FYNX also checks whether Circle (the USDC issuer) has blocked your connected wallet. You see a green "not on the block list", a clear red warning if it is blocked (ETH is not affected), or "could not read" — never a guess.
+- If your wallet is blocked, Step 3 Send warns you when you choose USDC, and Step 4 Swap warns you before a swap, so you don't pay a network fee for a transfer that will fail. Sending and swapping themselves are unchanged.
+- Launch readiness → "What's been finished": evidence from outside parties (lawyer, Transak, security reviewer, data provider) now shows up in the week it arrived, with what came in, whether the step can now be recorded and which steps it unlocks. Click a line to jump to that request. The copied history includes it.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools and Launch readiness tabs).
+
 ## 2026-11-12 02:20 UTC — [autopilot] Owner workspace: blocked-by-USDC warning and automatic recipient check on paste
 - Crypto tools → Step 3 Send: when you paste a full wallet address, FYNX now checks it on the network by itself (once per address). You can turn this off with the new "Check pasted addresses automatically" box.
 - The check now also asks the USDC contract whether Circle (the company behind USDC) has blocked that address. If it has, a red "USDC blocked" warning appears at the top: a USDC transfer there would fail and still cost a fee.

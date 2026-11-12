@@ -6,6 +6,7 @@
 // Ticking everything does NOT mark a checklist step done: the documents themselves still have to be
 // shared so the step can be checked and recorded in docs/VERIFICATION.md.
 import { PARTIES } from './outside-handoff.js';
+import { stepIndex, stepState, shortStep } from './launch-tracker.js';
 import { requestId, splitId, CHASE_DAYS } from './outside-requests.js';
 import { dayNumber, dayString } from './privacy-requests.js';
 
@@ -296,4 +297,49 @@ export function mergeEvidence(local, incoming) {
     if (minute(inc.changed) > minute(mine.changed)) { merged[id] = copyEntry(inc); changes.updated.push(id); } else changes.kept.push(id);
   }
   return { log: cleanEvidence({ entries: merged }), ...changes };
+}
+
+// "What's been finished" (Launch readiness): when each outside party's evidence arrived, from the "Arrived" dates.
+// One entry per request and day: the pieces that came in that day, the checklist step they are for (and whether it
+// is recorded done yet) and the steps that wait on that step (its direct `after` dependants), so the owner sees
+// what the evidence unlocks. Pieces ticked without a date are counted per request in `undated`. Fixed words only.
+export function evidenceArrivals(plan, log, records = {}) {
+  const index = stepIndex(plan), dependants = new Map();
+  for (const [key, { step }] of index) for (const ref of step.after || []) {
+    if (!dependants.has(ref)) dependants.set(ref, []);
+    dependants.get(ref).push(key);
+  }
+  const state = key => { const e = index.get(key); return e ? stepState(e.gate, e.step, records) : 'todo'; };
+  const out = [], undated = [];
+  for (const [id, entry] of Object.entries(log?.entries || {})) {
+    if (!EVIDENCE[id]) continue;
+    const { partyId, stepKey } = splitId(id), party = PARTIES.find(p => p.id === partyId), target = index.get(stepKey);
+    if (!party || !target) continue;
+    const st = evidenceState(id, entry), byDay = new Map();
+    for (const piece of st.received) {
+      const day = st.receivedOn[piece.id];
+      if (!day) continue;
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(piece.label);
+    }
+    const undatedCount = st.received.length - Object.keys(st.receivedOn).length;
+    const unlocks = (dependants.get(stepKey) || []).map(key => ({ key, text: shortStep(index.get(key).step), done: state(key) === 'done' }));
+    const base = { id, partyId, party: party.name, step: stepKey, stepText: shortStep(target.step), stepDone: state(stepKey) === 'done', complete: st.state === 'complete', total: st.total, unlocks };
+    for (const [date, pieces] of byDay) out.push({ ...base, date, pieces });
+    if (undatedCount) undated.push({ ...base, count: undatedCount });
+  }
+  out.sort((a, b) => b.date.localeCompare(a.date) || a.party.localeCompare(b.party) || a.step.localeCompare(b.step));
+  return { arrivals: out, undated };
+}
+
+// One plain line for an arrival: "Lawyer (U.S. counsel) sent 2 of 5 pieces for “…”: memo; licences."
+export function arrivalLine(a) {
+  return `${a.party} sent ${a.pieces.length} of ${a.total} ${a.total === 1 ? 'piece' : 'pieces'} for “${a.stepText}”: ${a.pieces.map(p => p.charAt(0).toLowerCase() + p.slice(1)).join('; ')}.`;
+}
+// What the arrival means for the checklist: the step it is for and the steps waiting on it.
+export function arrivalNext(a) {
+  const open = a.unlocks.filter(u => !u.done);
+  const step = a.stepDone ? 'That step is recorded done.' : a.complete ? 'Everything asked for is in: share the documents so the step can be recorded done.' : 'The step stays open until every piece is in and checked.';
+  if (!a.unlocks.length) return step;
+  return `${step} ${open.length ? `Once it is done, ${open.length === 1 ? 'this step can start' : `these ${open.length} steps can start`}: ${open.map(u => `“${u.text}”`).join(', ')}.` : 'The steps waiting on it are already done.'}`;
 }

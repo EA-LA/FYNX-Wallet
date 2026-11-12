@@ -129,3 +129,29 @@ export function pasteCheckDue({ enabled, pasted, result, network, attempted, bus
   if (!result?.address || !result.grouped || result.state === 'invalid' || result.state === 'empty') return false;
   return !attempted?.has?.(activityKey(network.id, result.address));
 }
+
+// The connected wallet's own place on USDC's block list (Crypto tools → Step 2 Balances). Circle's FiatToken refuses
+// every transfer from a blocked address too, so the owner should know before preparing a USDC transfer or swap.
+// One read-only eth_call (isBlacklisted, selector 0xfe575a87) on the pinned USDC contract. Returns true / false, or
+// null when the network has no USDC in FYNX or the answer is missing or odd ("not known", never "blocked").
+export async function readOwnBlock(request, address, network = {}) {
+  if (!ADDRESS.test(String(address || '')) || !ADDRESS.test(network.usdc || '')) return null;
+  const word = address.toLowerCase().slice(2).padStart(64, '0');
+  try { return blockedAnswer(await request({ method: 'eth_call', params: [{ to: network.usdc.toLowerCase(), data: `0xfe575a87${word}` }, 'latest'] })); }
+  catch { return null; }
+}
+
+// Plain words for Step 2 (where: 'balances') and Step 3 / Step 4 when USDC is chosen (where: 'send' / 'swap').
+// Returns { tone, text } or null (nothing worth saying there).
+export function ownBlockNotice(blocked, network = {}, where = 'balances') {
+  const name = network.name || 'this network', token = network.testnet ? 'test USDC' : 'USDC';
+  if (!ADDRESS.test(network.usdc || '')) return where === 'balances' ? { tone: 'info', text: `${name} has no USDC in FYNX, so there is no USDC block list to check.` } : null;
+  if (blocked === true) {
+    if (where === 'send') return { tone: 'bad', text: `Your connected wallet is on USDC’s block list on ${name}. The USDC contract will refuse this transfer, and the failed attempt still costs a network fee. Send ETH instead, or use another wallet.` };
+    if (where === 'swap') return { tone: 'bad', text: `Your connected wallet is on USDC’s block list on ${name}, so a swap that pays in or out ${token} will fail and still cost a network fee.` };
+    return { tone: 'bad', text: `Circle, the company that issues USDC, has blocked your connected wallet on ${name}. Every ${token} transfer to or from it is refused, so ${token} here cannot be moved. ETH is not affected. If this is your real wallet, contact Circle support; do not keep sending.` };
+  }
+  if (where !== 'balances') return null;
+  if (blocked === false) return { tone: 'good', text: `Not on USDC’s block list on ${name}: ${token} can move normally.` };
+  return { tone: 'info', text: `Could not read USDC’s block list on ${name} just now. Refresh balance to try again.` };
+}

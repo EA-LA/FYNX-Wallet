@@ -14,7 +14,7 @@ import { checkConnections } from './connection-checks.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { PARTIES, partyStatus, partyLine, outsideBrief, handoffStateText } from './outside-handoff.js';
-import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem, setReceivedDate, FIRST_DAY as EVIDENCE_FIRST_DAY, evidenceState, partyEvidence, partyEvidenceLine, readyToShare, missingAfterAnswer, missingAttention, evidenceSummary, evidenceReportLines, parseEvidenceReport, mergeEvidence } from './outside-evidence.js';
+import { EVIDENCE_KEY, evidenceItems, cleanEvidence, setItem as setEvidenceItem, setReceivedDate, FIRST_DAY as EVIDENCE_FIRST_DAY, evidenceState, partyEvidence, partyEvidenceLine, readyToShare, missingAfterAnswer, missingAttention, evidenceSummary, evidenceReportLines, parseEvidenceReport, mergeEvidence, evidenceArrivals, arrivalLine, arrivalNext } from './outside-evidence.js';
 import { OUTSIDE_KEY, CHASE_DAYS, requestId, cleanRequests, setDate as setRequestDate, requestState as outsideRequestState, partyRequests, partyRequestLine, outsideAttention, requestReportLines, parseRequestReport, mergeRequests } from './outside-requests.js';
 import { DECISIONS_KEY, DECISIONS, decisionKey, findDecision, cleanAnswers, cleanValue, problems, decisionNote, decisionState, decisionsProgress, decisionRecord, counselSheet, answerText, unsavedFields, DECISION_TIMES_KEY, cleanTimes, decisionReportLines, parseDecisions, mergeDecisions } from './owner-decisions.js';
 import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_RESULTS, findScenario, cleanDrill, startRun, answerStage, currentStage, runSummary, drillNote, drillRecord, finishRun, parsePeople, cleanFollowUp, followUpList, followUpProgress, setFollowUpDone, followUpText, drillReportLines, parseDrillReport, mergeDrills } from './incident-drill.js';
@@ -26,13 +26,13 @@ import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainn
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
 import { progressUpdate, updateMarkdown, updateHeadline, PERIODS as UPDATE_PERIODS } from './progress-update.js';
-import { launchHistory, historyHeadline, historyMarkdown, weekTitle, entryLabel, WHO as HISTORY_WHO, whoLabels } from './launch-history.js';
+import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, entryLabel, WHO as HISTORY_WHO, whoLabels } from './launch-history.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
-import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS } from './recipient-activity.js';
+import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice } from './recipient-activity.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
@@ -62,6 +62,8 @@ let waitlistPeriod = 'day', waitlistLoadingAll = false, waitlistFlags = new Map(
 const providers = new Map();
 let signInInfo = null;
 let lastBalances = { eth: null, usdc: null };
+// The connected wallet's own place on USDC's block list, read with the balances (Step 2); key = network:address.
+let ownBlock = null;
 let autoLastRun = null, autoRunning = false;
 let queueAutoLast = null, queueAutoRunning = false; // "Check the wallet's numbers" automatic re-check
 function selectTab(name) {
@@ -161,7 +163,7 @@ function clearWallet() {
   show('#signing-review', false); show('#transfer-review', false);
   setText('#signing-message', ''); $('#transfer-details').replaceChildren();
   setText('#wallet-address', 'No wallet connected'); setText('#receive-address', 'Connect and verify your wallet first.');
-  setText('#wallet-balance', '— test ETH'); lastBalances = { eth: null, usdc: null };
+  setText('#wallet-balance', '— test ETH'); lastBalances = { eth: null, usdc: null }; ownBlock = null; renderOwnBlock();
   setText('#wallet-proof', session?.wallet ? `Previously linked: ${session.wallet.address}. Connect again to prove current control.` : 'A connection alone does not prove wallet ownership.');
   updateWalletControls();
 }
@@ -1088,11 +1090,25 @@ function detailList(id, entries) {
   const list = $(id); list.replaceChildren();
   for (const [name, value] of entries) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = name; dd.textContent = String(value); list.append(dt, dd); }
 }
+// Step 2 line plus the Step 3 / Step 4 warnings when USDC is chosen and the connected wallet is blocked. Information
+// only: the transfer and swap reviews keep their own checks and are not changed by this.
+function ownBlockFor() { return ownBlock && connection?.address && ownBlock.key === activityKey(connection.network.id, connection.address) ? ownBlock : null; }
+function renderOwnBlock() {
+  const saved = ownBlockFor();
+  const put = (id, notice) => { const node = $(id); node.className = `own-block is-${notice?.tone || 'info'}`; node.textContent = notice?.text || ''; show(id, !!notice); };
+  const balances = saved ? ownBlockNotice(saved.blocked, saved.network, 'balances') : null;
+  put('#usdc-block', balances && { ...balances, text: `${balances.text} Checked at ${new Date(saved.checkedAt).toLocaleTimeString()}.` });
+  put('#send-block', saved && $('#send-asset').value === 'USDC' ? ownBlockNotice(saved.blocked, saved.network, 'send') : null);
+  put('#swap-block', saved ? ownBlockNotice(saved.blocked, saved.network, 'swap') : null);
+}
+$('#send-asset').addEventListener('change', renderOwnBlock);
 async function refreshBalances(checkSession = () => {}) {
   const current = connection, epoch = current.epoch;
-  const [eth, usdc] = await Promise.allSettled([current.balance(), current.tokenBalance()]);
+  const [eth, usdc, blocked] = await Promise.allSettled([current.balance(), current.tokenBalance(), readOwnBlock(request => current.provider.request(request), current.address, current.network)]);
   checkSession(); await current.assertCurrent(epoch);
   if (current !== connection) throw new Error('Wallet changed.');
+  ownBlock = { key: activityKey(current.network.id, current.address), network: current.network, blocked: blocked.status === 'fulfilled' ? blocked.value : null, checkedAt: Date.now() };
+  renderOwnBlock();
   setText('#wallet-balance', eth.status === 'fulfilled' ? eth.value + ' ETH' : 'ETH unavailable');
   setText('#token-balance', usdc.status === 'fulfilled' ? usdc.value + ' USDC' : 'USDC unavailable — retry when the network responds');
   lastBalances = { eth: eth.status === 'fulfilled' ? String(eth.value) : null, usdc: usdc.status === 'fulfilled' ? String(usdc.value) : null };
@@ -2538,7 +2554,15 @@ function renderLaunchUpdate(focusSel = '') {
 // results), by week, with a running total. Fixed words and dates only (wallet-src/launch-history.js).
 let historyWho = 'all', historyAll = false, historyPreviewOpen = false;
 const HISTORY_WEEKS_SHOWN = 3;
-function currentHistory() { return launchHistory(launchPlan, launchRecords, { who: historyWho, today: localToday() }); }
+function currentHistory() { return launchHistory(launchPlan, launchRecords, { who: historyWho, today: localToday(), arrivals: evidenceArrivals(launchPlan, outsideEvidence, launchRecords).arrivals }); }
+// One evidence arrival in "What's been finished": who sent what for which step, and what it unlocks. Opens the request.
+function arrivalRow(a) {
+  const li = el('li', 'lh-row lh-arrival is-outside');
+  const b = el('button', 'text-button lo-link'); b.type = 'button';
+  b.append(el('span', 'lo-meta', `${shortDay(a.date)} · Evidence arrived · ${a.party}`), el('span', 'lo-text', arrivalLine(a)), el('span', 'lh-unlocks', arrivalNext(a)));
+  b.addEventListener('click', () => openOutsideRequest(a.partyId, a.step, true));
+  li.append(b); return li;
+}
 function historyRow(e) {
   const li = el('li', `lh-row is-${e.by}`);
   const b = el('button', 'text-button lo-link'); b.type = 'button';
@@ -2551,7 +2575,7 @@ function renderLaunchHistory(focusSel = '') {
   const h = currentHistory(), status = el('p', 'hint ld-status'); status.id = 'lh-status'; status.setAttribute('role', 'status');
   box.replaceChildren();
   const head = el('div', 'lo-head');
-  head.append(el('h3', '', 'What’s been finished'), el('p', 'hint', 'Every finished launch step with its date: engineering and outside-party work from the checklist, and your own tests from this browser. Open any line to see the step.'));
+  head.append(el('h3', '', 'What’s been finished'), el('p', 'hint', 'Every finished launch step with its date: engineering and outside-party work from the checklist, and your own tests from this browser. Outside parties’ evidence appears in the week it arrived (from the “Arrived” dates), with the steps it unlocks. Open any line to see the step.'));
   box.append(head, el('p', 'pu-headline', historyHeadline(h)));
   const pick = el('div', 'pu-periods'); pick.setAttribute('role', 'group'); pick.setAttribute('aria-label', 'Show work by');
   for (const w of HISTORY_WHO) {
@@ -2578,8 +2602,8 @@ function renderLaunchHistory(focusSel = '') {
   for (const w of weeks) {
     const sec = el('div', 'lh-group');
     const parts = ['you', 'engineering', 'outside'].filter(k => w.by[k]).map(k => `${w.by[k]} ${whoLabels[k].toLowerCase()}`);
-    sec.append(el('h4', 'lh-title', `${weekTitle(w.week)} · ${w.entries.length} ${w.entries.length === 1 ? 'step' : 'steps'}${historyWho === 'all' && parts.length > 1 ? ` (${parts.join(', ')})` : ''}`));
-    const list = el('ul', 'pu-done'); for (const e of w.entries) list.append(historyRow(e)); sec.append(list); box.append(sec);
+    sec.append(el('h4', 'lh-title', `${weekTitle(w.week)} · ${weekCount(w)}${historyWho === 'all' && parts.length > 1 ? ` (${parts.join(', ')})` : ''}`));
+    const list = el('ul', 'pu-done'); for (const e of w.entries) list.append(historyRow(e)); for (const a of w.arrivals) list.append(arrivalRow(a)); sec.append(list); box.append(sec);
   }
   if (h.weeks.length > HISTORY_WEEKS_SHOWN) {
     const more = el('button', 'text-button lh-more', historyAll ? 'Show fewer weeks' : `Show all ${h.weeks.length} weeks`); more.type = 'button'; more.setAttribute('aria-expanded', String(historyAll));
