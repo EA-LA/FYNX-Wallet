@@ -73,7 +73,9 @@ const totalSteps = plan => (plan.items || []).reduce((n, g) => n + (g.steps || [
 // a running total of finished steps (all parties) at the end of each of the last `weeks` weeks.
 // `arrivals` (optional): dated outside-party evidence from outside-evidence.js evidenceArrivals(); shown in its
 // week for Everyone and Outside parties. Evidence is not a finished step, so it never changes the counts.
-export function launchHistory(plan, records = {}, { who = 'all', today, weeks = 8, arrivals = [] } = {}) {
+// `undatedArrivals` (optional): evidenceArrivals().undated, pieces ticked without an "Arrived" date; listed
+// apart (for Everyone and Outside parties) so the owner can add the date.
+export function launchHistory(plan, records = {}, { who = 'all', today, weeks = 8, arrivals = [], undatedArrivals = [] } = {}) {
   if (!WHO.includes(who)) who = 'all';
   const all = historyEntries(plan, records), total = totalSteps(plan);
   const counts = { all: all.length, you: 0, engineering: 0, outside: 0 };
@@ -87,7 +89,9 @@ export function launchHistory(plan, records = {}, { who = 'all', today, weeks = 
     if (!groups.has(w)) groups.set(w, { week: w, end: isoDay(dayMs(w) + 6 * DAY), entries: [], by: { you: 0, engineering: 0, outside: 0 } });
     const g = groups.get(w); g.entries.push(e); g.by[e.by] += 1;
   }
-  const evidence = who === 'all' || who === 'outside' ? (arrivals || []).filter(a => a && validDate(a.date)) : [];
+  const showsOutside = who === 'all' || who === 'outside';
+  const evidence = showsOutside ? (arrivals || []).filter(a => a && validDate(a.date)) : [];
+  const undatedEvidence = showsOutside ? (undatedArrivals || []).filter(a => a && a.count > 0) : [];
   for (const a of evidence) {
     const w = weekOf(a.date);
     if (!groups.has(w)) groups.set(w, { week: w, end: isoDay(dayMs(w) + 6 * DAY), entries: [], by: { you: 0, engineering: 0, outside: 0 } });
@@ -108,10 +112,12 @@ export function launchHistory(plan, records = {}, { who = 'all', today, weeks = 
     running.push({ week: start, end, done, added, percent: total ? Math.round(done / total * 100) : 0, current: i === 0 });
   }
   const progress = all.filter(e => e.date && !e.baseline).length;
-  return { who, total, done: all.length, percent: total ? Math.round(all.length / total * 100) : 0, counts, weeks: list, undated, baseline, started: validDate(plan.started) ? plan.started : '', startDone: all.filter(e => e.baseline).length, progress, running, shown: picked.length, arrivals: evidence.length };
+  return { who, total, done: all.length, percent: total ? Math.round(all.length / total * 100) : 0, counts, weeks: list, undated, baseline, started: validDate(plan.started) ? plan.started : '', startDone: all.filter(e => e.baseline).length, progress, running, shown: picked.length, arrivals: evidence.length, undatedEvidence };
 }
 
 const fmt = d => { const t = new Date(dayMs(d)); return `${t.getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][t.getUTCMonth()]} ${t.getUTCFullYear()}`; };
+// "2 of 5 pieces have no Arrived date" for evidence ticked without a date.
+export const undatedLine = a => `${a.count} of ${a.total} ${a.total === 1 ? 'piece' : 'pieces'} ${a.count === 1 ? 'has' : 'have'} no “Arrived” date.`;
 export const weekTitle = w => `Week of ${fmt(w)}`;
 // "3 steps", "2 evidence arrivals" or "1 step, 1 evidence arrival" for a week heading.
 export function weekCount(w) {
@@ -149,6 +155,11 @@ export function historyMarkdown(h, { product = 'FYNX Wallet', generated = new Da
   if (h.baseline.length) {
     L.push(`## Already done when the checklist started${h.started ? ` (${h.started})` : ''}`, '');
     for (const e of h.baseline) L.push(`- ${byLabels[e.by]} · ${md(e.gate)}: ${md(e.text)}`);
+    L.push('');
+  }
+  if (h.undatedEvidence?.length) {
+    L.push('## Evidence ticked without an “Arrived” date', '');
+    for (const a of h.undatedEvidence) L.push(`- ${md(a.party)} · for “${md(a.stepText)}”: ${undatedLine(a)}`);
     L.push('');
   }
   if (h.undated.length) {

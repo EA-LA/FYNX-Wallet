@@ -155,3 +155,15 @@ export function ownBlockNotice(blocked, network = {}, where = 'balances') {
   if (blocked === false) return { tone: 'good', text: `Not on USDC’s block list on ${name}: ${token} can move normally.` };
   return { tone: 'info', text: `Could not read USDC’s block list on ${name} just now. Refresh balance to try again.` };
 }
+
+// How old the own-wallet block-list reading is. Fresh for OWN_BLOCK_FRESH_MS; after that the Step 2 line says
+// how long ago it was read, and choosing USDC in Step 3 reads it again (read-only).
+export const OWN_BLOCK_FRESH_MS = 10 * 60 * 1000;
+export function ownBlockAge(checkedAt, now = Date.now()) {
+  if (!Number.isFinite(checkedAt) || !Number.isFinite(now)) return { stale: true, text: '' };
+  const minutes = Math.max(0, Math.floor((now - checkedAt) / 60000));
+  if (now - checkedAt < OWN_BLOCK_FRESH_MS) return { stale: false, text: minutes < 1 ? 'Checked just now.' : `Checked ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago.` };
+  const hours = Math.floor(minutes / 60);
+  const ago = hours >= 1 ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : `${minutes} minutes`;
+  return { stale: true, text: `Checked ${ago} ago: Refresh balance to check again (choosing USDC in Step 3 also re-checks).` };
+}

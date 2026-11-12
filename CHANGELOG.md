@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-12 10:55 UTC — [autopilot] Owner workspace: a "What needs you" summary on the Dashboard tab
+- Dashboard (the tab you land on after signing in) now opens with "Today · What needs you": one plain sentence with the most pressing thing (something overdue, due today, a test session under way, a failed test to retest…), then five tiles: launch steps done, your tests and decisions, dates in the next 7 days, open privacy requests and outside answers you are waiting for. Each tile takes you straight to the place where it is handled.
+- Under the tiles: the overdue and upcoming dated items (with Open buttons) and your next steps, the same list as in Launch readiness. "Copy today" copies the summary (counts and fixed words only, no notes).
+- Launch readiness → "What's been finished": evidence you ticked without an "Arrived" date is now listed on its own ("1 of 5 pieces has no Arrived date"), with a link to add the date. The copied history includes it.
+- Crypto tools → Step 2: the USDC block-list line now says how long ago it was checked; after 10 minutes it asks you to refresh, and choosing USDC in Step 3 re-checks it by itself (read-only; sending is unchanged).
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Dashboard, Launch readiness and Crypto tools tabs).
+
 ## 2026-11-12 06:50 UTC — [autopilot] Owner workspace: your own wallet's USDC block-list status, and evidence arrivals in "What's been finished"
 - Crypto tools → Step 2 Balances: when your balances load, FYNX also checks whether Circle (the USDC issuer) has blocked your connected wallet. You see a green "not on the block list", a clear red warning if it is blocked (ETH is not affected), or "could not read" — never a guess.
 - If your wallet is blocked, Step 3 Send warns you when you choose USDC, and Step 4 Swap warns you before a swap, so you don't pay a network fee for a transfer that will fail. Sending and swapping themselves are unchanged.

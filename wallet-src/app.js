@@ -25,14 +25,15 @@ import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSub
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
+import { todayBrief, briefText } from './today-brief.js';
 import { progressUpdate, updateMarkdown, updateHeadline, PERIODS as UPDATE_PERIODS } from './progress-update.js';
-import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, entryLabel, WHO as HISTORY_WHO, whoLabels } from './launch-history.js';
+import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, entryLabel, undatedLine, WHO as HISTORY_WHO, whoLabels } from './launch-history.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
-import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice } from './recipient-activity.js';
+import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice, ownBlockAge } from './recipient-activity.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
@@ -70,6 +71,7 @@ function selectTab(name) {
   for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
   setText('#workspace-status', '');
+  if (name === 'dashboard') renderTodayBrief();
   if (name === 'security') renderSecurity();
   if (name === 'registrations') { renderWaitlistTests(); renderPrivacyLog(); }
   if (name === 'wallet') { renderCryptoSetup(); renderCryptoTests(); }
@@ -1097,11 +1099,30 @@ function renderOwnBlock() {
   const saved = ownBlockFor();
   const put = (id, notice) => { const node = $(id); node.className = `own-block is-${notice?.tone || 'info'}`; node.textContent = notice?.text || ''; show(id, !!notice); };
   const balances = saved ? ownBlockNotice(saved.blocked, saved.network, 'balances') : null;
-  put('#usdc-block', balances && { ...balances, text: `${balances.text} Checked at ${new Date(saved.checkedAt).toLocaleTimeString()}.` });
+  put('#usdc-block', balances && { ...balances, text: `${balances.text} ${ownBlockAge(saved.checkedAt).text}` });
   put('#send-block', saved && $('#send-asset').value === 'USDC' ? ownBlockNotice(saved.blocked, saved.network, 'send') : null);
   put('#swap-block', saved ? ownBlockNotice(saved.blocked, saved.network, 'swap') : null);
 }
-$('#send-asset').addEventListener('change', renderOwnBlock);
+// A stale reading (older than 10 minutes) is read again, read-only, when USDC is chosen for a transfer, so the
+// warning in Step 3 reflects the list as it is now. Any wallet or network change already clears the reading
+// (clearWallet) and it is read again with the balances after verification.
+let ownBlockReading = false;
+async function rereadOwnBlock() {
+  const current = connection, saved = ownBlockFor();
+  if (ownBlockReading || !current || !verifiedAddress || current.address !== verifiedAddress || !saved || !ownBlockAge(saved.checkedAt).stale) return;
+  ownBlockReading = true;
+  try {
+    const epoch = current.epoch;
+    const blocked = await readOwnBlock(request => current.provider.request(request), current.address, current.network).catch(() => null);
+    await current.assertCurrent(epoch);
+    if (current !== connection) return;
+    ownBlock = { key: activityKey(current.network.id, current.address), network: current.network, blocked, checkedAt: Date.now() };
+  } catch { /* wallet changed while reading: clearWallet already reset the status */ }
+  finally { ownBlockReading = false; renderOwnBlock(); }
+}
+$('#send-asset').addEventListener('change', () => { renderOwnBlock(); if ($('#send-asset').value === 'USDC') rereadOwnBlock(); });
+// Keep "Checked n minutes ago" current while Crypto tools is open.
+setInterval(() => { if (ownBlock && !$('#tab-wallet').hidden && !document.hidden) renderOwnBlock(); }, 60000);
 async function refreshBalances(checkSession = () => {}) {
   const current = connection, epoch = current.epoch;
   const [eth, usdc, blocked] = await Promise.allSettled([current.balance(), current.tokenBalance(), readOwnBlock(request => current.provider.request(request), current.address, current.network)]);
@@ -2047,6 +2068,151 @@ function launchPaceBlock() {
   wrap.append(d);
   return wrap;
 }
+// "Your next steps": an under-way test session, privacy answers due, access reviews, outside reminders,
+// evidence to ask for again, evidence to share and the owner's next launch steps, most pressing first.
+// Shown in Launch readiness and (first few) in Today on the Dashboard tab. `limit` caps the owner's own steps.
+function nextStepsList(limit = 3) {
+  const next = nextActions(launchPlan, launchRecords, limit), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), askAgain = outsideAskAgain(), share = outsideShare().slice(0, 2);
+  const access = accessSummary(accessReview, accessToday()).urgent.slice(0, 2);
+  const run = testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null;
+  const list = el('ol');
+  // A test session that is under way comes first: the owner is in the middle of it.
+  if (run) {
+    const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
+    b.append(el('span', 'launch-next-gate', `Test session · ${run.recorded} of ${run.total} recorded`), el('span', '', run.current ? `Continue with: ${shortStep(run.current.step)}` : 'Every test is recorded: finish the session and copy the results.'));
+    b.addEventListener('click', () => { const box = $('#test-session'); box?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); (box?.querySelector('.ts-row.is-current .launch-result') || box?.querySelector('#ts-finish'))?.focus({ preventScroll: true }); });
+    li.append(b); list.append(li);
+  }
+  // A privacy answer that is due comes first: it has a date, launch steps do not.
+  for (const item of privacy.next) {
+    const li = el('li'); const b = el('button', `text-button launch-next-link is-${item.state}`); b.type = 'button';
+    b.append(el('span', 'launch-next-gate', `Privacy request · ${item.label}`), el('span', '', `${item.title}${item.ref ? ` (${item.ref})` : ''}: answer by ${item.due}`));
+    b.addEventListener('click', () => openPrivacyRequest(item.id)); li.append(b); list.append(li);
+  }
+  // Then accounts that control FYNX with a security gap or an overdue review (Account security → access review).
+  for (const item of access) {
+    const li = el('li'); const b = el('button', `text-button launch-next-link ${item.state === 'risk' ? 'is-overdue' : 'is-due-soon'}`); b.type = 'button';
+    b.append(el('span', 'launch-next-gate', `Access review · ${item.service.id === 'inbox' ? 'Team inbox' : item.service.name}`), el('span', '', item.state === 'risk' ? `${item.title}: fix it, then record it in Account security.` : `${item.title}: check who has access and record it.`));
+    b.addEventListener('click', () => openAccessService(item.service.id)); li.append(b); list.append(li);
+  }
+  // Then outside requests that have had no answer for CHASE_DAYS: they also have a date.
+  for (const item of chase.next) {
+    const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
+    const entry = stepIndex(launchPlan).get(item.stepKey);
+    b.append(el('span', 'launch-next-gate', `Send a reminder · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: sent ${item.sent}, no answer after ${item.days} days`));
+    b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey)); li.append(b); list.append(li);
+  }
+  // Then answered requests whose evidence is still incomplete CHASE_DAYS after the answer.
+  for (const item of askAgain.next) {
+    const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
+    const entry = stepIndex(launchPlan).get(item.stepKey), n = item.missing.length;
+    b.append(el('span', 'launch-next-gate', `Ask again for missing pieces · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: answered ${item.answered}${item.lastArrived ? `, last piece arrived ${item.lastArrived}` : ''}, ${n} ${n === 1 ? 'piece' : 'pieces'} still missing after ${item.days} days`));
+    b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey, true)); li.append(b); list.append(li);
+  }
+  // Then requests whose evidence has all come back while the step is still open: share the documents.
+  for (const item of share) {
+    const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
+    const entry = stepIndex(launchPlan).get(item.stepKey);
+    b.append(el('span', 'launch-next-gate', `Share the evidence · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: everything came back. Send the documents so the step can be checked and marked done.`));
+    b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey)); li.append(b); list.append(li);
+  }
+  for (const { gate, step, failed } of next) {
+    const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
+    b.append(el('span', 'launch-next-gate', `${failed ? 'Retest · ' : ''}${gate.title}`), el('span', '', step.text));
+    b.addEventListener('click', () => { const k = stepKey(gate.id, step.id); if (findDecision(k)) openDecision(k); else if (k === DRILL_STEP) openDrill(); else openGate(gate.id); }); li.append(b); list.append(li);
+  }
+  return { list, count: list.children.length };
+}
+// "Today" on the Dashboard tab (where the owner lands): what needs the owner now, from this browser's records.
+// Counts and fixed words only; every line opens the place where it is done. Re-drawn with Launch readiness
+// and whenever the Dashboard tab is opened (so dates move on after midnight).
+const TODAY_DATES_SHOWN = 3, TODAY_STEPS_SHOWN = 4;
+let todayStatus = '';
+function goTo(tab, selector) {
+  selectTab(tab);
+  const target = document.querySelector(selector); if (!target) return;
+  target.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  const focus = target.querySelector(':scope > h2, :scope > h3, :scope > div > h2, :scope > div > h3') || target;
+  if (!focus.matches('button, a, input, select, textarea, summary')) focus.setAttribute('tabindex', '-1');
+  focus.focus({ preventScroll: true });
+}
+const TODAY_TARGETS = {
+  launch: () => goTo('launch', '#launch-overview'),
+  yours: () => { selectTab('launch'); launchFilter = 'you'; renderLaunch(); goTo('launch', '#launch-checklist'); },
+  dates: () => goTo('launch', '#launch-dates'),
+  privacy: () => goTo('registrations', '#wl-requests'),
+  outside: () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'),
+};
+function currentTodayBrief() {
+  const today = localToday();
+  let waiting = 0;
+  for (const r of evidenceRows()) if (r.open && ['waiting', 'chase'].includes(outsideRequestState(outsideRequests.entries?.[r.id], today).state)) waiting += 1;
+  return todayBrief({
+    overview: overview(launchPlan, launchRecords), dates: ownerDates(), privacy: privacyAttention(privacyLog, today),
+    outside: { waiting, chase: outsideChase(99).count, share: outsideShare().length },
+    session: testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null,
+  });
+}
+function renderTodayBrief() {
+  const box = document.getElementById('today-brief'); if (!box) return;
+  const b = currentTodayBrief(), today = localToday();
+  box.replaceChildren();
+  const head = el('div', 'tb-head'), title = el('div');
+  const day = new Date(`${today}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+  const h = el('h2', '', 'What needs you'); h.id = 'tb-title';
+  title.append(el('span', 'eyebrow', `TODAY · ${day.toUpperCase()}`), h);
+  const open = el('button', 'button secondary tb-open', 'Open Launch readiness'); open.type = 'button';
+  open.addEventListener('click', () => goTo('launch', '#launch-overview'));
+  head.append(title, open);
+  box.append(head, el('p', `tb-headline is-${b.tone}`, b.headline));
+  const stats = el('ul', 'tb-stats');
+  for (const s of b.stats) {
+    const li = el('li'), btn = el('button', `tb-stat is-${s.tone}`); btn.type = 'button'; btn.dataset.today = s.id;
+    btn.setAttribute('aria-label', `${s.value} ${s.label}, ${s.detail}. Open.`);
+    btn.append(el('strong', '', s.value), el('span', 'tb-stat-label', s.label), el('span', 'tb-stat-detail', s.detail));
+    btn.addEventListener('click', () => TODAY_TARGETS[s.id]?.());
+    li.append(btn); stats.append(li);
+  }
+  box.append(stats);
+  const cols = el('div', 'tb-cols');
+  const datesCol = el('div', 'tb-col'); datesCol.append(el('h3', '', 'Dated items'));
+  if (b.urgent.length) {
+    const list = el('ol', 'od-list tb-dates');
+    for (const item of b.urgent.slice(0, TODAY_DATES_SHOWN)) {
+      const li = el('li', `od-row is-${item.state}`);
+      const when = el('div', 'od-when'); when.append(el('strong', '', shortDay(item.date)), el('span', '', item.when));
+      const body = el('div', 'od-body'); body.append(el('span', 'od-kind', DATE_KINDS[item.kind]), el('strong', 'od-title', item.title));
+      const go = el('button', 'text-button od-open', 'Open'); go.type = 'button'; go.setAttribute('aria-label', `Open: ${item.title}`);
+      go.addEventListener('click', () => { if (item.kind !== 'privacy' && item.kind !== 'access') selectTab('launch'); openDateItem(item); });
+      li.append(when, body, go); list.append(li);
+    }
+    datesCol.append(list);
+    if (b.urgent.length > TODAY_DATES_SHOWN) {
+      const more = el('button', 'text-button', `All ${b.urgent.length} dates in the next 7 days`); more.type = 'button';
+      more.addEventListener('click', () => TODAY_TARGETS.dates()); datesCol.append(more);
+    }
+  } else datesCol.append(el('p', 'muted tb-empty', 'Nothing overdue or due in the next 7 days. Dates come from privacy requests, outside requests and access reviews.'));
+  const stepsCol = el('div', 'tb-col'); stepsCol.append(el('h3', '', 'Next steps'));
+  const steps = nextStepsList(2);
+  if (steps.count) {
+    while (steps.list.children.length > TODAY_STEPS_SHOWN) steps.list.lastElementChild.remove();
+    steps.list.classList.add('tb-steps');
+    // Launch-readiness targets need that tab open first; privacy and access items open their own tab.
+    steps.list.addEventListener('click', event => { if (event.target.closest('button')) selectTab('launch'); }, true);
+    const wrap = el('div', 'launch-next tb-next'); wrap.append(steps.list); stepsCol.append(wrap);
+  } else stepsCol.append(el('p', 'muted tb-empty', 'All your steps are recorded. What remains is with engineering and outside parties.'));
+  cols.append(datesCol, stepsCol);
+  box.append(cols);
+  const actions = el('div', 'od-actions tb-actions'), status = el('p', 'hint tb-status', todayStatus); status.setAttribute('role', 'status');
+  const copy = el('button', 'text-button', 'Copy today'); copy.type = 'button'; copy.id = 'tb-copy';
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(briefText(currentTodayBrief(), { today: localToday() })); todayStatus = 'Copied: counts and fixed words only, no notes or references.'; }
+    catch { todayStatus = 'Copying was blocked by the browser.'; }
+    status.textContent = todayStatus;
+  });
+  actions.append(copy);
+  box.append(actions, status, el('p', 'hint', 'From the results and dates saved in this browser. Results from another device count once you bring them in (Launch readiness → Bring in results from another device). The preview below uses sample balances.'));
+}
 function renderLaunchOverview() {
   const o = overview(launchPlan, launchRecords), box = $('#launch-overview'); box.replaceChildren();
   const head = el('div', 'launch-headline');
@@ -2063,60 +2229,12 @@ function renderLaunchOverview() {
   mine.firstChild.append(el('strong', '', `${o.yoursDone}/${o.yours}`), el('span', '', `your tests and decisions done${o.failed ? ` · ${o.failed} failed` : ''}`));
   stats.append(mine); box.append(stats);
   box.append(launchPaceBlock());
-  const next = nextActions(launchPlan, launchRecords, 3), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), askAgain = outsideAskAgain(), share = outsideShare().slice(0, 2);
-  const access = accessSummary(accessReview, accessToday()).urgent.slice(0, 2);
-  const run = testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null;
-  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', run || next.length || privacy.next.length || access.length || chase.next.length || askAgain.next.length || share.length ? 'Your next steps' : 'All your steps are recorded'));
-  if (run || next.length || privacy.next.length || access.length || chase.next.length || askAgain.next.length || share.length) {
-    const list = el('ol');
-    // A test session that is under way comes first: the owner is in the middle of it.
-    if (run) {
-      const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
-      b.append(el('span', 'launch-next-gate', `Test session · ${run.recorded} of ${run.total} recorded`), el('span', '', run.current ? `Continue with: ${shortStep(run.current.step)}` : 'Every test is recorded: finish the session and copy the results.'));
-      b.addEventListener('click', () => { const box = $('#test-session'); box?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); (box?.querySelector('.ts-row.is-current .launch-result') || box?.querySelector('#ts-finish'))?.focus({ preventScroll: true }); });
-      li.append(b); list.append(li);
-    }
-    // A privacy answer that is due comes first: it has a date, launch steps do not.
-    for (const item of privacy.next) {
-      const li = el('li'); const b = el('button', `text-button launch-next-link is-${item.state}`); b.type = 'button';
-      b.append(el('span', 'launch-next-gate', `Privacy request · ${item.label}`), el('span', '', `${item.title}${item.ref ? ` (${item.ref})` : ''}: answer by ${item.due}`));
-      b.addEventListener('click', () => openPrivacyRequest(item.id)); li.append(b); list.append(li);
-    }
-    // Then accounts that control FYNX with a security gap or an overdue review (Account security → access review).
-    for (const item of access) {
-      const li = el('li'); const b = el('button', `text-button launch-next-link ${item.state === 'risk' ? 'is-overdue' : 'is-due-soon'}`); b.type = 'button';
-      b.append(el('span', 'launch-next-gate', `Access review · ${item.service.id === 'inbox' ? 'Team inbox' : item.service.name}`), el('span', '', item.state === 'risk' ? `${item.title}: fix it, then record it in Account security.` : `${item.title}: check who has access and record it.`));
-      b.addEventListener('click', () => openAccessService(item.service.id)); li.append(b); list.append(li);
-    }
-    // Then outside requests that have had no answer for CHASE_DAYS: they also have a date.
-    for (const item of chase.next) {
-      const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
-      const entry = stepIndex(launchPlan).get(item.stepKey);
-      b.append(el('span', 'launch-next-gate', `Send a reminder · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: sent ${item.sent}, no answer after ${item.days} days`));
-      b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey)); li.append(b); list.append(li);
-    }
-    // Then answered requests whose evidence is still incomplete CHASE_DAYS after the answer.
-    for (const item of askAgain.next) {
-      const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
-      const entry = stepIndex(launchPlan).get(item.stepKey), n = item.missing.length;
-      b.append(el('span', 'launch-next-gate', `Ask again for missing pieces · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: answered ${item.answered}${item.lastArrived ? `, last piece arrived ${item.lastArrived}` : ''}, ${n} ${n === 1 ? 'piece' : 'pieces'} still missing after ${item.days} days`));
-      b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey, true)); li.append(b); list.append(li);
-    }
-    // Then requests whose evidence has all come back while the step is still open: share the documents.
-    for (const item of share) {
-      const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
-      const entry = stepIndex(launchPlan).get(item.stepKey);
-      b.append(el('span', 'launch-next-gate', `Share the evidence · ${item.party.name}`), el('span', '', `${entry ? shortStep(entry.step) : item.stepKey}: everything came back. Send the documents so the step can be checked and marked done.`));
-      b.addEventListener('click', () => openOutsideRequest(item.partyId, item.stepKey)); li.append(b); list.append(li);
-    }
-    for (const { gate, step, failed } of next) {
-      const li = el('li'); const b = el('button', 'text-button launch-next-link'); b.type = 'button';
-      b.append(el('span', 'launch-next-gate', `${failed ? 'Retest · ' : ''}${gate.title}`), el('span', '', step.text));
-      b.addEventListener('click', () => { const k = stepKey(gate.id, step.id); if (findDecision(k)) openDecision(k); else if (k === DRILL_STEP) openDrill(); else openGate(gate.id); }); li.append(b); list.append(li);
-    }
-    wrap.append(list);
-  } else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
+  const steps = nextStepsList();
+  const wrap = el('div', 'launch-next'); wrap.append(el('h3', '', steps.count ? 'Your next steps' : 'All your steps are recorded'));
+  if (steps.count) wrap.append(steps.list);
+  else wrap.append(el('p', 'muted', 'Copy the report below and share it so the checklist evidence can be updated.'));
   box.append(wrap);
+  renderTodayBrief();
   renderLaunchUpdate();
   renderLaunchHistory();
   renderLaunchDates();
@@ -2554,7 +2672,7 @@ function renderLaunchUpdate(focusSel = '') {
 // results), by week, with a running total. Fixed words and dates only (wallet-src/launch-history.js).
 let historyWho = 'all', historyAll = false, historyPreviewOpen = false;
 const HISTORY_WEEKS_SHOWN = 3;
-function currentHistory() { return launchHistory(launchPlan, launchRecords, { who: historyWho, today: localToday(), arrivals: evidenceArrivals(launchPlan, outsideEvidence, launchRecords).arrivals }); }
+function currentHistory() { return launchHistory(launchPlan, launchRecords, { who: historyWho, today: localToday(), arrivals: evidenceArrivals(launchPlan, outsideEvidence, launchRecords).arrivals, undatedArrivals: evidenceArrivals(launchPlan, outsideEvidence, launchRecords).undated }); }
 // One evidence arrival in "What's been finished": who sent what for which step, and what it unlocks. Opens the request.
 function arrivalRow(a) {
   const li = el('li', 'lh-row lh-arrival is-outside');
@@ -2609,6 +2727,18 @@ function renderLaunchHistory(focusSel = '') {
     const more = el('button', 'text-button lh-more', historyAll ? 'Show fewer weeks' : `Show all ${h.weeks.length} weeks`); more.type = 'button'; more.setAttribute('aria-expanded', String(historyAll));
     more.addEventListener('click', () => { historyAll = !historyAll; renderLaunchHistory('.lh-more'); });
     box.append(more);
+  }
+  if (h.undatedEvidence.length) {
+    const n = h.undatedEvidence.reduce((t, a) => t + a.count, 0);
+    const d = el('details', 'lo-part lh-group'); d.append(el('summary', '', `Evidence ticked without an “Arrived” date · ${n} ${n === 1 ? 'piece' : 'pieces'}`));
+    const ul = el('ul', 'pu-done');
+    for (const a of h.undatedEvidence) {
+      const li = el('li', 'lh-row lh-arrival is-outside'), b = el('button', 'text-button lo-link'); b.type = 'button';
+      b.append(el('span', 'lo-meta', `${a.party} · date not recorded`), el('span', 'lo-text', `For “${a.stepText}”: ${undatedLine(a)}`), el('span', 'lh-unlocks', 'Open the evidence list and enter the day each piece arrived, so it shows in its week and the “ask again” reminder counts from the right day.'));
+      b.addEventListener('click', () => openOutsideRequest(a.partyId, a.step, true));
+      li.append(b); ul.append(li);
+    }
+    d.append(ul); box.append(d);
   }
   for (const [list, title] of [[h.undated, 'Finished, date not recorded'], [h.baseline, `Already done when the checklist started${h.started ? ` (${shortDay(h.started)})` : ''}`]]) {
     if (!list.length) continue;
