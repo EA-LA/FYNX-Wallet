@@ -113,3 +113,21 @@ test('own wallet block list: age of the reading', () => {
   const app = readFileSync(new URL('../wallet-src/app.js', import.meta.url), 'utf8');
   assert.match(app, /if \(\$\('#send-asset'\)\.value === 'USDC'\) rereadOwnBlock\(\);/);
 });
+
+test('today: optional crypto tools tile (wallet tests, last transfer sent from FYNX)', () => {
+  const base = { overview: ov() };
+  assert.equal(todayBrief(base).stats.length, 5, 'no tile unless the page passes wallet figures');
+  const none = todayBrief({ ...base, wallet: { total: 19, done: 4, failed: 0, lastSent: null } }).stats.at(-1);
+  assert.deepEqual([none.id, none.value, none.label, none.detail, none.tone], ['wallet', '4/19', 'wallet tests recorded', 'no transfer sent from FYNX yet', 'info']);
+  const failed = todayBrief({ ...base, wallet: { total: 19, done: 6, failed: 2, lastSent: { day: '2026-11-10', network: 'Base Sepolia' } } }).stats.at(-1);
+  assert.equal(failed.detail, '2 failed · last sent 2026-11-10 · Base Sepolia');
+  assert.equal(failed.tone, 'overdue');
+  const short = todayBrief({ ...base, wallet: { total: 19, done: 1, lastSent: { day: '2026-11-10', when: 'Nov 10', network: 'Base Sepolia' } } }).stats.at(-1);
+  assert.equal(short.detail, 'last sent Nov 10 · Base Sepolia');
+  const done = todayBrief({ ...base, wallet: { total: 19, done: 19, failed: 0, lastSent: { day: 'bad' } } }).stats.at(-1);
+  assert.equal(done.tone, 'done'); assert.equal(done.detail, 'all recorded · no transfer sent from FYNX yet');
+  assert.match(briefText(todayBrief({ ...base, wallet: { total: 19, done: 4 } })), /- 4\/19 wallet tests recorded \(no transfer sent from FYNX yet\)/);
+  const app = readFileSync(new URL('../wallet-src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /wallet: \{ \.\.\.walletTests\(launchPlan, launchRecords\), lastSent: lastSentFromFynx\(\) \}/);
+  assert.match(app, /wallet: \(\) => goTo\('wallet', '\.cg-tests'\)/);
+});

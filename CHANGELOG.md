@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-12 18:16 UTC — [autopilot] Owner workspace: answers while you were away, and a crypto tools tile on Today
+- Dashboard → "Since your last visit" now also lists outside parties that answered while you were away (for example "Lawyer · … (after 10 days)") and waitlist privacy requests that were answered (what was asked, the answer date, the outcome and whether it was late). Each line opens the right place: the outside hand-off list or the privacy request log.
+- These come first in the list, before engineering steps, so the answers you are waiting for are not hidden. Only the request ids are kept for the comparison, never references or notes. The first visit after this update starts the comparison; nothing old shows up as new.
+- Today has a sixth tile, "wallet tests recorded": how many of your crypto launch tests are recorded, how many failed, and the newest transfer this browser sent from FYNX (day and network). Clicking it opens Crypto tools at your test list. "Copy today" includes it.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Dashboard tab).
+
 ## 2026-11-12 14:45 UTC — [autopilot] Owner workspace: "Since your last visit" on the Dashboard tab
 - Dashboard → "Today · What needs you" now has a "Since your last visit" box that says how long you were away and what changed in the meantime: launch steps the checklist recorded done (and by whom), your own test results recorded since then (including ones brought in from your phone or iPad), outside evidence ticked as received, and dated items that became overdue.
 - Each line opens the step, date or hand-off list it is about; if there is more than fits, a link takes you to "What's been finished". "Mark as seen" starts the comparison again from now.

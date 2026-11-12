@@ -12,7 +12,9 @@ const plural = (n, w, many = `${w}s`) => `${n} ${n === 1 ? w : many}`;
 //   outside: { waiting, chase, share } counts of outside requests sent and not answered (waiting),
 //            unanswered for 14+ days (chase) and with all evidence back while the step is open (share)
 //   session: test-session progress ({ recorded, total }) when a session is under way, else null
-export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = {}, session = null } = {}) {
+//   wallet: optional Crypto tools tests ({ total, done, failed } from crypto-guide.js walletTests()) and
+//           lastSent ({ day: 'YYYY-MM-DD', when: optional short date for display, network }) of the newest transfer submitted from FYNX in this browser
+export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = {}, session = null, wallet = null } = {}) {
   const o = { done: 0, total: 0, percent: 0, yours: 0, yoursDone: 0, failed: 0, ...overview };
   const d = { overdue: 0, today: 0, soon: 0, upcoming: 0, items: [], ...dates };
   const p = { open: 0, overdue: 0, dueSoon: 0, ...privacy };
@@ -39,6 +41,15 @@ export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = 
     { id: 'privacy', value: String(p.open), label: p.open === 1 ? 'privacy request open' : 'privacy requests open', detail: p.overdue ? `${p.overdue} overdue` : p.dueSoon ? `${p.dueSoon} due soon` : p.open ? 'on time' : 'none open', tone: p.overdue ? 'overdue' : p.dueSoon ? 'soon' : 'info' },
     { id: 'outside', value: String(x.waiting), label: 'outside answers awaited', detail: x.chase ? `${x.chase} ${x.chase === 1 ? 'needs' : 'need'} a reminder` : x.share ? `${x.share} ready to share` : x.waiting ? 'within 14 days' : 'none sent', tone: x.chase ? 'soon' : 'info' },
   ];
+  if (wallet) {
+    const w = { total: 0, done: 0, failed: 0, lastSent: null, ...wallet }, open = Math.max(0, w.total - w.done);
+    const sent = w.lastSent && /^\d{4}-\d{2}-\d{2}$/.test(w.lastSent.day || '') ? `last sent ${w.lastSent.when || w.lastSent.day}${w.lastSent.network ? ` · ${w.lastSent.network}` : ''}` : 'no transfer sent from FYNX yet';
+    stats.push({
+      id: 'wallet', value: `${w.done}/${w.total}`, label: 'wallet tests recorded',
+      detail: w.failed ? `${w.failed} failed · ${sent}` : !w.total || !open ? `all recorded · ${sent}` : sent,
+      tone: w.failed ? 'overdue' : w.total && !open ? 'done' : 'info',
+    });
+  }
   // The dated items that matter today: overdue, due today and the coming week, soonest first (the page shows a few).
   const urgent = (d.items || []).filter(i => i.state === 'overdue' || i.state === 'today' || i.state === 'soon');
   return { tone, headline, stats, urgent };

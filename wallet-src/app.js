@@ -26,7 +26,7 @@ import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainn
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
 import { todayBrief, briefText } from './today-brief.js';
-import { VISIT_KEY, snapshot as visitSnapshot, startVisit, touchVisit, markSeen, sinceLastVisit, sinceHeadline, sinceText, agoLabel } from './last-visit.js';
+import { VISIT_KEY, snapshot as visitSnapshot, startVisit, touchVisit, markSeen, sinceLastVisit, sinceHeadline, sinceText, agoLabel, daysText } from './last-visit.js';
 import { progressUpdate, updateMarkdown, updateHeadline, PERIODS as UPDATE_PERIODS } from './progress-update.js';
 import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, entryLabel, undatedLine, WHO as HISTORY_WHO, whoLabels } from './launch-history.js';
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
@@ -2143,6 +2143,7 @@ const TODAY_TARGETS = {
   dates: () => goTo('launch', '#launch-dates'),
   privacy: () => goTo('registrations', '#wl-requests'),
   outside: () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'),
+  wallet: () => goTo('wallet', '.cg-tests'),
 };
 function currentTodayBrief() {
   const today = localToday();
@@ -2152,11 +2153,20 @@ function currentTodayBrief() {
     overview: overview(launchPlan, launchRecords), dates: ownerDates(), privacy: privacyAttention(privacyLog, today),
     outside: { waiting, chase: outsideChase(99).count, share: outsideShare().length },
     session: testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null,
+    wallet: { ...walletTests(launchPlan, launchRecords), lastSent: lastSentFromFynx() },
   });
+}
+// Newest transfer this browser remembers submitting from FYNX (pilot register; public facts only).
+function lastSentFromFynx() {
+  const page = (pilotRegister?.entries || []).filter(e => e.kind === 'page');
+  if (!page.length) return null;
+  const last = page.reduce((a, b) => (b.at > a.at ? b : a));
+  const day = localToday(new Date(last.at));
+  return { day, when: shortDay(day), network: registerNetwork(last.chainId) };
 }
 // "Since your last visit": one small record in this browser (step keys and evidence piece ids only).
 let visitRecord = null, visitStarted = false;
-const visitArgs = () => ({ now: Date.now(), snap: visitSnapshot(launchPlan, outsideEvidence), day: localToday() });
+const visitArgs = () => ({ now: Date.now(), snap: visitSnapshot(launchPlan, outsideEvidence, { privacy: privacyLog, outside: outsideRequests }), day: localToday() });
 function saveVisit() { try { localStorage.setItem(VISIT_KEY, JSON.stringify(visitRecord)); } catch { /* storage blocked: the line still works for this page */ } }
 function currentVisit() {
   if (!visitStarted) {
@@ -2167,9 +2177,10 @@ function currentVisit() {
   saveVisit();
   return visitRecord;
 }
+const sinceInputs = () => ({ plan: launchPlan, records: launchRecords, dates: ownerDates(), privacy: privacyLog, outside: outsideRequests });
 const RESULT_WORDS = { pass: 'Passed', fail: 'Failed', skip: 'Not applicable' };
 function sinceBlock() {
-  const s = sinceLastVisit(currentVisit(), { plan: launchPlan, records: launchRecords, dates: ownerDates() }), now = Date.now();
+  const s = sinceLastVisit(currentVisit(), sinceInputs()), now = Date.now();
   const wrap = el('section', `tb-since${s.total ? ' has-news' : ''}`); wrap.setAttribute('aria-labelledby', 'tb-since-title');
   const top = el('div', 'tb-since-head'), h = el('h3', '', s.first ? 'Since your last visit' : `${s.seen ? 'Since you marked it as seen' : 'Since your last visit'} · ${agoLabel(s.at, now)}`); h.id = 'tb-since-title';
   top.append(h);
@@ -2190,10 +2201,12 @@ function sinceBlock() {
   const SHOWN = 6; let shown = 0;
   for (const x of s.overdue) if (shown++ < SHOWN) row('Now overdue', `${shortDay(x.date)} · ${x.title}`, () => { if (x.kind !== 'privacy' && x.kind !== 'access') selectTab('launch'); openDateItem(x); }, `Open: ${x.title}`);
   for (const x of s.results.items) if (shown++ < SHOWN) row(x.result === 'fail' ? 'Failed' : RESULT_WORDS[x.result], x.text, () => { selectTab('launch'); openGate(x.gateId); }, `Open ${x.text}`);
-  for (const x of s.steps) if (shown++ < SHOWN) row('Done', `${x.gate} · ${x.text}`, () => { selectTab('launch'); openGate(x.gateId); }, `Open ${x.text}`);
+  for (const a of s.asks) if (shown++ < SHOWN) row('Answered', `${a.party} · ${a.stepText} (${daysText(a.days)})`, () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'), `Open the ${a.party} request: ${a.stepText}`);
+  for (const p of s.privacy) if (shown++ < SHOWN) row('Privacy', `${p.type}: answered ${shortDay(p.answered)} · ${p.outcome}${p.late ? ' · late' : ''}`, () => goTo('registrations', '#wl-requests'), `Open the privacy request log: ${p.type}, answered ${p.answered}`);
   for (const e of s.evidence) if (shown++ < SHOWN) row('Evidence', `${e.party}: ${e.pieces.length} of ${e.total} for “${e.stepText}”`, () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'));
+  for (const x of s.steps) if (shown++ < SHOWN) row('Done', `${x.gate} · ${x.text}`, () => { selectTab('launch'); openGate(x.gateId); }, `Open ${x.text}`);
   wrap.append(list);
-  const rows = s.overdue.length + s.results.items.length + s.steps.length + s.evidence.length;
+  const rows = s.overdue.length + s.results.items.length + s.steps.length + s.asks.length + s.privacy.length + s.evidence.length;
   if (rows > SHOWN) {
     const more = el('button', 'text-button', `See everything in What's been finished (${rows - SHOWN} more)`); more.type = 'button';
     more.addEventListener('click', () => goTo('launch', '#launch-history')); wrap.append(more);
@@ -2253,7 +2266,7 @@ function renderTodayBrief() {
   const actions = el('div', 'od-actions tb-actions'), status = el('p', 'hint tb-status', todayStatus); status.setAttribute('role', 'status');
   const copy = el('button', 'text-button', 'Copy today'); copy.type = 'button'; copy.id = 'tb-copy';
   copy.addEventListener('click', async () => {
-    const since = sinceText(sinceLastVisit(visitRecord, { plan: launchPlan, records: launchRecords, dates: ownerDates() }), Date.now());
+    const since = sinceText(sinceLastVisit(visitRecord, sinceInputs()), Date.now());
     try { await navigator.clipboard.writeText(briefText(currentTodayBrief(), { today: localToday() }) + (since ? `\n\n${since}` : '')); todayStatus = 'Copied: counts and fixed words only, no notes or references.'; }
     catch { todayStatus = 'Copying was blocked by the browser.'; }
     status.textContent = todayStatus;

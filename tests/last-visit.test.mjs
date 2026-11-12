@@ -132,3 +132,72 @@ test('last visit: the owner page wires the block into Today and Copy today', () 
   assert.match(app, /box\.append\(stats, sinceBlock\(\)\)/);
   assert.match(app, /sinceText\(sinceLastVisit\(visitRecord/);
 });
+
+test('last visit: privacy requests and outside requests answered while away (ids only in the record)', () => {
+  const stepKeyOf = id => splitId(id).stepKey;
+  const realIndex = new Set(realPlan.items.flatMap(g => g.steps.map(s => `${g.id}/${s.id}`)));
+  const askId = 'counsel|legal/analysis';
+  assert.ok(realIndex.has(stepKeyOf(askId)));
+  const privacyBefore = { entries: [
+    { id: 'pr-old', received: '2026-10-01', type: 'access', answered: '2026-10-05', outcome: 'replied' },
+    { id: 'pr-new', received: '2026-10-20', type: 'delete' },
+    { id: 'pr-late', received: '2026-09-01', type: 'correct' },
+  ] };
+  const outsideBefore = { entries: { [askId]: { sent: '2026-11-01', answered: '', changed: T0 } } };
+  const snap0 = snapshot(realPlan, { entries: {} }, { privacy: privacyBefore, outside: outsideBefore });
+  assert.deepEqual(snap0.privacy, ['pr-old']);
+  assert.deepEqual(snap0.asks, []);
+  const v1 = startVisit(null, { now: T0, snap: snap0, day: '2026-11-10' });
+
+  const privacyAfter = { entries: [
+    privacyBefore.entries[0],
+    { ...privacyBefore.entries[1], answered: '2026-11-11', outcome: 'removed', ref: 'Ticket 42', note: 'private' },
+    { ...privacyBefore.entries[2], answered: '2026-11-11', outcome: 'corrected' },
+  ] };
+  const outsideAfter = { entries: { [askId]: { sent: '2026-11-01', answered: '2026-11-11', changed: T0 + H } } };
+  const snap1 = snapshot(realPlan, { entries: {} }, { privacy: privacyAfter, outside: outsideAfter });
+  const v2 = startVisit(v1, { now: T0 + 30 * H, snap: snap1, day: '2026-11-11' });
+  const stored = JSON.stringify(v2);
+  assert.doesNotMatch(stored, /Ticket 42|private|2026-11-01/, 'the record keeps ids only');
+
+  const s = sinceLastVisit(v2, { plan: realPlan, privacy: privacyAfter, outside: outsideAfter });
+  assert.equal(s.privacy.length, 2);
+  const late = s.privacy.find(p => p.id === 'pr-late'), onTime = s.privacy.find(p => p.id === 'pr-new');
+  assert.equal(late.late, true); assert.equal(onTime.late, false);
+  assert.equal(onTime.type, 'Asked to be removed'); assert.equal(onTime.outcome, 'Removed and confirmed');
+  assert.equal(s.asks.length, 1);
+  assert.equal(s.asks[0].party, 'Lawyer (U.S. counsel)'); assert.equal(s.asks[0].days, 10);
+  assert.equal(s.total, 3);
+  const line = sinceHeadline(s);
+  assert.match(line, /1 outside request answered/);
+  assert.match(line, /2 privacy requests answered \(1 late\)/);
+  const text = sinceText(s, T0 + 30 * H);
+  assert.match(text, /- Lawyer \(U\.S\. counsel\) answered on 2026-11-11 \(after 10 days\): /);
+  assert.match(text, /- Privacy request answered on 2026-11-11: Asked to fix their address · Corrected and confirmed · late/);
+  assert.doesNotMatch(text, /Ticket 42|private/);
+});
+
+test('last visit: records saved before answers were tracked report no answers (not everything at once)', () => {
+  const privacy = { entries: [{ id: 'pr-old', received: '2026-10-01', type: 'access', answered: '2026-10-05', outcome: 'replied' }] };
+  const outside = { entries: { 'counsel|legal/analysis': { sent: '2026-11-01', answered: '2026-11-02', changed: T0 } } };
+  const oldRecord = { last: T0, lastDay: '2026-11-10', startedAt: T0, current: { done: [], pieces: [] } };
+  const v = startVisit(oldRecord, { now: T0 + 5 * H, snap: snapshot(realPlan, { entries: {} }, { privacy, outside }), day: '2026-11-10' });
+  assert.equal(v.baseline.snap.privacy, undefined);
+  const s = sinceLastVisit(v, { plan: realPlan, privacy, outside });
+  assert.deepEqual(s.privacy, []); assert.deepEqual(s.asks, []);
+  // From the next visit on, the lists are known and only new answers count.
+  const v2 = startVisit(v, { now: T0 + 10 * H, snap: snapshot(realPlan, { entries: {} }, { privacy, outside }), day: '2026-11-10' });
+  const s2 = sinceLastVisit(v2, { plan: realPlan, privacy, outside });
+  assert.equal(s2.total, s2.steps.length + s2.results.items.length + s2.pieces + s2.overdue.length);
+  assert.deepEqual(s2.privacy, []); assert.deepEqual(s2.asks, []);
+  // A request deleted from the log since is not reported; a reopened (unanswered) request is not reported.
+  const v3 = startVisit(v2, { now: T0 + 20 * H, snap: snapshot(realPlan, { entries: {} }, { privacy: { entries: [...privacy.entries, { id: 'pr-gone', received: '2026-11-01', type: 'other', answered: '2026-11-03' }] }, outside }), day: '2026-11-10' });
+  assert.deepEqual(sinceLastVisit(v3, { plan: realPlan, privacy, outside }).privacy, []);
+});
+
+test('last visit: the page passes the privacy log and outside dates and shows answered rows', () => {
+  const app = readFileSync(new URL('../wallet-src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /visitSnapshot\(launchPlan, outsideEvidence, \{ privacy: privacyLog, outside: outsideRequests \}\)/);
+  assert.match(app, /row\('Answered'/);
+  assert.match(app, /row\('Privacy'/);
+});
