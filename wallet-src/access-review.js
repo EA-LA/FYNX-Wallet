@@ -66,6 +66,13 @@ export const ACCESS_SERVICES = [
     people: 'Count the people who can sign in.',
     links: [['Developer dashboard', 'https://www.coingecko.com/en/developers/dashboard']],
   },
+  {
+    id: 'registrar', core: false, name: 'Your domain registrar (web addresses)',
+    controls: 'Where FYNX’s web addresses are registered, such as the company website and the production wallet address once it is chosen. Whoever controls it can point an address, and its email, anywhere.',
+    check: 'Two-factor authentication on, transfer lock (registrar lock) on, automatic renewal on with a current payment method, the contact email is an inbox you control, and only trusted people can sign in.',
+    people: 'Count the people who can sign in to the registrar account.',
+    links: [['Look up who registers an address (ICANN)', 'https://lookup.icann.org/']],
+  },
 ];
 export const findService = id => ACCESS_SERVICES.find(s => s.id === id) || null;
 

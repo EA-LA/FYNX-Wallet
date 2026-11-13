@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-13 20:10 UTC — [autopilot] Owner workspace: emergency sheet reminders and the domain registrar in the access review
+- Launch readiness → Your dates now reminds you to read and save a fresh emergency sheet 180 days after you last saved it, or straight away when your ways in changed since (for example a passkey added or removed). It is also in the calendar file.
+- "Your next steps" (Launch readiness and Today on the Dashboard tab) now warns when you could be locked out: only one way in, or a recorded problem with your Google account, and when your saved emergency sheet is out of date. Open takes you to the right situation in Your emergency plan.
+- Account security → Accounts that control FYNX has a new optional account: your domain registrar (where your web addresses are registered), with what to check: two-step sign-in, transfer lock, automatic renewal, the contact inbox and who can sign in.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness and Account security tabs).
+
 ## 2026-11-13 16:55 UTC — [autopilot] Owner workspace: your emergency plan on the Account security tab
 
 - New "Your emergency plan" card on Account security (https://ea-la.github.io/FYNX-Wallet/owner.html → Account security): six things that can go wrong — a lost phone or computer with a passkey, your Google account locked or taken over, someone else signing in, a lost wallet device or exposed recovery phrase, approving something you did not expect, and losing every way in.

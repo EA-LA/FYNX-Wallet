@@ -32,7 +32,7 @@ import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, 
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
-import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency } from './emergency-plan.js';
+import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency, emergencyAttention } from './emergency-plan.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
 import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice, ownBlockAge } from './recipient-activity.js';
@@ -224,6 +224,7 @@ async function refreshSession() {
   const result = await api({ action: 'session' });
   if (expected !== generation || !auth.currentUser) throw new Error('Your session changed. Sign in again.');
   session = result; setMainnetPolicy(result.mainnet); renderMainnet(); renderPasskeys(); updateWalletControls();
+  renderLaunch(); // the emergency plan's dates and next steps depend on the signed-in account
 }
 function renderPasskeys() {
   const list = $('#passkey-list'); list.replaceChildren();
@@ -474,6 +475,15 @@ function emergencyAction(action) {
   if (action === 'restore') { selectTab('launch'); openGate('wallet-recovery'); return; }
   if (action === 'revoke') { selectTab('launch'); openGate('swaps'); }
 }
+// Open Account security → Your emergency plan, optionally with one situation expanded (from Your dates / next steps).
+function openEmergencyPlan(scenario = '') {
+  if (scenario) emergencyOpen.add(scenario);
+  if ($('#tab-security').hidden) selectTab('security'); else renderEmergencyPlan();
+  const target = (scenario && document.querySelector(`#ep-list [data-scenario="${CSS.escape(scenario)}"]`)) || document.getElementById('emergency-plan');
+  target?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  const focus = scenario ? target?.querySelector('summary') : document.getElementById('ep-download');
+  focus?.focus({ preventScroll: true });
+}
 const EMERGENCY_GO = { passkeys: 'Go to Passkeys ↓', access: 'Open the access review ↑', mainnet: 'Open Real-money sending ↗', spend: 'Open “Who can spend your USDC?” ↗', drill: 'Open the incident practice run ↗', restore: 'Open that launch test ↗', revoke: 'Open that launch test ↗' };
 const EMERGENCY_FIX = { passkeys: 'Go to Add a passkey ↓', access: 'Open the access review ↑', drill: 'Start a practice run ↗', restore: 'Open the restore test ↗', revoke: 'Open the revoke test ↗' };
 function renderEmergencyPlan() {
@@ -512,7 +522,7 @@ function renderEmergencyPlan() {
 function saveEmergencySheet(plan) {
   emergencySaved = recordSheet(plan.state, accessToday());
   try { localStorage.setItem(EMERGENCY_KEY, JSON.stringify(emergencySaved)); } catch { /* kept until the page closes */ }
-  renderEmergencyPlan();
+  renderEmergencyPlan(); renderLaunch();
 }
 $('#ep-copy').addEventListener('click', async () => {
   if (!session) return;
@@ -2312,6 +2322,11 @@ function launchPaceBlock() {
 // "Your next steps": an under-way test session, privacy answers due, access reviews, outside reminders,
 // evidence to ask for again, evidence to share and the owner's next launch steps, most pressing first.
 // Shown in Launch readiness and (first few) in Today on the Dashboard tab. `limit` caps the owner's own steps.
+function emergencyNext() {
+  if (!session) return [];
+  const plan = currentEmergencyPlan();
+  return emergencyAttention(plan, sheetFreshness(emergencySaved, plan.state, accessToday()));
+}
 function nextStepsList(limit = 3) {
   const next = nextActions(launchPlan, launchRecords, limit), privacy = privacyAttention(privacyLog, localToday()), chase = outsideChase(), askAgain = outsideAskAgain(), share = outsideShare().slice(0, 2);
   const access = accessSummary(accessReview, accessToday()).urgent.slice(0, 2);
@@ -2335,6 +2350,12 @@ function nextStepsList(limit = 3) {
     const li = el('li'); const b = el('button', `text-button launch-next-link ${item.state === 'risk' ? 'is-overdue' : 'is-due-soon'}`); b.type = 'button';
     b.append(el('span', 'launch-next-gate', `Access review · ${item.service.id === 'inbox' ? 'Team inbox' : item.service.name}`), el('span', '', item.state === 'risk' ? `${item.title}: fix it, then record it in Account security.` : `${item.title}: check who has access and record it.`));
     b.addEventListener('click', () => openAccessService(item.service.id)); li.append(b); list.append(li);
+  }
+  // Then gaps in how the owner gets back in, and a saved emergency sheet that is out of date (Account security).
+  for (const item of emergencyNext()) {
+    const li = el('li'); const b = el('button', `text-button launch-next-link is-${item.state}`); b.type = 'button';
+    b.append(el('span', 'launch-next-gate', item.label), el('span', '', item.text));
+    b.addEventListener('click', () => openEmergencyPlan(item.id === 'gaps' ? item.scenario : '')); li.append(b); list.append(li);
   }
   // Then outside requests that have had no answer for CHASE_DAYS: they also have a date.
   for (const item of chase.next) {
@@ -2484,7 +2505,7 @@ function renderTodayBrief() {
       const when = el('div', 'od-when'); when.append(el('strong', '', shortDay(item.date)), el('span', '', item.when));
       const body = el('div', 'od-body'); body.append(el('span', 'od-kind', DATE_KINDS[item.kind]), el('strong', 'od-title', item.title));
       const go = el('button', 'text-button od-open', 'Open'); go.type = 'button'; go.setAttribute('aria-label', `Open: ${item.title}`);
-      go.addEventListener('click', () => { if (item.kind !== 'privacy' && item.kind !== 'access') selectTab('launch'); openDateItem(item); });
+      go.addEventListener('click', () => { if (!['privacy', 'access', 'emergency'].includes(item.kind)) selectTab('launch'); openDateItem(item); });
       li.append(when, body, go); list.append(li);
     }
     datesCol.append(list);
@@ -2840,11 +2861,12 @@ function outsideAskAgain(limit = 2) {
 const DATES_SHOWN = 6;
 let datesExpanded = false;
 const ownerLink = () => (location.protocol === 'https:' ? `${location.origin}${location.pathname}` : '');
-const ownerDates = () => collectDates({ privacy: privacyLog, requests: outsideRequests, evidence: outsideEvidence, openRequests: evidenceRows().filter(r => r.open), access: accessReview, today: localToday() });
+const ownerDates = () => collectDates({ privacy: privacyLog, requests: outsideRequests, evidence: outsideEvidence, openRequests: evidenceRows().filter(r => r.open), access: accessReview, emergency: { saved: emergencySaved, state: session ? currentEmergencyPlan().state : null }, today: localToday() });
 const shortDay = day => { const d = new Date(`${day}T12:00:00Z`); return Number.isNaN(d.getTime()) ? day : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }); };
 function openDateItem(item) {
   if (item.kind === 'privacy') openPrivacyRequest(item.ref.id);
   else if (item.kind === 'access') openAccessService(item.ref.serviceId);
+  else if (item.kind === 'emergency') openEmergencyPlan();
   else openOutsideRequest(item.ref.partyId, item.ref.stepKey, item.kind === 'evidence');
 }
 function renderLaunchDates() {
@@ -2852,11 +2874,11 @@ function renderLaunchDates() {
   const d = ownerDates(), status = el('p', 'hint ld-status'); status.setAttribute('role', 'status');
   box.replaceChildren();
   const head = el('div', 'lo-head');
-  head.append(el('h3', '', 'Your dates'), el('p', 'hint', 'Everything in this workspace that has a date: privacy answers, reminders to outside parties, evidence to ask for again and the 90-day access reviews. Add them to your calendar so nothing is missed between visits.'));
+  head.append(el('h3', '', 'Your dates'), el('p', 'hint', 'Everything in this workspace that has a date: privacy answers, reminders to outside parties, evidence to ask for again, the 90-day access reviews and when to save a fresh emergency sheet. Add them to your calendar so nothing is missed between visits.'));
   box.append(head);
   const line = el('p', `od-headline ${d.overdue ? 'is-overdue' : d.today || d.soon ? 'is-due-soon' : ''}`, datesHeadline(d)); box.append(line);
   if (!d.items.length) {
-    box.append(el('p', 'muted od-empty', 'Dates appear here when you log a privacy request (Waitlist tab), record the day you sent a request to an outside party (What can move now → Hand off to outside parties) or record an access review (Account security).'));
+    box.append(el('p', 'muted od-empty', 'Dates appear here when you log a privacy request (Waitlist tab), record the day you sent a request to an outside party (What can move now → Hand off to outside parties), record an access review or save your emergency sheet (Account security).'));
     return;
   }
   const list = el('ol', 'od-list'), shown = datesExpanded ? d.items : d.items.slice(0, DATES_SHOWN);

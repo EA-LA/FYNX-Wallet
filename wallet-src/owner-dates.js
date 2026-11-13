@@ -4,7 +4,9 @@
 //   - waitlist privacy requests: the answer target date of each open request;
 //   - outside-party requests: the reminder date of each request sent and not yet answered;
 //   - outside evidence: the "ask again" date when pieces are still missing after the answer;
-//   - the owner access review: the next review date of each account that was reviewed.
+//   - the owner access review: the next review date of each account that was reviewed;
+//   - the emergency sheet: when to save a fresh copy (SHEET_STALE_DAYS after the last save, or today when the
+//     ways in changed since; a sheet never saved has no date: the Account security card asks for it).
 // Only fixed words travel into the list and the calendar file: request types, party names, checklist step
 // text, evidence names and service names. References, notes and anything else the owner typed stay out,
 // because calendars are usually synced to an outside service. Pure helpers shared by the page and tests.
@@ -13,6 +15,7 @@ import { requestState as outsideState, splitId, isRequestId, CHASE_DAYS } from '
 import { missingAfterAnswer } from './outside-evidence.js';
 import { findParty } from './outside-handoff.js';
 import { accessSummary, REVIEW_DAYS } from './access-review.js';
+import { sheetFreshness, cleanEmergency, SHEET_STALE_DAYS } from './emergency-plan.js';
 
 export const SOON_DAYS = 7;
 export const HORIZON_DAYS = 180;
@@ -21,6 +24,7 @@ export const KINDS = {
   remind: 'Outside request',
   evidence: 'Missing evidence',
   access: 'Access review',
+  emergency: 'Emergency sheet',
 };
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -47,9 +51,10 @@ export function whenLabel(left) {
 //   requests / evidence: the outside hand-off dates and evidence ticks ({ entries })
 //   openRequests: [{ id, title }] for hand-off requests whose checklist step is still open
 //   access: the access review answers
+//   emergency: { saved, state } — the saved emergency-sheet record and, when signed in, the plan state
 //   today: 'YYYY-MM-DD' (the owner's local day)
 // Items further away than HORIZON_DAYS are left out (they are counted in `later`).
-export function collectDates({ privacy, requests, evidence, openRequests = [], access, today, horizon = HORIZON_DAYS } = {}) {
+export function collectDates({ privacy, requests, evidence, openRequests = [], access, emergency, today, horizon = HORIZON_DAYS } = {}) {
   const items = [];
   const add = (item) => { const s = dateState(item.date, today); items.push({ ...item, ...s, when: whenLabel(s.left) }); };
   for (const e of privacy?.entries || []) {
@@ -82,6 +87,20 @@ export function collectDates({ privacy, requests, evidence, openRequests = [], a
     add({ uid: `access-${r.service.id}`, kind: 'access', date: r.due, ref: { serviceId: r.service.id },
       title: `Review ${name}`,
       detail: `Last reviewed ${r.reviewed}. Each account that controls FYNX is reviewed every ${REVIEW_DAYS} days: 2-step verification, recovery codes and who has access.${r.problems?.length ? ` Open problem: ${r.problems.join('; ')}.` : ''}` });
+  }
+  const sheet = cleanEmergency(emergency?.saved, today);
+  if (sheet.savedOn) {
+    const fresh = emergency?.state ? sheetFreshness(sheet, emergency.state, today) : null;
+    const resave = dayString(dayNumber(sheet.savedOn) + SHEET_STALE_DAYS);
+    if (fresh?.state === 'changed') {
+      add({ uid: 'emergency-sheet', kind: 'emergency', date: today, ref: {},
+        title: 'Save a new emergency sheet',
+        detail: `Saved ${sheet.savedOn}; since then ${fresh.changes.join(', ')}. Save a new copy (Account security → Your emergency plan) and replace the printed one.` });
+    } else {
+      add({ uid: 'emergency-sheet', kind: 'emergency', date: resave, ref: {},
+        title: 'Read and save a fresh emergency sheet',
+        detail: `Saved ${sheet.savedOn}. Read it again and save a fresh copy at least every ${SHEET_STALE_DAYS} days (Account security → Your emergency plan), then replace the printed one.` });
+    }
   }
   items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.kind.localeCompare(b.kind) || a.uid.localeCompare(b.uid)));
   const t = dayNumber(today), shown = items.filter(i => t === null || i.left === null || i.left <= horizon);

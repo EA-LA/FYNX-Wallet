@@ -41,6 +41,7 @@ export function planState({ providers = [], passkeys = 0, wallet = false, mainne
     wallet: !!wallet, mainnet: !!mainnet,
     googleSafe: !!googleRow && googleRow.entry?.twoStep === 'yes' && googleRow.entry?.codes === 'yes',
     googleReviewed: !!googleRow && ['ok', 'soon'].includes(googleRow.state),
+    googleRisk: googleRow?.state === 'risk',
     cloudPeople: Number.isInteger(cloudRow?.entry?.people) ? cloudRow.entry.people : null,
     drill: passed(records, PRACTICE.drill), restore: passed(records, PRACTICE.restore), revoke: passed(records, PRACTICE.revoke),
   };
@@ -184,9 +185,9 @@ export function sheetFreshness(saved, s, today) {
   if (!clean.savedOn) return { state: 'never', text: 'Not saved yet. Copy or download the emergency sheet and keep a printed copy with your offline backup codes.' };
   const changes = fpChanges(clean.fp, fingerprint(s));
   const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${clean.savedOn}T00:00:00Z`)) / DAY);
-  if (changes.length) return { state: 'changed', days, changes, text: `Out of date: since you saved it on ${clean.savedOn}, ${changes.join(', ')}. Save a new copy and replace the printed one.` };
-  if (days > SHEET_STALE_DAYS) return { state: 'old', days, text: `Saved ${days} days ago (${clean.savedOn}). Read it again and save a fresh copy at least every ${SHEET_STALE_DAYS} days.` };
-  return { state: 'current', days, text: `Up to date: saved ${days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`} (${clean.savedOn}).` };
+  if (changes.length) return { state: 'changed', days, changes, savedOn: clean.savedOn, text: `Out of date: since you saved it on ${clean.savedOn}, ${changes.join(', ')}. Save a new copy and replace the printed one.` };
+  if (days > SHEET_STALE_DAYS) return { state: 'old', days, savedOn: clean.savedOn, text: `Saved ${days} days ago (${clean.savedOn}). Read it again and save a fresh copy at least every ${SHEET_STALE_DAYS} days.` };
+  return { state: 'current', days, savedOn: clean.savedOn, text: `Up to date: saved ${days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`} (${clean.savedOn}).` };
 }
 
 export function planHeadline(plan) {
@@ -219,4 +220,28 @@ export function sheetMarkdown(plan, today) {
     '- Disabling the owner user in Firebase ends every FYNX sign-in at once.',
     '- No one from FYNX will ever ask for a recovery phrase, password or code.', '');
   return lines.join('\n');
+}
+
+// "Your next steps" lines from the emergency plan (Launch readiness and Today). Only gaps in how the owner gets back
+// in (lost device, Google account, locked out) and a saved sheet that is out of date or older than SHEET_STALE_DAYS
+// are listed. Practice gaps (drill, restore, revoke) are launch tests and already appear there as such, and a sheet
+// that was never saved or a Google account not reviewed yet do not crowd the list (the card itself says so).
+export const ACCESS_GAPS = ['device', 'locked', 'google'];
+export function emergencyAttention(plan, fresh) {
+  const out = [], s = plan?.state || {};
+  const gaps = (plan?.gaps || []).filter(g => ACCESS_GAPS.includes(g.id) && (g.id !== 'google' || (!s.password && !s.passkeys) || s.googleRisk));
+  if (gaps.length) {
+    const first = gaps[0];
+    out.push({ id: 'gaps', scenario: first.id, fix: first.ready.fix || '', state: 'due-soon',
+      label: `Emergency plan · ${plan.ready} of ${plan.total} prepared`,
+      text: `Not ready if you lose a way in (${gaps.map(g => SHORT[g.id]).join(', ')}): ${first.ready.text}` });
+  }
+  if (fresh?.state === 'changed') {
+    out.push({ id: 'sheet', state: 'due-soon', label: 'Emergency sheet · out of date',
+      text: `Since you saved it on ${fresh.savedOn || 'the last save'}: ${fresh.changes.join(', ')}. Save a new copy and replace the printed one.` });
+  } else if (fresh?.state === 'old') {
+    out.push({ id: 'sheet', state: 'due-soon', label: `Emergency sheet · saved ${fresh.days} days ago`,
+      text: `Read it again and save a fresh copy (every ${SHEET_STALE_DAYS} days).` });
+  }
+  return out;
 }
