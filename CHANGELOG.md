@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-13 02:20 UTC — [autopilot] Owner workspace: transfer results now follow you to your other devices
+
+- When you send a test transfer from FYNX on one device and later check whether it went through, that answer (confirmed, confirmed and settled, failed, replaced in the wallet, or dropped) now goes into the Launch readiness test report together with the transfer.
+- On your other device, "Bring in results from another device" shows which transfers have a newer answer ("2 checked later on the other device"), with what each device knew, and adds them. Your Dashboard "wallet tests recorded" tile and Crypto tools reconciliation then say the same thing on every device, without checking again.
+- A device never replaces a newer answer with an older one. Only public transaction IDs and the fixed answer words travel; wallet addresses and notes stay on each device. Older reports still work.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab → Bring in results from another device, after signing in).
+
 ## 2026-11-12 22:15 UTC — [autopilot] Owner workspace: did the last transfer go through, and new requests while you were away
 
 - Dashboard tab → Today: the "wallet tests recorded" tile now says whether the last transfer sent from FYNX went through: confirmed, confirmed and settled, failed, replaced in the wallet, dropped (nothing spent) or not checked yet. Every status check in Crypto tools → Track remembers its final answer in this browser, so you no longer have to check again to know.

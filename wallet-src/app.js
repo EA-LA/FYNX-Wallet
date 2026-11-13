@@ -21,7 +21,7 @@ import { DRILL_KEY, DRILL_STEP, MIN_PEOPLE, STAGES, SCENARIOS, RESULTS as DRILL_
 import { checkTransaction, isSettled, STATUS_LABELS as TX_LABELS, waitingItems, autoCheckDue, batchSummary, AUTO_CHECK_MS, findReplacement, REPLACEMENT_KINDS, canFindReplacement, lookupFacts, lookupNext, findByNonce, parseNonceSearch, offersNonceSearch, walletQueue, queuePageItems, queueSummary, pageMatch, queueAutoDue, queueChange } from './tx-tracker.js';
 import { setMainnetPolicy, mainnetPolicy, canTransact } from './mainnet-policy.js';
 import { reconcile, reconcileReport, STATE_TEXT as RC_STATE, historyRetry, retryText } from './reconcile.js';
-import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, recordOutcome, lastSubmitted, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
+import { REGISTER_KEY, REASONS as RC_REASONS, reasonLabel, cleanRegister, addSubmitted, markKnown, unmark, forNetwork, registerSummary, settledChange, recordOutcome, lastSubmitted, checkedCount, registerReportLines, parseRegisterReport, mergeRegisters, networkName as registerNetwork } from './pilot-register.js';
 import { MAINNET_CAPS, CONFIRM_PHRASE } from '../firebase-wallet/functions/mainnet.js';
 import { summarize, perDay, perWeek, trendText, filterRecords, toCSV, summaryText, isTestAddress } from './waitlist-insights.js';
 import { collectDates, datesHeadline, datesText, datesIcs, KINDS as DATE_KINDS } from './owner-dates.js';
@@ -863,7 +863,7 @@ function renderReconcileLists(result) {
   }
   show('#rc-outside', result.outside.length > 0); show('#rc-marked', result.explained.length > 0);
   const sum = registerSummary(pilotRegister);
-  setText('#rc-register', sum.page || sum.marked ? `Remembered in this browser since ${new Date(sum.since).toLocaleDateString()}: ${sum.page} transaction${sum.page === 1 ? '' : 's'} submitted from FYNX and ${sum.marked} marked as yours (public transaction IDs only). They travel to your other devices in the Launch readiness test report.` : 'Transactions you submit from this page are remembered in this browser, so a later reconciliation knows they came from FYNX.');
+  setText('#rc-register', sum.page || sum.marked ? `Remembered in this browser since ${new Date(sum.since).toLocaleDateString()}: ${sum.page} transaction${sum.page === 1 ? '' : 's'} submitted from FYNX and ${sum.marked} marked as yours (public transaction IDs only). They travel to your other devices in the Launch readiness test report.${checkedCount(pilotRegister) ? ` What the last status check said travels too (${checkedCount(pilotRegister)} of the ${sum.page} FYNX transfer${sum.page === 1 ? '' : 's'} checked).` : ''}` : 'Transactions you submit from this page are remembered in this browser, so a later reconciliation knows they came from FYNX.');
   $('#rc-forget').hidden = !(sum.page || sum.marked);
 }
 function renderReconcile() {
@@ -3283,7 +3283,7 @@ function previewReport(text) {
   }
   if (rgCount) {
     const rsum = guideEl('ul', 'launch-import-sum');
-    for (const [cls, n, label] of [['is-add', rgm.added.length, 'new here'], ['is-update', rgm.updated.length, 'marked later than this browser'], ['is-same', rgm.same.length, 'already here'], ['is-kept', rgm.kept.length, 'kept: this browser marked it later'], ['is-kept', rgm.dropped, 'older than the newest 300 kept, left out']]) if (n) rsum.append(guideEl('li', cls, `${n} ${label}`));
+    for (const [cls, n, label] of [['is-add', rgm.added.length, 'new here'], ['is-update', rgm.updated.length, 'marked later than this browser'], ['is-update', rgm.checks.length, 'checked later on the other device'], ['is-same', rgm.same.length, 'already here'], ['is-kept', rgm.kept.length, 'kept: this browser marked it later'], ['is-kept', rgm.dropped, 'older than the newest 300 kept, left out']]) if (n) rsum.append(guideEl('li', cls, `${n} ${label}`));
     if (rgIn.unknown) rsum.append(guideEl('li', 'is-kept', `${rgIn.unknown} line${rgIn.unknown === 1 ? '' : 's'} not understood`));
     box.append(guideEl('h4', '', `${rgCount} remembered pilot transfer${rgCount === 1 ? '' : 's'} found in the report`), rsum);
     const gl = guideEl('ul', 'launch-import-list'), shown = [...rgm.added.map(e => ['added', e]), ...rgm.updated.map(e => ['updated', e])];
@@ -3292,9 +3292,14 @@ function previewReport(text) {
       body.append(guideEl('span', '', e.kind === 'page' ? `From FYNX: ${e.label}` : `Marked as mine: ${reasonLabel(e.reason)}`), guideEl('small', '', `${e.hash.slice(0, 10)}…${e.hash.slice(-6)} · ${registerNetwork(e.chainId)} · ${new Date(e.at).toLocaleString()}`));
       li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); gl.append(li);
     }
-    if (shown.length > 20) gl.append(guideEl('li', 'hint', `and ${shown.length - 20} more`));
+    for (const e of rgm.checks.slice(0, Math.max(0, 20 - shown.length))) {
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', `From FYNX: ${e.label} · now ${lastSentStatus(e.outcome, e.deep)}`), guideEl('small', '', `${e.hash.slice(0, 10)}…${e.hash.slice(-6)} · ${registerNetwork(e.chainId)} · checked ${new Date(e.outcomeAt).toLocaleString()} · here: ${e.before ? lastSentStatus(e.before, e.beforeDeep) : 'not checked yet'}`));
+      li.append(guideEl('span', 'import-mark import-updated', what.updated), body); gl.append(li);
+    }
+    if (shown.length + rgm.checks.length > 20) gl.append(guideEl('li', 'hint', `and ${shown.length + rgm.checks.length - 20} more`));
     if (gl.children.length) box.append(gl);
-    box.append(guideEl('p', 'hint', 'Only public transaction IDs travel; wallet addresses stay on each device. “Undo” on a mark and “Forget remembered transfers” do not travel: do them on each device.'));
+    box.append(guideEl('p', 'hint', 'Only public transaction IDs and the last status-check answer travel; wallet addresses stay on each device. “Undo” on a mark and “Forget remembered transfers” do not travel: do them on each device.'));
   }
   if (rqCount) {
     const qsum = guideEl('ul', 'launch-import-sum');
@@ -3353,9 +3358,9 @@ function previewReport(text) {
     if (al.children.length) box.append(al);
   }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length + rgm.checks.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(transfers, 'pilot transfer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(rgm.added.length + rgm.updated.length, 'pilot transfer'), n(rgm.checks.length, 'transfer status answer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {

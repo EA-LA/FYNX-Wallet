@@ -100,6 +100,8 @@ export function unmark(register, { hash, chainId }) {
   const h = String(hash || '').toLowerCase();
   return cleanRegister({ entries: (register?.entries || []).filter(e => !(e.kind === 'marked' && e.hash === h && e.chainId === Number(chainId))) });
 }
+// How many FYNX transfers carry a status-check answer (shown next to the register summary).
+export const checkedCount = register => (register?.entries || []).filter(e => e.kind === 'page' && e.outcome).length;
 export function forNetwork(register, chainId) {
   return (register?.entries || []).filter(e => e.chainId === Number(chainId));
 }
@@ -119,7 +121,8 @@ export function settledChange(before, after, chainId) {
 
 // Travel between devices inside the Launch readiness test report ("Pilot transfer register" section).
 // One line per remembered transaction: kind, network, when (UTC minute), the public transaction ID and the
-// FYNX label or the fixed reason. Wallet addresses stay on the device. Forgetting or undoing a mark does not
+// FYNX label or the fixed reason, plus (FYNX transfers only) the last status-check answer in fixed words and
+// its UTC minute. Wallet addresses stay on the device. Forgetting or undoing a mark does not
 // travel: do it on each device.
 export const REGISTER_SECTION = 'Pilot transfer register';
 const NETWORKS = { 1: 'Ethereum', 11155111: 'Ethereum Sepolia', 8453: 'Base', 84532: 'Base Sepolia' };
@@ -127,12 +130,24 @@ export const networkName = id => NETWORKS[id] || `Chain ${id}`;
 const stampUtc = ms => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
 const minute = ms => Math.floor((ms || 0) / 60000) * 60000;
 const reasonByLabel = label => Object.keys(REASONS).find(k => REASONS[k] === label);
-const REGISTER_LINE = /^\s*[-*]\s+(From FYNX|Marked as mine) · [A-Za-z0-9 ]{1,30} \(chain (\d{1,12})\) · (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC · (0x[0-9a-fA-F]{64}) · (.{1,80}?)\s*$/u;
+// A "From FYNX" line may end with what the last status check said, in square brackets (never part of a label):
+//   ` · [last check: confirmed and settled · 2026-11-08 09:12 UTC]`. Lines written before this was added have none.
+const REGISTER_LINE = /^\s*[-*]\s+(From FYNX|Marked as mine) · [A-Za-z0-9 ]{1,30} \(chain (\d{1,12})\) · (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC · (0x[0-9a-fA-F]{64}) · (.{1,80}?)(?: · \[last check: ([a-z ,-]{1,40}) · (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\])?\s*$/u;
+// Fixed words for each settled answer (the same words the Today tile uses).
+export const CHECK_WORDS = Object.freeze({
+  'confirmed and settled': { outcome: 'confirmed', deep: true },
+  confirmed: { outcome: 'confirmed', deep: false },
+  'failed on-chain': { outcome: 'failed', deep: false },
+  'replaced in the wallet': { outcome: 'replaced', deep: false },
+  'dropped, nothing spent': { outcome: 'dropped', deep: false },
+});
+export const checkWords = (outcome, deep = false) => Object.keys(CHECK_WORDS).find(w => CHECK_WORDS[w].outcome === outcome && CHECK_WORDS[w].deep === (outcome === 'confirmed' && deep === true)) || '';
 
 // True only for a line in exactly this section's format (used so a transaction ID is not mistaken for a key).
 export function isRegisterLine(line) {
   const m = String(line || '').match(REGISTER_LINE);
   if (!m) return false;
+  if (m[7] !== undefined && (m[1] !== 'From FYNX' || !CHECK_WORDS[m[7]] || !Number.isFinite(Date.parse(`${m[8]}T${m[9]}:00Z`)))) return false;
   return m[1] === 'From FYNX' ? LABEL.test(m[6]) : Boolean(reasonByLabel(m[6]));
 }
 
@@ -141,7 +156,8 @@ export function registerReportLines(register) {
   if (!entries.length) return [];
   const lines = [`## ${REGISTER_SECTION}`, '', 'Public transaction IDs remembered for the pilot reconciliation (no wallet addresses or notes), so they can be brought into another browser.', ''];
   for (const e of entries) {
-    const what = e.kind === 'page' ? `From FYNX · ${networkName(e.chainId)} (chain ${e.chainId}) · ${stampUtc(e.at)} UTC · ${e.hash} · ${e.label}` : `Marked as mine · ${networkName(e.chainId)} (chain ${e.chainId}) · ${stampUtc(e.at)} UTC · ${e.hash} · ${REASONS[e.reason]}`;
+    const check = e.kind === 'page' && e.outcome ? ` · [last check: ${checkWords(e.outcome, e.deep)} · ${stampUtc(e.outcomeAt)} UTC]` : '';
+    const what = e.kind === 'page' ? `From FYNX · ${networkName(e.chainId)} (chain ${e.chainId}) · ${stampUtc(e.at)} UTC · ${e.hash} · ${e.label}${check}` : `Marked as mine · ${networkName(e.chainId)} (chain ${e.chainId}) · ${stampUtc(e.at)} UTC · ${e.hash} · ${REASONS[e.reason]}`;
     lines.push(`- ${what}`);
   }
   lines.push('');
@@ -159,6 +175,7 @@ export function parseRegisterReport(text) {
     const at = Date.parse(`${m[3]}T${m[4]}:00Z`);
     const kind = m[1] === 'From FYNX' ? 'page' : 'marked';
     const entry = kind === 'page' ? { hash: m[5], chainId: Number(m[2]), kind, label: m[6], at } : { hash: m[5], chainId: Number(m[2]), kind, reason: reasonByLabel(m[6]), at };
+    if (kind === 'page' && m[7] !== undefined) Object.assign(entry, { outcome: CHECK_WORDS[m[7]].outcome, deep: CHECK_WORDS[m[7]].deep, outcomeAt: Date.parse(`${m[8]}T${m[9]}:00Z`) });
     if (!cleanEntry(entry)) { unknown += 1; continue; }
     entries.push(entry);
   }
@@ -166,19 +183,31 @@ export function parseRegisterReport(text) {
 }
 
 // New entries are added. A transaction submitted from FYNX that both browsers know stays as this browser
-// has it (with its wallet address). A mark both have with a different reason: the one marked later wins.
+// has it (with its wallet address); only its last status-check answer can come in, when the other device
+// checked it later (to the minute) and got a different answer ("checks"). A mark both have with a different
+// reason: the one marked later wins.
 export function mergeRegisters(local, incoming) {
   const mine = cleanRegister(local), byKey = new Map(mine.entries.map(e => [keyOf(e), e]));
-  const changes = { added: [], updated: [], same: [], kept: [] };
+  const changes = { added: [], updated: [], same: [], kept: [], checks: [] };
   for (const inc of cleanRegister(incoming).entries) {
     const k = keyOf(inc), have = byKey.get(k);
     if (!have) { byKey.set(k, inc); changes.added.push(inc); continue; }
-    if (inc.kind === 'page' || have.reason === inc.reason) { changes.same.push(inc); continue; }
+    if (inc.kind === 'page') {
+      const differs = inc.outcome && (inc.outcome !== have.outcome || Boolean(inc.deep) !== Boolean(have.deep));
+      if (differs && (!have.outcome || minute(inc.outcomeAt) > minute(have.outcomeAt))) {
+        const next = { ...have, outcome: inc.outcome, outcomeAt: inc.outcomeAt };
+        if (inc.deep) next.deep = true; else delete next.deep;
+        byKey.set(k, next); changes.checks.push({ ...inc, before: have.outcome || null, beforeDeep: !!have.deep });
+      } else changes.same.push(inc);
+      continue;
+    }
+    if (have.reason === inc.reason) { changes.same.push(inc); continue; }
     if (minute(inc.at) > minute(have.at)) { byKey.set(k, { ...have, reason: inc.reason, at: inc.at }); changes.updated.push(inc); } else changes.kept.push(inc);
   }
   // Only the newest MAX_ENTRIES are kept, as in this browser; anything older that fell off is counted.
   const register = cleanRegister({ entries: [...byKey.values()] }), kept = new Set(register.entries.map(keyOf));
   const dropped = changes.added.filter(e => !kept.has(keyOf(e))).length;
   changes.added = changes.added.filter(e => kept.has(keyOf(e)));
+  changes.checks = changes.checks.filter(e => kept.has(keyOf(e)));
   return { register, ...changes, dropped };
 }

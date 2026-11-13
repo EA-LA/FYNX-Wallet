@@ -113,7 +113,7 @@ test('pilot register: a settled status answer is kept with the transfer; waiting
   assert.deepEqual(Object.keys(OUTCOMES), ['confirmed', 'failed', 'replaced', 'dropped']);
 });
 
-test('pilot register: newest transfer sent from FYNX with its answer; the report format is unchanged', () => {
+test('pilot register: newest transfer sent from FYNX with its answer; the report carries it and parses back', () => {
   assert.equal(lastSubmitted({ entries: [] }), null);
   let reg = addSubmitted(addSubmitted({ entries: [] }, item(1, T0)), item(2, T0 + H));
   reg = recordOutcome(reg, { hash: HASH(1), chainId: 84532, status: 'failed' }, T0 + 2 * H);
@@ -122,11 +122,12 @@ test('pilot register: newest transfer sent from FYNX with its answer; the report
   reg = recordOutcome(reg, { hash: HASH(2), chainId: 84532, status: 'replaced' }, T0 + 3 * H);
   last = lastSubmitted(reg);
   assert.equal(last.outcome, 'replaced'); assert.equal(last.deep, false);
-  // The test report lines are exactly as before (outcomes stay in this browser) and still parse back.
+  // Since 2026-11-13 the last answer travels in the test report (fixed words in brackets) and parses back.
   const lines = registerReportLines(reg).join('\n');
-  assert.doesNotMatch(lines, /replaced|failed/);
+  assert.match(lines, /\[last check: replaced in the wallet · /); assert.match(lines, /\[last check: failed on-chain · /);
   const parsed = parseRegisterReport(lines);
   assert.equal(parsed.unknown, 0); assert.equal(parsed.register.entries.length, 2);
+  assert.equal(parsed.register.entries.find(e => e.hash === HASH(2)).outcome, 'replaced');
   // Bringing in another device's report keeps this browser's answers.
   const merged = mergeRegisters(reg, parsed.register);
   assert.equal(merged.register.entries.find(e => e.hash === HASH(2)).outcome, 'replaced');
