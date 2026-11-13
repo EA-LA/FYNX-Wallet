@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-13 06:30 UTC — [autopilot] Owner workspace: see who can spend your USDC
+
+- Crypto tools has a new "Who can spend your USDC?" card (after Step 4 Swap). Press "Check permissions" and FYNX reads the USDC contract on the selected network to show every spending permission ("approval") your connected wallet has given: nothing allowed, an exact amount, or no limit at all, with a clear warning when an app can take everything you hold.
+- The swap router that FYNX swaps use is always checked. You can add any other app or contract you once approved (with a name, saved in this browser for that network) and remove it again.
+- After an approval or a "Revoke swap allowance" confirms in Track, the card reads the permissions again by itself.
+- Helps with the launch test "Revoke swap allowance": when the router's allowance reads zero on the test network, one press adds that reading (network, block, time) to the test's note, so you no longer have to look it up on the block explorer. You still record Passed yourself.
+- It only reads. It never approves, revokes, signs or sends anything.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Crypto tools tab, after signing in and connecting your wallet).
+
 ## 2026-11-13 02:20 UTC — [autopilot] Owner workspace: transfer results now follow you to your other devices
 
 - When you send a test transfer from FYNX on one device and later check whether it went through, that answer (confirmed, confirmed and settled, failed, replaced in the wallet, or dropped) now goes into the Launch readiness test report together with the transfer.

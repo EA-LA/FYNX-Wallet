@@ -35,6 +35,7 @@ import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, es
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
 import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice, ownBlockAge } from './recipient-activity.js';
+import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
@@ -66,6 +67,9 @@ let signInInfo = null;
 let lastBalances = { eth: null, usdc: null };
 // The connected wallet's own place on USDC's block list, read with the balances (Step 2); key = network:address.
 let ownBlock = null;
+// Spending permissions card: the last reading (network + wallet it belongs to) and the saved addresses to check.
+let permReading = null, permReadingAt = 0, permBusy = false;
+let spenders = (() => { try { return cleanSpenders(JSON.parse(localStorage.getItem(SPENDERS_KEY) || '{}')); } catch { return {}; } })();
 let autoLastRun = null, autoRunning = false;
 let queueAutoLast = null, queueAutoRunning = false; // "Check the wallet's numbers" automatic re-check
 function selectTab(name) {
@@ -167,6 +171,7 @@ function clearWallet() {
   setText('#signing-message', ''); $('#transfer-details').replaceChildren();
   setText('#wallet-address', 'No wallet connected'); setText('#receive-address', 'Connect and verify your wallet first.');
   setText('#wallet-balance', '— test ETH'); lastBalances = { eth: null, usdc: null }; ownBlock = null; renderOwnBlock();
+  permReading = null; permReadingAt = 0; try { renderPermissions(); } catch { /* runs again once the page has loaded */ }
   setText('#wallet-proof', session?.wallet ? `Previously linked: ${session.wallet.address}. Connect again to prove current control.` : 'A connection alone does not prove wallet ownership.');
   updateWalletControls();
 }
@@ -199,6 +204,8 @@ function updateWalletControls() {
   for (const b of document.querySelectorAll('#transaction-journal .tx-check, #transaction-journal .tx-find, #lookup-result .tx-check, #lookup-result .tx-find, #nonce-go')) b.disabled = busy || !connection?.address;
   if ($('#nonce-mine')) $('#nonce-mine').disabled = !connection?.address;
   $('#queue-go').disabled = busy || !connection?.address; $('#queue-mine').disabled = !connection?.address;
+  if (connection?.address && $('#sp-status').textContent.startsWith('Connect your wallet')) setText('#sp-status', 'Press Check permissions to read what this wallet has allowed.');
+  $('#sp-check').disabled = busy || permBusy || !connection?.address; $('#sp-add').disabled = busy || permBusy;
   for (const b of document.querySelectorAll('#queue-result .queue-find, #queue-result .tx-check, #queue-number-go')) b.disabled = busy || !connection?.address;
   $('#tx-check-all').disabled = busy || autoRunning || !connection?.address || !waitingItems(journal.values(), selectedNetwork().id).length;
   $('#create-checkout').disabled = busy || !verified || !checkoutReady || connection?.network.id !== 11155111;
@@ -1058,6 +1065,8 @@ async function checkStatus(hash, checkSession) {
   if (item && result.status === 'replaced' && before !== 'replaced' && !item.replacement) {
     try { await lookUpReplacement(item, checkSession); } catch (error) { if (/session changed|Wallet changed|Sign in again/i.test(error.message || '')) throw error; item.replacementNote = `The replacement could not be looked up: ${errorMessage(error)}`; renderJournal(); }
   }
+  // An approval (or revoke) on this network's USDC just confirmed: read the spending permissions again, read-only.
+  if (item && result.status === 'confirmed' && before !== 'confirmed' && isApprovalCall(result.call || item.call, current.network)) refreshPermissions({ quiet: true }).catch(() => {});
   // Keep the reconciliation current: a transfer that just settled changes what it expects in the history.
   if (item && lastHistory && settledChange(before, item, lastHistory.chainId)) {
     const auto = renderReconcile();
@@ -1133,6 +1142,99 @@ async function rereadOwnBlock() {
 $('#send-asset').addEventListener('change', () => { renderOwnBlock(); if ($('#send-asset').value === 'USDC') rereadOwnBlock(); });
 // Keep "Checked n minutes ago" current while Crypto tools is open.
 setInterval(() => { if (ownBlock && !$('#tab-wallet').hidden && !document.hidden) renderOwnBlock(); }, 60000);
+// Spending permissions (wallet-src/spend-permissions.js): read-only USDC allowance checks for the connected wallet.
+// Reads go through the connected wallet's own read calls; nothing is approved, revoked, signed or sent from here.
+const REVOKE_STEP = 'swaps/revoke';
+function permNetwork() { if (connection?.network) return connection.network; try { return selectedNetwork(); } catch { return {}; } }
+function permFor() {
+  const n = permNetwork();
+  return permReading && connection?.address && permReading.chainId === Number(n.id) && permReading.owner === connection.address.toLowerCase() ? permReading : null;
+}
+function saveSpenders() { try { localStorage.setItem(SPENDERS_KEY, JSON.stringify(spenders)); } catch { setText('#sp-form-status', 'This browser blocked saving. The address is checked for this visit only.'); } }
+async function refreshPermissions({ quiet = false } = {}) {
+  const current = connection;
+  if (permBusy || !current?.address) return;
+  const network = current.network;
+  if (!network.usdc) { setText('#sp-status', `${network.name} has no USDC in FYNX, so there are no USDC permissions to check.`); return; }
+  permBusy = true; updateWalletControls();
+  if (!quiet) setText('#sp-status', 'Reading the USDC contract…');
+  try {
+    const epoch = current.epoch;
+    const reading = await readPermissions(request => current.provider.request(request), current.address, permissionTargets(network, spenders), network);
+    await current.assertCurrent(epoch);
+    if (current !== connection) return;
+    permReading = reading; permReadingAt = Date.now();
+    setText('#sp-status', quiet ? 'Read again by itself after your approval confirmed.' : '');
+  } catch (error) { if (current === connection) setText('#sp-status', /Wallet changed|session/i.test(error?.message || '') ? 'Your wallet or network changed. Check again.' : errorMessage(error)); }
+  finally { permBusy = false; renderPermissions(); renderCryptoTests(); updateWalletControls(); }
+}
+function revokeRecord() { return launchRecords[REVOKE_STEP] || null; }
+function addRevokeEvidence(line, status) {
+  const entry = stepIndex(launchPlan).get(REVOKE_STEP); if (!entry) return;
+  const note = evidenceNote(line, revokeRecord()?.note);
+  if (!note) { setText(status, 'The test note is full. Edit the note in the test list first.'); return; }
+  recordWalletStep(entry.gate, entry.step, { note }, '.sp-add-evidence');
+  setText(status, 'Reading added to the note of “Revoke swap allowance”. Record Passed there when you have checked it yourself.');
+  renderPermissions();
+}
+function renderPermissions() {
+  const list = $('#sp-list'), network = permNetwork(), reading = permFor();
+  list.replaceChildren();
+  const targets = permissionTargets(network, spenders);
+  const byAddress = new Map((reading?.rows || []).map(r => [r.address, r]));
+  const head = $('#sp-headline');
+  if (reading) {
+    const text = permissionsHeadline({ rows: targets.map(t => byAddress.get(t.address) || { ...t, units: null, error: 'Added after the last reading: press Check permissions.' }) }, network);
+    head.textContent = `${text} ${readingAge(permReadingAt).text}`;
+    head.className = `sp-headline${reading.rows.some(r => allowanceState(r.units) === 'unlimited') ? ' is-bad' : ''}`;
+    show('#sp-headline', true);
+  } else {
+    show('#sp-headline', false);
+    if (!connection?.address && !$('#sp-status').textContent) setText('#sp-status', network.usdc ? 'Connect your wallet (Step 1) to check its permissions.' : '');
+  }
+  if (!network.usdc) { setText('#sp-status', `${network.name || 'This network'} has no USDC in FYNX, so there are no USDC permissions to check.`); return; }
+  for (const target of targets) {
+    const row = byAddress.get(target.address) || { ...target, units: null, error: reading ? 'Added after the last reading: press Check permissions.' : 'Not read yet.' };
+    const words = describePermission({ ...row, name: target.name }, { network, balance: reading?.balance ?? null });
+    const li = el('li', `sp-row is-${words.tone}`), main = el('div', 'sp-main');
+    const name = el('span', 'sp-name', target.name || 'Saved address'); name.append(el('span', 'sp-badge', words.badge));
+    main.append(name, el('span', 'sp-addr', target.address), el('p', '', words.text));
+    const actions = el('div', 'sp-actions');
+    if (network.explorer) { const a = el('a', '', 'View on explorer ↗'); a.href = `${network.explorer}/address/${target.address}`; a.target = '_blank'; a.rel = 'noopener noreferrer'; actions.append(a); }
+    if (target.pinned && typeof row.units === 'bigint' && row.units > 0n && !$('#revoke-allowance').disabled) {
+      const go = el('button', 'text-button', 'Go to Revoke swap allowance'); go.type = 'button';
+      go.addEventListener('click', () => { $('#revoke-allowance').scrollIntoView({ block: 'center' }); $('#revoke-allowance').focus({ preventScroll: true }); });
+      actions.append(go);
+    }
+    if (!target.pinned) {
+      const remove = el('button', 'text-button', 'Remove'); remove.type = 'button'; remove.setAttribute('aria-label', `Remove ${target.name || target.address} from the list`);
+      remove.addEventListener('click', () => { spenders = removeSpender(spenders, network.id, target.address); saveSpenders(); setText('#sp-form-status', 'Removed from the list.'); renderPermissions(); $('#sp-address').focus(); });
+      actions.append(remove);
+    }
+    main.append(actions); li.append(main); list.append(li);
+  }
+  const line = reading ? revokeEvidence(reading, network, permReadingAt) : '';
+  if (line) {
+    const rec = revokeRecord(), added = (rec?.note || '').includes(line.replace(/\.$/, ''));
+    const box = el('li', 'sp-evidence');
+    box.append(el('span', '', rec?.result === 'pass' ? 'Zero allowance for the swap router, and “Revoke swap allowance” is recorded as Passed.' : 'Zero allowance for the swap router: the result the “Revoke swap allowance” launch test asks you to confirm.'));
+    const b = el('button', 'text-button sp-add-evidence', added ? 'Reading added to the test note ✓' : 'Add this reading to the test note'); b.type = 'button'; b.disabled = added;
+    b.addEventListener('click', () => addRevokeEvidence(line, '#sp-status'));
+    box.append(b); list.append(box);
+  }
+}
+$('#sp-check').addEventListener('click', () => { setText('#sp-form-status', ''); refreshPermissions(); });
+$('#sp-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const network = permNetwork();
+  const { saved, error } = addSpender(spenders, network, $('#sp-address').value, $('#sp-label').value, { own: connection?.address || verifiedAddress });
+  if (error) { setText('#sp-form-status', error); $('#sp-address').focus(); return; }
+  spenders = saved; saveSpenders(); $('#sp-form').reset();
+  setText('#sp-form-status', connection?.address ? 'Added. Reading its permission now…' : 'Added. Connect your wallet to read its permission.');
+  renderPermissions();
+  if (connection?.address) refreshPermissions().then(() => setText('#sp-form-status', 'Added and checked.'));
+});
+setInterval(() => { if (permReading && !$('#tab-wallet').hidden && !document.hidden) renderPermissions(); }, 60000);
 async function refreshBalances(checkSession = () => {}) {
   const current = connection, epoch = current.epoch;
   const [eth, usdc, blocked] = await Promise.allSettled([current.balance(), current.tokenBalance(), readOwnBlock(request => current.provider.request(request), current.address, current.network)]);
@@ -3820,6 +3922,15 @@ function renderCryptoTests() {
         add.addEventListener('click', () => { const value = txNote(latest, launchRecords[key]?.note); if (!value) { setText('#cg-status', 'The note is full. Edit the note first.'); return; } recordWalletStep(gate, step, { note: value }, '.cg-add-tx'); setText('#cg-status', 'Transaction ID added to the note for this step.'); });
         controls.append(add);
       }
+      if (key === REVOKE_STEP) {
+        const line = permFor() ? revokeEvidence(permFor(), permNetwork(), permReadingAt) : '';
+        if (line) {
+          const added = (launchRecords[key]?.note || '').includes(line.replace(/\.$/, ''));
+          const b = guideEl('button', 'text-button cg-add-tx sp-add-evidence', added ? 'Allowance reading added ✓' : 'Add zero-allowance reading to note'); b.type = 'button'; b.disabled = added;
+          b.addEventListener('click', () => addRevokeEvidence(line, '#cg-status'));
+          controls.append(b);
+        }
+      }
       li.append(controls);
       li.append(stepNoteEditor(key, launchRecords[key]?.note || '', value => { recordWalletStep(gate, step, { note: value }, '.step-note-toggle'); setText('#cg-status', value ? 'Note saved. It also appears in Launch readiness and your test report.' : 'Note removed.'); }, '#cg-status'));
       list.append(li);
@@ -3845,4 +3956,5 @@ $('#run-connection-checks').addEventListener('click', event => run(event.current
 }, '#connection-status'));
 for (const event of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(event, () => { lastActivity = Date.now(); }, { passive: true });
 setInterval(() => { if (auth?.currentUser && Date.now() - lastActivity > 15 * 60000) { signOut(auth); setText('#auth-status', 'Signed out after 15 minutes of inactivity.'); } }, 30000);
+renderPermissions();
 ready().catch(error => setText('#auth-status', errorMessage(error)));
