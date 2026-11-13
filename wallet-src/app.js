@@ -32,6 +32,7 @@ import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, 
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
+import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency } from './emergency-plan.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
 import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice, ownBlockAge } from './recipient-activity.js';
@@ -256,6 +257,9 @@ function clearSecurity() {
   signInInfo = null;
   for (const id of ['#sec-checks', '#sec-signin', '#sec-methods', '#sec-tests', '#sec-score']) $(id).replaceChildren();
   setText('#sec-status', ''); setText('#sec-tests-count', '');
+  for (const id of ['#ep-list', '#ep-score']) $(id).replaceChildren();
+  for (const id of ['#ep-headline', '#ep-sheet-state', '#ep-preview', '#ep-status']) setText(id, '');
+  emergencyOpen.clear();
 }
 function securityState() {
   const user = auth?.currentUser;
@@ -303,6 +307,7 @@ function renderSecurity() {
   for (const [label, on] of all) { const li = document.createElement('li'); li.className = on ? 'is-on' : 'is-off'; li.textContent = `${on ? '✓' : '—'} ${label}${on ? '' : ' · not set up'}`; ways.append(li); }
   renderSecurityTests();
   renderAccessReview();
+  renderEmergencyPlan();
   renderSecurityTimes();
 }
 // Identity-gate tests recorded right here; the same records as Launch readiness (this browser only).
@@ -444,6 +449,83 @@ function renderAccessReview() {
 $('#ar-copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(accessSummaryText(accessReview, accessToday())); setText('#ar-status', 'Access review copied. It has account names and answers only: no addresses, passwords or codes.'); }
   catch { setText('#ar-status', 'Copying was blocked by the browser.'); }
+});
+
+// Emergency plan: six situations with ordered steps for this account as it is set up now (Account security tab).
+// Computed in this browser; only the day the sheet was saved and a kinds-and-counts fingerprint are kept.
+let emergencySaved = {};
+const emergencyOpen = new Set();
+try { emergencySaved = cleanEmergency(JSON.parse(localStorage.getItem(EMERGENCY_KEY) || 'null'), accessToday()); } catch { emergencySaved = {}; }
+function currentEmergencyPlan() {
+  const passkeys = session?.passkeys || [];
+  return emergencyPlan(planState({ providers: providerIds(), passkeys: passkeys.length, wallet: !!session?.wallet, mainnet: !!mainnetPolicy().enabled, access: accessSummary(accessReview, accessToday()), records: launchRecords }));
+}
+function scrollToCard(selector) {
+  const node = document.querySelector(selector); if (!node) return;
+  node.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  const focusable = node.querySelector('h2, button'); if (focusable) { if (focusable.tagName === 'H2') focusable.tabIndex = -1; focusable.focus({ preventScroll: true }); }
+}
+function emergencyAction(action) {
+  if (action === 'passkeys') { securityFix('passkey'); return; }
+  if (action === 'access') { openAccessService('google'); return; }
+  if (action === 'mainnet') { selectTab('wallet'); scrollToCard('#mainnet-card'); return; }
+  if (action === 'spend') { selectTab('wallet'); scrollToCard('#permissions-card'); return; }
+  if (action === 'drill') { selectTab('launch'); scrollToCard('#launch-drill'); return; }
+  if (action === 'restore') { selectTab('launch'); openGate('wallet-recovery'); return; }
+  if (action === 'revoke') { selectTab('launch'); openGate('swaps'); }
+}
+const EMERGENCY_GO = { passkeys: 'Go to Passkeys ↓', access: 'Open the access review ↑', mainnet: 'Open Real-money sending ↗', spend: 'Open “Who can spend your USDC?” ↗', drill: 'Open the incident practice run ↗', restore: 'Open that launch test ↗', revoke: 'Open that launch test ↗' };
+const EMERGENCY_FIX = { passkeys: 'Go to Add a passkey ↓', access: 'Open the access review ↑', drill: 'Start a practice run ↗', restore: 'Open the restore test ↗', revoke: 'Open the revoke test ↗' };
+function renderEmergencyPlan() {
+  const list = document.getElementById('ep-list'); if (!list || !session) return;
+  const plan = currentEmergencyPlan(), today = accessToday();
+  const score = $('#ep-score'); score.replaceChildren();
+  score.append(el('strong', '', `${plan.ready}/${plan.total}`), el('span', '', plan.ready === plan.total ? 'all prepared' : 'prepared'));
+  score.setAttribute('aria-label', `Prepared for ${plan.ready} of ${plan.total} emergency situations`);
+  score.className = `sec-score ${plan.ready === plan.total ? 'is-done' : ''}`;
+  setText('#ep-headline', planHeadline(plan));
+  list.replaceChildren();
+  for (const sc of plan.scenarios) {
+    const li = el('li', `ar-row ep-row is-${sc.ready.ok ? 'ok' : 'check'}`); li.dataset.scenario = sc.id;
+    const det = el('details', 'ar-details'); det.open = emergencyOpen.has(sc.id);
+    det.addEventListener('toggle', () => { if (det.open) emergencyOpen.add(sc.id); else emergencyOpen.delete(sc.id); });
+    const sum = el('summary', 'ar-summary'), head = el('div', 'ar-head');
+    head.append(el('strong', 'ar-name', sc.title), el('span', `launch-mark ar-badge is-${sc.ready.ok ? 'ok' : 'check'}`, sc.ready.ok ? 'Prepared' : 'Prepare'));
+    sum.append(head, el('span', 'ar-state', sc.ready.text)); det.append(sum);
+    const body = el('div', 'ar-body');
+    body.append(el('p', 'ep-signs', `When: ${sc.signs}`));
+    const ol = el('ol', 'ep-steps');
+    for (const step of sc.steps) {
+      const item = el('li', step.urgent ? 'is-urgent' : ''); item.append(el('span', '', step.text));
+      if (step.links.length) { const links = el('div', 'ar-links'); for (const [label, href] of step.links) { const a = el('a', 'text-button', `${label} ↗`); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; links.append(a); } item.append(links); }
+      if (step.action) { const b = el('button', 'text-button ep-go', EMERGENCY_GO[step.action]); b.type = 'button'; b.addEventListener('click', () => emergencyAction(step.action)); item.append(el('br'), b); }
+      ol.append(item);
+    }
+    const ready = el('p', `ep-ready ${sc.ready.ok ? '' : 'is-gap'}`); ready.append(el('strong', '', sc.ready.ok ? 'Prepared: ' : 'To be ready: '), document.createTextNode(sc.ready.text));
+    if (!sc.ready.ok && sc.ready.fix) { const b = el('button', 'text-button', EMERGENCY_FIX[sc.ready.fix]); b.type = 'button'; b.addEventListener('click', () => emergencyAction(sc.ready.fix)); ready.append(el('br'), b); }
+    body.append(ready, ol); det.append(body); li.append(det); list.append(li);
+  }
+  const fresh = sheetFreshness(emergencySaved, plan.state, today), state = $('#ep-sheet-state');
+  state.textContent = fresh.text; state.className = `ep-sheet-state is-${fresh.state}`;
+  setText('#ep-preview', sheetMarkdown(plan, today));
+}
+function saveEmergencySheet(plan) {
+  emergencySaved = recordSheet(plan.state, accessToday());
+  try { localStorage.setItem(EMERGENCY_KEY, JSON.stringify(emergencySaved)); } catch { /* kept until the page closes */ }
+  renderEmergencyPlan();
+}
+$('#ep-copy').addEventListener('click', async () => {
+  if (!session) return;
+  const plan = currentEmergencyPlan();
+  try { await navigator.clipboard.writeText(sheetMarkdown(plan, accessToday())); saveEmergencySheet(plan); setText('#ep-status', 'Emergency sheet copied. Paste it somewhere offline or print it; it has no addresses, passwords or codes.'); }
+  catch { setText('#ep-status', 'Copying was blocked by the browser. Use Download emergency sheet instead.'); }
+});
+$('#ep-download').addEventListener('click', () => {
+  if (!session) return;
+  const plan = currentEmergencyPlan(), today = accessToday();
+  const url = URL.createObjectURL(new Blob([sheetMarkdown(plan, today)], { type: 'text/markdown;charset=utf-8' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-emergency-sheet-${today}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  saveEmergencySheet(plan); setText('#ep-status', 'Emergency sheet downloaded. Print it and keep it with your offline backup codes.');
 });
 
 // Real-money sending on Base: the owner's own switch and limits, stored by the server after a fresh sign-in.

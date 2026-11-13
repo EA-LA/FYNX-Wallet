@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-13 16:55 UTC — [autopilot] Owner workspace: your emergency plan on the Account security tab
+
+- New "Your emergency plan" card on Account security (https://ea-la.github.io/FYNX-Wallet/owner.html → Account security): six things that can go wrong — a lost phone or computer with a passkey, your Google account locked or taken over, someone else signing in, a lost wallet device or exposed recovery phrase, approving something you did not expect, and losing every way in.
+- Each one shows the steps in the right order for your account as it is set up today, with direct links (Google recovery, your devices, Firebase sign-in users, the security log, who has access) and buttons that take you to the right place in the workspace. If real-money sending is on, "turn it off" comes first, in red.
+- Each situation says "Prepared" or what would make you ready (for example: add a second way in, record 2-step verification for Google, do the practice run), with a button to fix it, and a score out of 6.
+- "Download emergency sheet" / "Copy" gives you a printable plan to keep with your backup codes (no addresses, passwords or codes). The page tells you when your saved sheet is out of date, for example after you add a passkey.
+
 ## 2026-11-13 12:35 UTC — [autopilot] Owner workspace: a ready pilot invite list on the Waitlist tab
 
 - The Waitlist tab has a new "Pilot invite list" box (under Address check, after you press Load registrations). It picks who to invite first when the controlled pilot opens, straight from your real waitlist.
