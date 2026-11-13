@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-13 12:35 UTC — [autopilot] Owner workspace: a ready pilot invite list on the Waitlist tab
+
+- The Waitlist tab has a new "Pilot invite list" box (under Address check, after you press Load registrations). It picks who to invite first when the controlled pilot opens, straight from your real waitlist.
+- It leaves out people who should not be invited and says how many and why: test addresses, no recorded consent, past the retention date, likely mistyped addresses, throwaway inboxes, shared team mailboxes (you can include these with one tick) and the same inbox signed up twice (only the earliest sign-up counts).
+- Choose the group size (filled in from your "Pilot size and limits" decision when you have made it) and the order: earliest sign-ups first, or a fair draw. The draw uses a code you can keep, so the same code gives the same list on any device.
+- It warns when not every registration is loaded, when an invited person's sign-up is about to be deleted under the retention rule, when open privacy requests asked for removal or no contact, and that the waitlist does not record which state people live in (so you confirm that before giving access).
+- "Download invite list" gives a spreadsheet (invite + reserve, in order, with notes); "Copy counts" copies a summary without any email addresses. Nothing is sent to anyone and the waitlist is not changed.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Waitlist tab, after signing in).
+
 ## 2026-11-13 06:30 UTC — [autopilot] Owner workspace: see who can spend your USDC
 
 - Crypto tools has a new "Who can spend your USDC?" card (after Step 4 Swap). Press "Check permissions" and FYNX reads the USDC contract on the selected network to show every spending permission ("approval") your connected wallet has given: nothing allowed, an exact amount, or no limit at all, with a clear warning when an app can take everything you hold.

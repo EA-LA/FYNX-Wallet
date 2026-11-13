@@ -37,6 +37,7 @@ import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.j
 import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice, ownBlockAge } from './recipient-activity.js';
 import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
+import { pilotList, inviteCSV, decidedPilot, openStopRequests, pilotSummary, headline as pilotHeadline, cleanSize, cleanCode, DEFAULT_SIZE as PILOT_DEFAULT } from './pilot-invites.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -1827,6 +1828,7 @@ function clearWaitlistInsights() {
   setText('#wl-coverage', ''); setText('#wl-status', ''); $('#wl-query').value = ''; $('#wl-hide-tests').checked = false; $('#wl-consent').value = 'all'; $('#wl-check').value = 'all';
   show('#waitlist-insights', false); show('#wl-filter', false);
   waitlistFlags = new Map(); removedTest = null; $('#wl-quality').replaceChildren(); closePrivacyReply(false);
+  pilotSizeTouched = false; $('#wl-pilot-size').value = ''; $('#wl-pilot-order').value = 'first'; $('#wl-pilot-code').value = ''; $('#wl-pilot-shared').checked = false; pilotResult = null; setText('#wl-pilot-status', ''); setText('#wl-pilot-more', '');
   $('#wl-testcheck').replaceChildren(); show('#wl-testcheck', false); $('#wl-tests').replaceChildren(); setText('#wl-tests-count', ''); setText('#wl-tests-status', '');
 }
 const shortDate = (time, opts) => new Date(time).toLocaleDateString(undefined, opts || { month: 'short', day: 'numeric' });
@@ -1876,7 +1878,7 @@ function renderWaitlistInsights() {
     for (const [key, count] of pairs.length ? pairs : [['None yet', '']]) { const li = el('li'); li.append(el('span', '', String(key)), el('strong', '', String(count))); list.append(li); }
     box.append(list); wrap.append(box);
   }
-  renderAddressCheck();
+  renderAddressCheck(); renderPilotInvites();
 }
 // Address check: counts with a "Show" button that sets the row filter.
 function renderAddressCheck() {
@@ -2101,6 +2103,51 @@ function recordWaitlistStep(gate, step, patch, focusKey) {
   document.querySelector(`#wl-tests [data-step="${CSS.escape(key)}"] ${focusKey}`)?.focus({ preventScroll: true });
   setText('#wl-tests-status', 'note' in patch && !('result' in patch) ? (next.note ? 'Note saved. It also appears in Launch readiness and your test report.' : 'Note removed.') : next.result ? `Recorded: ${resultLabels[next.result]}. It also appears in Launch readiness and your test report.` : 'Result cleared.');
 }
+// Pilot invite list: who to invite first when the pilot opens, from the loaded rows only. Nothing is sent or saved.
+let pilotSizeTouched = false, pilotResult = null;
+function pilotOptions() {
+  const decided = decidedPilot(decisionAnswers);
+  if (!pilotSizeTouched) $('#wl-pilot-size').value = String(decided.size || PILOT_DEFAULT);
+  const order = $('#wl-pilot-order').value;
+  if (order === 'draw' && !cleanCode($('#wl-pilot-code').value)) $('#wl-pilot-code').value = `draw ${localToday()}`;
+  return { decided, size: cleanSize($('#wl-pilot-size').value), order, code: $('#wl-pilot-code').value, includeShared: $('#wl-pilot-shared').checked };
+}
+function renderPilotInvites() {
+  const o = pilotOptions();
+  show('#wl-pilot-code-wrap', o.order === 'draw');
+  setText('#wl-pilot-source', o.decided.size
+    ? `Your pilot decision: ${o.decided.size} people${o.decided.states ? ` in ${o.decided.states}` : ''}.${pilotSizeTouched && o.size !== o.decided.size ? ' You changed the size here; the decision stays as saved.' : ''}`
+    : `No pilot size decided yet${pilotSizeTouched ? '' : `, so ${PILOT_DEFAULT} is used`}. Record it in Launch readiness → Decisions only you can make.`);
+  if (!o.size) { pilotResult = null; setText('#wl-pilot-head', 'Enter how many people to invite (a whole number from 1).'); $('#wl-pilot-out').replaceChildren(); $('#wl-pilot-preview').replaceChildren(); setText('#wl-pilot-more', ''); return; }
+  const r = pilotResult = pilotList(waitlistRecords.values(), waitlistFlags, { size: o.size, order: o.order, code: o.code, includeShared: o.includeShared, total: waitlistTotal });
+  setText('#wl-pilot-head', pilotHeadline(r));
+  const out = $('#wl-pilot-out'); out.replaceChildren();
+  const item = (flag, title, hint) => { const li = el('li', `wl-q is-${flag ? 'flag' : 'ok'}`), body = el('div'); body.append(el('strong', '', title)); if (hint) body.append(el('span', 'hint', hint)); const mark = el('span', 'wl-q-mark', flag ? '!' : '✓'); mark.setAttribute('aria-hidden', 'true'); li.append(mark, body); out.append(li); };
+  item(!r.complete, r.complete ? `All ${r.total} registrations are included` : `Only ${r.loaded} of ${r.total} registrations are loaded`, r.complete ? '' : 'Press Load all registrations first, or earlier sign-ups can be missed.');
+  item(r.excluded.length > 0, r.excluded.length ? `${r.excluded.reduce((n, x) => n + x[2], 0)} left out` : 'Nobody left out', r.excluded.map(([, label, n]) => `${label}: ${n}`).join(' · '));
+  if (r.retentionSoon) item(true, `${r.retentionSoon} invited sign-up${r.retentionSoon === 1 ? ' reaches' : 's reach'} the end of retention within 30 days`, 'They are deleted automatically after that date, so invite them before it.');
+  const stops = openStopRequests(privacyLog);
+  if (stops) item(true, `${stops} open privacy request${stops === 1 ? '' : 's'} asked for removal or no contact`, 'The log keeps no email addresses: check those people are not on the list before sending invitations.');
+  item(true, 'States are not recorded on the waitlist', `Confirm each person lives in ${o.decided.states || 'the pilot states'} before giving access.`);
+  const preview = $('#wl-pilot-preview'); preview.replaceChildren();
+  for (const x of r.invited.slice(0, 5)) preview.append(el('li', '', `${x.email}${x.note ? ` · ${x.note}` : ''}`));
+  setText('#wl-pilot-more', r.invited.length > 5 ? `… and ${r.invited.length - 5} more to invite${r.reserve.length ? `, plus ${r.reserve.length} in reserve,` : ''} in the download.` : r.reserve.length ? `Plus ${r.reserve.length} in reserve in the download.` : '');
+}
+$('#wl-pilot-size').addEventListener('input', () => { pilotSizeTouched = true; renderPilotInvites(); });
+for (const id of ['#wl-pilot-order', '#wl-pilot-shared']) $(id).addEventListener('change', () => { renderPilotInvites(); setText('#wl-pilot-status', ''); });
+$('#wl-pilot-code').addEventListener('input', () => renderPilotInvites());
+$('#wl-pilot-download').addEventListener('click', () => {
+  if (!pilotResult || !pilotResult.invited.length) { setText('#wl-pilot-status', 'Nothing to download: nobody on the loaded waitlist can be invited yet.'); return; }
+  const url = URL.createObjectURL(new Blob([inviteCSV(pilotResult)], { type: 'text/csv;charset=utf-8' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-pilot-invites-${localToday()}.csv`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setText('#wl-pilot-status', `Downloaded ${pilotResult.invited.length} to invite and ${pilotResult.reserve.length} in reserve${pilotResult.complete ? '' : ` (from ${pilotResult.loaded} of ${pilotResult.total} loaded)`}. The file contains email addresses — keep it private. Nothing was sent.`);
+});
+$('#wl-pilot-copy').addEventListener('click', async () => {
+  if (!pilotResult) { setText('#wl-pilot-status', 'Enter how many people to invite first.'); return; }
+  try { await navigator.clipboard.writeText(pilotSummary(pilotResult, { states: decidedPilot(decisionAnswers).states, stopRequests: openStopRequests(privacyLog), date: localToday() })); setText('#wl-pilot-status', 'Counts copied (no email addresses).'); }
+  catch { setText('#wl-pilot-status', 'Copying was blocked by the browser.'); }
+});
+$('#wl-pilot-decide').addEventListener('click', () => { selectTab('launch'); openDecision('pilot/limits'); });
 $('#wl-open-launch').addEventListener('click', () => { selectTab('launch'); openGate('website'); });
 for (const button of document.querySelectorAll('[data-wl-period]')) button.addEventListener('click', () => { waitlistPeriod = button.dataset.wlPeriod; renderWaitlistChart(); });
 for (const [id, type] of [['#wl-query', 'input'], ['#wl-hide-tests', 'change'], ['#wl-consent', 'change'], ['#wl-check', 'change']]) $(id).addEventListener(type, () => renderRegistrations());
@@ -3563,7 +3610,7 @@ function saveDecision(decision, form, warn) {
   if (!issues.length) launchRecords[key] = { result: 'pass', note: decisionNote(decision, out), at: savedAt };
   else if (prev.result === 'pass' || prev.result === 'skip') launchRecords[key] = { ...prev, result: '', at: savedAt };
   saveLaunchRecords();
-  renderLaunch({ keepOpen: gate.id }); renderCryptoTests();
+  renderLaunch({ keepOpen: gate.id }); renderCryptoTests(); if (waitlistRecords.size && !waitlistEmail) renderPilotInvites();
   const details = document.querySelector(`#ld-list details[data-decision="${CSS.escape(key)}"]`);
   if (details) { details.open = true; details.querySelector('.ld-save')?.focus({ preventScroll: true }); }
   setText('#ld-status', issues.length ? `${decision.title}: saved as in progress. ${issues[0]}` : `${decision.title}: decided and marked done in the checklist.`);
