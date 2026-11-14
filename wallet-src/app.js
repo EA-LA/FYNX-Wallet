@@ -33,6 +33,7 @@ import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultO
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { pilotReadiness, approvalMarkdown, GROUPS as PILOT_GROUPS } from './pilot-readiness.js';
+import { SITUATIONS, URGENCY, LINKS, supportContext, replyTarget, replyText, matchMessage, playbookMarkdown } from './support-playbook.js';
 import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency, emergencyAttention } from './emergency-plan.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
@@ -185,7 +186,7 @@ function clearPrivateWorkspace() {
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
   for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); renderDecisions(); clearReportImport();
-  clearServices(); clearPortfolio(); clearMainnet();
+  clearServices(); clearPortfolio(); clearMainnet(); clearSupportFinder();
   $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
@@ -3392,6 +3393,125 @@ function renderPilotGate() {
   const status = el('p', 'status ld-status'); status.id = 'pg-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = pilotGateStatus; pilotGateStatus = '';
   box.append(status);
 }
+// Pilot support playbook (Launch readiness): ready replies for pilot customers, filled in with the owner's
+// support and limit decisions, and a finder for a pasted message. The pasted text lives in this page only.
+const spbOpen = new Set();
+function playbookContext() { return supportContext(decisionAnswers); }
+function spbStatus(text) { setText('#spb-status', text); }
+async function spbCopy(text, done) {
+  try { await navigator.clipboard.writeText(text); spbStatus(done); } catch { spbStatus('Copying was blocked by the browser. Select the text and copy it yourself, or use Download playbook.'); }
+}
+function spbAction(action, found = {}) {
+  if (action.kind === 'lookup') {
+    selectTab('wallet'); const input = $('#lookup-hash'); if (found.hash) input.value = found.hash;
+    input.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); input.focus({ preventScroll: true });
+    setText('#lookup-status', found.hash ? 'Transaction ID filled in from the customer message. Choose the network the customer named above, then press Check transaction.' : 'Paste the customer’s transaction ID, choose their network above, then press Check transaction.');
+    return;
+  }
+  if (action.kind === 'queue') {
+    selectTab('wallet'); const input = $('#queue-wallet'); if (found.address) input.value = found.address;
+    input.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); input.focus({ preventScroll: true });
+    return;
+  }
+  if (action.kind === 'reconcile') { selectTab('wallet'); scrollToCard('#portfolio-card'); return; }
+  if (action.kind === 'mainnet') { selectTab('wallet'); scrollToCard('#mainnet-card'); return; }
+  if (action.kind === 'privacy') { goTo('registrations', '#wl-requests'); const d = $('#pr-received'); if (d && !d.value) d.value = localToday(); d?.focus(); return; }
+  if (action.kind === 'decision') { selectTab('launch'); openDecision(action.key); }
+}
+function spbActions(situation, ctx, found = {}) {
+  const row = el('div', 'spb-actions');
+  const copy = el('button', 'button secondary', 'Copy reply'); copy.type = 'button'; copy.setAttribute('aria-label', `Copy reply: ${situation.title}`);
+  copy.addEventListener('click', () => spbCopy(replyText(situation, ctx), `Reply copied: ${situation.title}. Read it once more, then send it yourself from the support inbox.`));
+  row.append(copy);
+  for (const a of situation.actions) {
+    if (a.kind === 'doc') { const link = el('a', 'text-button', a.label); link.href = LINKS[a.link]; link.target = '_blank'; link.rel = 'noopener noreferrer'; row.append(link); continue; }
+    const b = el('button', 'text-button', a.label); b.type = 'button'; b.addEventListener('click', () => spbAction(a, found)); row.append(b);
+  }
+  return row;
+}
+function spbSituation(situation, ctx) {
+  const det = el('details', `spb-item is-${situation.urgency}`); det.dataset.situation = situation.id; det.open = spbOpen.has(situation.id);
+  det.addEventListener('toggle', () => { if (det.open) spbOpen.add(situation.id); else spbOpen.delete(situation.id); });
+  const sum = el('summary', 'spb-sum');
+  sum.append(el('span', `spb-badge is-${situation.urgency}`, URGENCY[situation.urgency].label), el('span', 'spb-name', situation.title), el('span', 'spb-time', replyTarget(situation, ctx)));
+  det.append(sum);
+  const body = el('div', 'spb-body');
+  if (situation.ask.length) { body.append(el('h4', '', 'Ask for')); const ul = el('ul', 'spb-points'); for (const a of situation.ask) ul.append(el('li', '', a)); body.append(ul); }
+  body.append(el('h4', '', 'Check')); const ul = el('ul', 'spb-points'); for (const c of situation.check) ul.append(el('li', '', c)); body.append(ul);
+  if (situation.escalate) body.append(el('p', `spb-escalate${situation.rollback ? ' is-rollback' : ''}`, `${situation.rollback ? 'Rollback trigger: ' : 'Escalate: '}${situation.escalate}`));
+  body.append(el('h4', '', 'Reply'), el('pre', 'spb-reply', replyText(situation, ctx)), spbActions(situation, ctx));
+  det.append(body);
+  return det;
+}
+function openSituation(id) {
+  spbOpen.add(id); const all = $('#spb-all'); all.open = true; renderSupportPlaybook();
+  const item = document.querySelector(`#spb-list [data-situation="${CSS.escape(id)}"]`); if (!item) return;
+  item.open = true; item.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); item.querySelector('summary')?.focus({ preventScroll: true });
+}
+function renderSupportMatches() {
+  const box = document.getElementById('spb-matches'); if (!box) return;
+  box.replaceChildren();
+  const text = $('#spb-message').value, r = matchMessage(text), ctx = playbookContext();
+  if (r.empty) return;
+  if (r.secret) {
+    const warn = el('div', 'spb-secret'); warn.setAttribute('role', 'alert');
+    warn.append(el('strong', '', 'This message may contain a recovery phrase or private key.'), el('span', '', ' Do not copy or forward it. Use the answer below, then delete the email from the inbox and empty the trash.'));
+    const clear = el('button', 'text-button', 'Clear the box now'); clear.type = 'button'; clear.addEventListener('click', clearSupportFinder); warn.append(clear);
+    box.append(warn);
+  }
+  const found = { hash: r.hashes[0] || '', address: r.addresses[0] || '' };
+  if (found.hash || found.address) {
+    const p = el('p', 'spb-found');
+    if (found.hash) { const b = el('button', 'text-button', `Look up ${found.hash.slice(0, 10)}…${found.hash.slice(-6)} in Track confirmation ↗`); b.type = 'button'; b.addEventListener('click', () => spbAction({ kind: 'lookup' }, found)); p.append(b); }
+    if (found.address) { const b = el('button', 'text-button', `Check the numbers of wallet ${found.address.slice(0, 8)}…${found.address.slice(-4)} ↗`); b.type = 'button'; b.addEventListener('click', () => spbAction({ kind: 'queue' }, found)); p.append(b); }
+    box.append(p);
+  }
+  if (!r.matches.length) { box.append(el('p', 'hint', 'No ready answer fits this message. Open All answers below, or reply yourself following the rules in the playbook.')); return; }
+  box.append(el('p', 'spb-lead', r.matches.length === 1 ? 'Best answer:' : `Best answers (${r.matches.length}), most likely first:`));
+  for (const [i, m] of r.matches.entries()) {
+    const s = m.situation, card = el('div', `spb-match is-${s.urgency}`);
+    const head = el('p', 'spb-match-head'); head.append(el('span', `spb-badge is-${s.urgency}`, URGENCY[s.urgency].label), el('strong', '', s.title));
+    card.append(head, el('p', 'spb-time', replyTarget(s, ctx)));
+    if (i === 0) card.append(el('pre', 'spb-reply', replyText(s, ctx)));
+    const row = spbActions(s, ctx, found);
+    const more = el('button', 'text-button', 'Open the full answer'); more.type = 'button'; more.addEventListener('click', () => openSituation(s.id)); row.append(more);
+    card.append(row); box.append(card);
+  }
+}
+function clearSupportFinder() {
+  const t = document.getElementById('spb-message'); if (!t) return;
+  t.value = ''; $('#spb-matches').replaceChildren(); spbStatus('');
+}
+function renderSupportPlaybook() {
+  const who = document.getElementById('spb-who'); if (!who) return;
+  const ctx = playbookContext();
+  who.replaceChildren();
+  const facts = el('ul', 'spb-facts');
+  const fact = (label, value) => { const li = el('li', value ? '' : 'is-missing'); li.append(el('span', '', label), el('strong', '', value || 'Not decided yet')); facts.append(li); };
+  fact('Who answers', ctx.who); fact('First reply within', ctx.reply); fact('Support hours', ctx.hours); fact('Pilot limit per transfer', ctx.perTx);
+  who.append(facts);
+  for (const m of ctx.missing) {
+    const p = el('p', 'spb-missing'); p.append(el('span', '', `Decide “${m.title}” for ${m.why}. `));
+    const b = el('button', 'text-button', 'Open the decision'); b.type = 'button'; b.setAttribute('aria-label', `Open the decision: ${m.title}`); b.addEventListener('click', () => spbAction({ kind: 'decision', key: m.key })); p.append(b);
+    who.append(p);
+  }
+  const list = $('#spb-list'); list.replaceChildren();
+  for (const s of [...SITUATIONS].sort((a, b) => URGENCY[a.urgency].order - URGENCY[b.urgency].order)) list.append(spbSituation(s, ctx));
+  setText('#spb-all-summary', `All ${SITUATIONS.length} answers`);
+  if ($('#spb-preview').open) $('#spb-pre').textContent = playbookMarkdown(ctx);
+  if ($('#spb-message').value.trim()) renderSupportMatches();
+}
+$('#spb-find').addEventListener('click', () => { renderSupportMatches(); if (!$('#spb-message').value.trim()) { spbStatus('Paste a customer message first.'); $('#spb-message').focus(); } else spbStatus(''); });
+let spbTimer = 0;
+$('#spb-message').addEventListener('input', () => { clearTimeout(spbTimer); spbTimer = setTimeout(renderSupportMatches, 250); });
+$('#spb-clear').addEventListener('click', () => { clearSupportFinder(); $('#spb-message').focus(); });
+$('#spb-preview').addEventListener('toggle', () => { if ($('#spb-preview').open) $('#spb-pre').textContent = playbookMarkdown(playbookContext()); });
+$('#spb-copy').addEventListener('click', () => spbCopy(playbookMarkdown(playbookContext()), 'Playbook copied. Share it with whoever answers pilot support; it holds no customer data.'));
+$('#spb-download').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([playbookMarkdown(playbookContext())], { type: 'text/markdown;charset=utf-8' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-pilot-support-playbook-${localToday()}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  spbStatus('Playbook downloaded. It holds your support decisions and the ready replies; no customer data.');
+});
 function renderLaunchFilters() {
   const nav = $('#launch-filters'); nav.replaceChildren();
   for (const key of Object.keys(groupLabels)) {
@@ -3462,7 +3582,7 @@ function stepRow(gate, step) {
 function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   const open = new Set([...document.querySelectorAll('#launch-checklist details[open]')].map(d => d.dataset.gate));
   if (keepOpen) open.add(keepOpen);
-  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderLaunchFilters();
+  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderSupportPlaybook(); renderLaunchFilters();
   const list = $('#launch-checklist'); list.replaceChildren();
   for (const item of launchPlan.items) {
     if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;
