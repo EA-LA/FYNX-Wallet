@@ -54,3 +54,7 @@ Before the pilot, practise the rollback once:
 1. Launch readiness → **Incident practice run** → choose **Pilot transfers do not add up**. Walk through all seven stages with at least one other person and note any gaps as follow-ups.
 2. On a test network, send one small test transfer from Crypto tools, then run the reconciliation and save the report. It should read **Balanced** once the transfer is confirmed and the balances are checked.
 3. Record the pilot / rollback step in Launch readiness with the date of the practice run and of the saved report.
+
+## Before you approve the pilot
+
+Launch readiness → **Pilot go / no-go** gathers everything above in one list: the steps your approval waits for, whether your pilot limits fit FYNX's ceiling and the Real-money sending limits, the pilot practice run, a confirmed transfer from FYNX, and anything overdue. **Copy approval** or **Download approval** gives a one-page written approval with a signature line (marked DRAFT until every check is finished). Sign it, keep it with the pilot records, then record "Give final written approval" as Passed with the date. The workspace never approves or switches anything on by itself.

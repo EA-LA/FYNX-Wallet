@@ -32,6 +32,7 @@ import { launchHistory, historyHeadline, historyMarkdown, weekTitle, weekCount, 
 import { PRIVACY_KEY, OUTCOMES as PR_OUTCOMES, typeLabel, outcomeLabel, defaultOutcome, localToday, cleanLog, addRequest, answerRequest, reopenRequest, removeRequest, requestState, logSummary, logMarkdown, privacyAttention, TARGET_DAYS, DUE_SOON_DAYS, privacyReportLines, parsePrivacyReport, mergePrivacyLogs } from './privacy-requests.js';
 import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, startSession, sessionProgress, planMarkdown, sessionSummary } from './test-session.js';
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
+import { pilotReadiness, approvalMarkdown, GROUPS as PILOT_GROUPS } from './pilot-readiness.js';
 import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency, emergencyAttention } from './emergency-plan.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
@@ -82,6 +83,7 @@ function selectTab(name) {
   if (name === 'security') renderSecurity();
   if (name === 'registrations') { renderWaitlistTests(); renderPrivacyLog(); }
   if (name === 'wallet') { renderCryptoSetup(); renderCryptoTests(); }
+  if (name === 'launch') renderPilotGate(); // the switch, register and sign-in facts may have changed on other tabs
 }
 function clearDashboard() {
   clearTimeout(dashboardTimer);
@@ -3310,6 +3312,86 @@ function renderTestSession() {
   const status = el('p', 'status'); status.id = 'ts-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = sessionStatus; sessionStatus = '';
   box.append(status);
 }
+// Pilot go / no-go (Launch readiness): everything the workspace knows before the owner's written approval
+// for the pilot (step pilot/approve), with a printable approval. Read-only; never approves or switches anything.
+let pilotGateOpen = false, pilotGateStatus = '';
+function currentPilotReadiness() {
+  const emergency = session ? currentEmergencyPlan() : null;
+  return pilotReadiness({
+    plan: launchPlan, records: launchRecords, answers: decisionAnswers, drill, register: pilotRegister, mainnet: mainnetPolicy(),
+    emergency, sheet: emergency ? sheetFreshness(emergencySaved, emergency.state, accessToday()) : null,
+    access: accessSummary(accessReview, accessToday()), privacy: privacyAttention(privacyLog, localToday()),
+  });
+}
+function pilotGateAction(action) {
+  if (!action) return;
+  if (action.kind === 'step') { selectTab('launch'); openStep(action.key); return; }
+  if (action.kind === 'decision') { selectTab('launch'); openDecision(action.key); return; }
+  if (action.kind === 'drill') { drillPreferred = 'pilot'; selectTab('launch'); renderDrill(); openDrill(); return; }
+  if (action.kind === 'mainnet') { selectTab('wallet'); scrollToCard('#mainnet-card'); return; }
+  if (action.kind === 'reconcile') { selectTab('wallet'); scrollToCard('#portfolio-card'); return; }
+  if (action.kind === 'wallet') { selectTab('wallet'); scrollToCard('#crypto-guide'); return; }
+  if (action.kind === 'privacy') { openPrivacyRequest(privacyAttention(privacyLog, localToday()).next[0]?.id); return; }
+  if (action.kind === 'access') { selectTab('security'); openAccessService(accessSummary(accessReview, accessToday()).attention[0]?.service.id); return; }
+  if (action.kind === 'emergency') { openEmergencyPlan(); return; }
+  if (action.kind === 'failed') {
+    const failed = nextActions(launchPlan, launchRecords, 200).find(a => a.failed);
+    selectTab('launch'); if (failed) openStep(stepKey(failed.gate.id, failed.step.id));
+  }
+}
+const PILOT_STATE = { ok: ['OK', 'is-ok'], warn: ['Look at', 'is-warn'], block: ['To finish', 'is-block'], info: ['Note', 'is-info'] };
+const PILOT_GO = { step: 'Open the step', decision: 'Open the decision', drill: 'Open the practice run', mainnet: 'Open Real-money sending', reconcile: 'Open Portfolio & history', wallet: 'Open Crypto tools', privacy: 'Open the request', access: 'Open the access review', emergency: 'Open the emergency plan', failed: 'Open the failed test' };
+function pilotApprovalText() { return approvalMarkdown(currentPilotReadiness(), { plan: launchPlan, answers: decisionAnswers, mainnet: mainnetPolicy() }); }
+function renderPilotGate() {
+  const box = document.getElementById('pilot-gate'); if (!box) return;
+  const r = currentPilotReadiness();
+  box.replaceChildren();
+  const head = el('div', 'lo-head');
+  head.append(el('h3', '', 'Pilot go / no-go'), el('p', 'hint', 'Before you give written approval to open FYNX to a small pilot group, this gathers what the workspace knows: the steps the approval waits for, whether your pilot limits fit the wallet, the rollback practice and anything overdue. It reads this browser only and never approves or switches anything on.'));
+  box.append(head);
+  const line = el('p', `pg-headline is-${r.verdict}`, r.headline); line.setAttribute('role', 'status'); box.append(line);
+  const stats = el('p', 'pg-counts');
+  stats.append(el('span', 'pg-count is-ok', `${r.ok} OK`), el('span', 'pg-count is-block', `${r.blockers} to finish`), el('span', 'pg-count is-warn', `${r.warnings} to look at`));
+  box.append(stats);
+  const det = el('details', 'ts-out pg-details'); det.open = pilotGateOpen;
+  det.addEventListener('toggle', () => { pilotGateOpen = det.open; });
+  det.append(el('summary', '', `Show all ${r.checks.length} checks`));
+  for (const [id, label] of PILOT_GROUPS) {
+    const rows = r.checks.filter(c => c.group === id); if (!rows.length) continue;
+    det.append(el('h4', 'pg-group', label));
+    const ul = el('ul', 'pg-list');
+    for (const c of rows) {
+      const [word, cls] = PILOT_STATE[c.state];
+      const li = el('li', `pg-row ${cls}`), badge = el('span', 'pg-badge', word), body = el('div', 'pg-body');
+      body.append(el('strong', 'pg-title', c.title), el('span', 'pg-detail', c.detail));
+      li.append(badge, body);
+      if (c.action && c.state !== 'ok') { const b = el('button', 'text-button pg-go', PILOT_GO[c.action.kind] || 'Open'); b.type = 'button'; b.setAttribute('aria-label', `${PILOT_GO[c.action.kind] || 'Open'}: ${c.title}`); b.addEventListener('click', () => pilotGateAction(c.action)); li.append(b); }
+      ul.append(li);
+    }
+    det.append(ul);
+  }
+  box.append(det);
+  const actions = el('div', 'od-actions');
+  const copy = el('button', 'button secondary', r.verdict === 'blocked' ? 'Copy approval draft' : 'Copy approval to sign'); copy.type = 'button';
+  const dl = el('button', 'button secondary', 'Download approval'); dl.type = 'button';
+  const prev = el('details', 'ts-out pg-preview'); prev.append(el('summary', '', 'Preview the approval'));
+  const pre = el('pre', 'pg-pre'); prev.addEventListener('toggle', () => { if (prev.open) pre.textContent = pilotApprovalText(); }); prev.append(pre);
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(pilotApprovalText()); pilotGateStatus = r.verdict === 'blocked' ? 'Approval draft copied. It says it is not ready to sign until every check is finished.' : 'Approval copied. Print or paste it, sign it, then record the approval step as Passed with the date.'; }
+    catch { pilotGateStatus = 'Copying was blocked by the browser. Use Download approval instead.'; }
+    setText('#pg-status', pilotGateStatus); pilotGateStatus = '';
+  });
+  dl.addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([pilotApprovalText()], { type: 'text/markdown' })), a = document.createElement('a');
+    a.href = url; a.download = `fynx-pilot-approval-${new Date().toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setText('#pg-status', 'Approval downloaded. It holds your pilot decisions, the checks and a signature line; no addresses or keys.');
+  });
+  const approve = el('button', 'text-button', 'Open the approval step'); approve.type = 'button'; approve.addEventListener('click', () => openStep('pilot/approve'));
+  actions.append(copy, dl, approve);
+  box.append(actions, prev);
+  const status = el('p', 'status ld-status'); status.id = 'pg-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = pilotGateStatus; pilotGateStatus = '';
+  box.append(status);
+}
 function renderLaunchFilters() {
   const nav = $('#launch-filters'); nav.replaceChildren();
   for (const key of Object.keys(groupLabels)) {
@@ -3380,7 +3462,7 @@ function stepRow(gate, step) {
 function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   const open = new Set([...document.querySelectorAll('#launch-checklist details[open]')].map(d => d.dataset.gate));
   if (keepOpen) open.add(keepOpen);
-  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderLaunchFilters();
+  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderLaunchFilters();
   const list = $('#launch-checklist'); list.replaceChildren();
   for (const item of launchPlan.items) {
     if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;
@@ -3393,6 +3475,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
       const line = el('p'), lead = el('strong', '', `${label}: `); line.append(lead, document.createTextNode(text)); details.append(line);
     }
     const blockedLine = gateBlockedLine(item); if (blockedLine) details.append(blockedLine);
+    if (item.id === 'pilot') { const go = el('button', 'text-button pg-link', 'Open the pilot go / no-go check'); go.type = 'button'; go.addEventListener('click', () => goTo('launch', '#pilot-gate')); details.append(go); }
     const steps = el('ol', 'launch-steps'); for (const step of item.steps || []) steps.append(stepRow(item, step));
     details.append(el('h3', 'launch-steps-h', 'Steps'), steps);
     const link = el('a', '', 'Evidence and context ↗'); link.href = `https://github.com/EA-LA/FYNX-Wallet/blob/main/${item.evidence}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
@@ -3820,7 +3903,7 @@ $('#ld-clear').addEventListener('click', () => {
 });
 // Incident practice run: a facilitator guide for the "operations/drill" launch step.
 // One made-up incident, seven stages from docs/OPERATIONS.md, kept only in this browser.
-let drill = { current: null, history: [] }, drillFocus = '';
+let drill = { current: null, history: [] }, drillFocus = '', drillPreferred = '';
 try { drill = cleanDrill(JSON.parse(localStorage.getItem(DRILL_KEY) || '{}')); } catch { drill = { current: null, history: [] }; }
 function saveDrill() { try { localStorage.setItem(DRILL_KEY, JSON.stringify(drill)); } catch { setText('#dr-status', 'This browser blocked saving. The practice run lasts until you close the page.'); } }
 function openDrill() {
@@ -3841,9 +3924,10 @@ function downloadDrill(run) {
 function drillStartForm(body) {
   const form = el('form', 'dr-start'); form.noValidate = true;
   const set = el('fieldset', 'ld-choice'); set.append(el('legend', '', 'Choose a made-up incident'));
+  const pick = Math.max(0, SCENARIOS.findIndex(sc => sc.id === drillPreferred));
   SCENARIOS.forEach((sc, i) => {
-    const lab = el('label', `ld-option${i === 0 ? ' is-checked' : ''}`), input = el('input');
-    input.type = 'radio'; input.name = 'dr-scenario'; input.value = sc.id; input.checked = i === 0;
+    const lab = el('label', `ld-option${i === pick ? ' is-checked' : ''}`), input = el('input');
+    input.type = 'radio'; input.name = 'dr-scenario'; input.value = sc.id; input.checked = i === pick;
     input.addEventListener('change', () => { for (const l of set.querySelectorAll('.ld-option')) l.classList.toggle('is-checked', l.querySelector('input').checked); });
     const text = el('span', 'ld-option-text'); text.append(el('span', '', sc.title), el('small', '', sc.story));
     lab.append(input, text); set.append(lab);

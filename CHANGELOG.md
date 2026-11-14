@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-14 00:18 UTC — [autopilot] Owner workspace: pilot go / no-go check and a printable approval
+- Launch readiness has a new "Pilot go / no-go" box. Before you approve opening FYNX to a small pilot group, it lists in one place what is finished and what is not: the six steps the approval waits for, whether your pilot limits fit the wallet (FYNX's ceiling of 250 USDC per transfer, and the limits on Real-money sending when it is on), whether the "Pilot transfers do not add up" practice run was done with at least two people, whether a transfer sent from FYNX was checked as confirmed, and anything overdue (failed tests, privacy answers, account reviews, emergency plan).
+- Each line says OK, To finish, Look at or Note, with a button that opens the right place. It is honest about gaps: for example FYNX cannot yet add up each person's monthly total, so that is shown as something to watch.
+- "Copy approval" / "Download approval" gives a one-page written approval with your pilot decisions, the checks, when to stop the pilot and a signature line. It says DRAFT until every check is finished. FYNX never approves or switches anything on by itself.
+- "Open the practice run" now picks the pilot scenario for you, and the Controlled public launch gate links to the new box.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab, after "Plan a test session").
+
 ## 2026-11-13 20:10 UTC — [autopilot] Owner workspace: emergency sheet reminders and the domain registrar in the access review
 - Launch readiness → Your dates now reminds you to read and save a fresh emergency sheet 180 days after you last saved it, or straight away when your ways in changed since (for example a passkey added or removed). It is also in the calendar file.
 - "Your next steps" (Launch readiness and Today on the Dashboard tab) now warns when you could be locked out: only one way in, or a recorded problem with your Google account, and when your saved emergency sheet is out of date. Open takes you to the right situation in Your emergency plan.
