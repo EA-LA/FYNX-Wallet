@@ -34,6 +34,7 @@ import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, star
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { pilotReadiness, approvalMarkdown, GROUPS as PILOT_GROUPS } from './pilot-readiness.js';
 import { SITUATIONS, URGENCY, LINKS, supportContext, replyTarget, replyText, matchMessage, playbookMarkdown } from './support-playbook.js';
+import { TALLY_KEY, cleanTally, logRequest, removeRequest as removeTallyRequest, setAgain, markExplained, tallySummary, tallyMarkdown } from './support-tally.js';
 import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency, emergencyAttention } from './emergency-plan.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
@@ -73,6 +74,14 @@ let lastBalances = { eth: null, usdc: null };
 let ownBlock = null;
 // Spending permissions card: the last reading (network + wallet it belongs to) and the saved addresses to check.
 let permReading = null, permReadingAt = 0, permBusy = false;
+// Pilot support tally (Launch readiness → Pilot support playbook); declared early because Pilot go / no-go reads it.
+let supportTally;
+try { supportTally = cleanTally(JSON.parse(localStorage.getItem(TALLY_KEY) || 'null')); } catch { supportTally = cleanTally(null); }
+let tallyStatus = '';
+function saveSupportTally() {
+  try { if (supportTally.entries.length || Object.keys(supportTally.cleared).length) localStorage.setItem(TALLY_KEY, JSON.stringify(supportTally)); else localStorage.removeItem(TALLY_KEY); }
+  catch { tallyStatus = 'This browser blocked saving. The tally lasts until you close the page.'; }
+}
 let spenders = (() => { try { return cleanSpenders(JSON.parse(localStorage.getItem(SPENDERS_KEY) || '{}')); } catch { return {}; } })();
 let autoLastRun = null, autoRunning = false;
 let queueAutoLast = null, queueAutoRunning = false; // "Check the wallet's numbers" automatic re-check
@@ -3322,6 +3331,7 @@ function currentPilotReadiness() {
     plan: launchPlan, records: launchRecords, answers: decisionAnswers, drill, register: pilotRegister, mainnet: mainnetPolicy(),
     emergency, sheet: emergency ? sheetFreshness(emergencySaved, emergency.state, accessToday()) : null,
     access: accessSummary(accessReview, accessToday()), privacy: privacyAttention(privacyLog, localToday()),
+    support: tallySummary(supportTally),
   });
 }
 function pilotGateAction(action) {
@@ -3335,13 +3345,14 @@ function pilotGateAction(action) {
   if (action.kind === 'privacy') { openPrivacyRequest(privacyAttention(privacyLog, localToday()).next[0]?.id); return; }
   if (action.kind === 'access') { selectTab('security'); openAccessService(accessSummary(accessReview, accessToday()).attention[0]?.service.id); return; }
   if (action.kind === 'emergency') { openEmergencyPlan(); return; }
+  if (action.kind === 'support') { selectTab('launch'); scrollToCard('#spb-tally'); return; }
   if (action.kind === 'failed') {
     const failed = nextActions(launchPlan, launchRecords, 200).find(a => a.failed);
     selectTab('launch'); if (failed) openStep(stepKey(failed.gate.id, failed.step.id));
   }
 }
 const PILOT_STATE = { ok: ['OK', 'is-ok'], warn: ['Look at', 'is-warn'], block: ['To finish', 'is-block'], info: ['Note', 'is-info'] };
-const PILOT_GO = { step: 'Open the step', decision: 'Open the decision', drill: 'Open the practice run', mainnet: 'Open Real-money sending', reconcile: 'Open Portfolio & history', wallet: 'Open Crypto tools', privacy: 'Open the request', access: 'Open the access review', emergency: 'Open the emergency plan', failed: 'Open the failed test' };
+const PILOT_GO = { step: 'Open the step', decision: 'Open the decision', drill: 'Open the practice run', mainnet: 'Open Real-money sending', reconcile: 'Open Portfolio & history', wallet: 'Open Crypto tools', privacy: 'Open the request', access: 'Open the access review', emergency: 'Open the emergency plan', support: 'Open the support requests', failed: 'Open the failed test' };
 function pilotApprovalText() { return approvalMarkdown(currentPilotReadiness(), { plan: launchPlan, answers: decisionAnswers, mainnet: mainnetPolicy() }); }
 function renderPilotGate() {
   const box = document.getElementById('pilot-gate'); if (!box) return;
@@ -3422,7 +3433,9 @@ function spbActions(situation, ctx, found = {}) {
   const row = el('div', 'spb-actions');
   const copy = el('button', 'button secondary', 'Copy reply'); copy.type = 'button'; copy.setAttribute('aria-label', `Copy reply: ${situation.title}`);
   copy.addEventListener('click', () => spbCopy(replyText(situation, ctx), `Reply copied: ${situation.title}. Read it once more, then send it yourself from the support inbox.`));
-  row.append(copy);
+  const log = el('button', 'text-button spb-log', 'Log this request'); log.type = 'button'; log.setAttribute('aria-label', `Log this request: ${situation.title}`);
+  log.addEventListener('click', () => logSupportRequest(situation.id));
+  row.append(copy, log);
   for (const a of situation.actions) {
     if (a.kind === 'doc') { const link = el('a', 'text-button', a.label); link.href = LINKS[a.link]; link.target = '_blank'; link.rel = 'noopener noreferrer'; row.append(link); continue; }
     const b = el('button', 'text-button', a.label); b.type = 'button'; b.addEventListener('click', () => spbAction(a, found)); row.append(b);
@@ -3520,6 +3533,86 @@ function renderLaunchFilters() {
     b.addEventListener('click', () => { launchFilter = key; renderLaunch(); }); nav.append(b);
   }
 }
+// Support requests during the pilot: the kind of request and the time only, kept in this browser.
+// Spots the rollback rule "same complaint from two pilot users within a day" and feeds Pilot go / no-go.
+let tallyLast = null;
+function afterTallyChange(status) { saveSupportTally(); if (status) tallyStatus = tallyStatus || status; renderSupportTally(); renderPilotGate(); }
+function logSupportRequest(id) {
+  const before = supportTally.entries.length;
+  supportTally = logRequest(supportTally, { situation: id });
+  if (supportTally.entries.length === before) return;
+  tallyLast = supportTally.entries[supportTally.entries.length - 1].id;
+  afterTallyChange(`Logged: ${SITUATIONS.find(s => s.id === id).title}. Only the kind of request and the time are kept.`);
+  spbStatus('Request logged in “Support requests during the pilot” below.');
+}
+const tallyTime = ms => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function renderSupportTally() {
+  const box = document.getElementById('spb-tally'); if (!box) return;
+  const sum = tallySummary(supportTally);
+  box.replaceChildren();
+  const head = el('div', 'spt-head');
+  head.append(el('h4', '', 'Support requests during the pilot'), el('span', `launch-mark${sum.stop ? ' is-stop' : sum.check ? ' is-check' : ''}`, sum.total ? `${sum.last24} today · ${sum.last7} this week` : 'None logged'));
+  box.append(head, el('p', 'hint', 'Each time a pilot customer writes in, press Log this request on the answer you used. Only the kind of request and the time are kept in this browser: no names, emails, addresses or message text. Two pilot users with the same complaint within a day is a rollback trigger, and it shows up here and in Pilot go / no-go.'));
+  if (tallyLast) {
+    const last = supportTally.entries.find(e => e.id === tallyLast);
+    if (last) {
+      const undo = el('div', 'spt-last'); undo.append(el('span', '', `Just logged: ${SITUATIONS.find(s => s.id === last.situation).title}.`));
+      const again = el('label', 'spt-again'), cb = el('input'); cb.type = 'checkbox'; cb.checked = last.again;
+      cb.addEventListener('change', () => { supportTally = setAgain(supportTally, last.id, cb.checked); afterTallyChange(cb.checked ? 'Marked as a follow-up from someone already counted; it does not count as a second user.' : 'Counted as a new person.'); });
+      again.append(cb, el('span', '', 'Same person as an earlier request (a follow-up)'));
+      const u = el('button', 'text-button', 'Undo'); u.type = 'button'; u.addEventListener('click', () => { supportTally = removeTallyRequest(supportTally, last.id); tallyLast = null; afterTallyChange('Removed the request you just logged.'); });
+      undo.append(again, u); box.append(undo);
+    } else tallyLast = null;
+  }
+  for (const a of sum.alerts) {
+    const div = el('div', `spt-alert is-${a.level}`); if (a.level === 'stop') div.setAttribute('role', 'alert');
+    div.append(el('strong', '', a.level === 'stop' ? 'Rollback trigger' : 'To explain'), el('span', '', ` ${a.text}`));
+    const row = el('div', 'spb-actions');
+    const ex = el('button', 'text-button', 'Mark as explained'); ex.type = 'button'; ex.setAttribute('aria-label', `Mark as explained: ${a.situation.title}`);
+    ex.addEventListener('click', () => { supportTally = markExplained(supportTally, a.situation.id); afterTallyChange(`Marked as explained: ${a.situation.title}. A new request of this kind raises it again.`); });
+    const open = el('button', 'text-button', 'Open the answer'); open.type = 'button'; open.addEventListener('click', () => openSituation(a.situation.id));
+    const plan = el('a', 'text-button', 'When to roll back ↗'); plan.href = LINKS.rollback; plan.target = '_blank'; plan.rel = 'noopener noreferrer';
+    row.append(ex, open, plan); div.append(row); box.append(div);
+  }
+  if (sum.total) {
+    const days = el('div', 'spt-days'); days.setAttribute('role', 'img');
+    days.setAttribute('aria-label', `Requests per day, last 7 days (UTC): ${sum.days.map(d => `${d.day.slice(5)} ${d.count}`).join(', ')}`);
+    const top = Math.max(1, ...sum.days.map(d => d.count));
+    for (const d of sum.days) {
+      const col = el('div', 'spt-day'), bar = el('span', 'spt-bar'); bar.style.height = `${Math.round((d.count / top) * 100)}%`;
+      const wrap = el('span', 'spt-barwrap'); wrap.append(bar);
+      col.append(el('span', 'spt-n', String(d.count)), wrap, el('span', 'spt-d', d.day.slice(5))); days.append(col);
+    }
+    box.append(days);
+    const table = el('table', 'spt-table'), thead = el('thead'), tr = el('tr');
+    for (const h of ['Request', '24 h', '7 days', 'All']) tr.append(el('th', '', h));
+    thead.append(tr); table.append(thead);
+    const tbody = el('tbody');
+    for (const r of sum.rows) {
+      const row = el('tr'), name = el('td'); name.append(el('span', `spb-badge is-${r.situation.urgency}`, URGENCY[r.situation.urgency].label), el('span', 'spt-name', r.situation.title));
+      row.append(name, el('td', '', String(r.last24)), el('td', '', String(r.last7)), el('td', '', String(r.total))); tbody.append(row);
+    }
+    table.append(tbody);
+    const scroll = el('div', 'spt-scroll'); scroll.append(table); box.append(scroll);
+    const det = el('details', 'ts-out spt-recent'); det.append(el('summary', '', `Latest ${sum.recent.length} logged`));
+    const ul = el('ul', 'spt-list');
+    for (const e of sum.recent) {
+      const li = el('li'); li.append(el('span', 'spt-when', tallyTime(e.at)), el('span', 'spt-name', `${e.title}${e.again ? ' (follow-up)' : ''}`));
+      const rm = el('button', 'text-button', 'Remove'); rm.type = 'button'; rm.setAttribute('aria-label', `Remove: ${e.title}, ${tallyTime(e.at)}`);
+      rm.addEventListener('click', () => { supportTally = removeTallyRequest(supportTally, e.id); if (tallyLast === e.id) tallyLast = null; afterTallyChange('Request removed from the tally.'); });
+      li.append(rm); ul.append(li);
+    }
+    det.append(ul); box.append(det);
+    const actions = el('div', 'od-actions');
+    const copy = el('button', 'button secondary', 'Copy support summary'); copy.type = 'button';
+    copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(tallyMarkdown(tallySummary(supportTally))); setText('#spt-status', 'Summary copied. Counts only: keep it with the pilot records.'); } catch { setText('#spt-status', 'Copying was blocked by the browser.'); } });
+    const clear = el('button', 'text-button', 'Clear the tally'); clear.type = 'button';
+    clear.addEventListener('click', () => { if (!confirm('Clear every logged support request in this browser? Copy the summary first if you need it for the pilot records.')) return; supportTally = cleanTally(null); tallyLast = null; afterTallyChange('Tally cleared.'); });
+    actions.append(copy, clear); box.append(actions);
+  }
+  const status = el('p', 'status'); status.id = 'spt-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = tallyStatus; tallyStatus = '';
+  box.append(status);
+}
 function recordStep(gate, step, patch) {
   const key = stepKey(gate.id, step.id), prev = launchRecords[key] || { result: '', note: '', at: 0 };
   const next = { ...prev, ...patch, at: Date.now() };
@@ -3582,7 +3675,7 @@ function stepRow(gate, step) {
 function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   const open = new Set([...document.querySelectorAll('#launch-checklist details[open]')].map(d => d.dataset.gate));
   if (keepOpen) open.add(keepOpen);
-  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderSupportPlaybook(); renderLaunchFilters();
+  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderSupportPlaybook(); renderSupportTally(); renderLaunchFilters();
   const list = $('#launch-checklist'); list.replaceChildren();
   for (const item of launchPlan.items) {
     if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;

@@ -7,6 +7,7 @@
 // anything by itself and never changes a setting: the owner decides and records the step.
 import { stepKey, stepState, overview } from './launch-tracker.js';
 import { runSummary, STAGES } from './incident-drill.js';
+import { supportCheck } from './support-tally.js';
 
 export const APPROVE_KEY = stepKey('pilot', 'approve');
 export const PILOT_SCENARIO = 'pilot';
@@ -19,6 +20,7 @@ export const GROUPS = [
   ['limits', 'Your pilot limits and the wallet'],
   ['practice', 'Rollback practised'],
   ['safety', 'Nothing overdue'],
+  ['support', 'Support during the pilot'],
 ];
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const usd = n => `US$${Number(n).toLocaleString('en-US')}`;
@@ -32,7 +34,7 @@ function findStep(plan, key) {
 const shortText = text => { const t = String(text || '').replace(/\s+/g, ' ').trim(); const cut = t.split(/(?<=[a-z0-9)])\.\s|:\s/i)[0]; return cut.length < t.length && cut.length > 12 ? cut : t.replace(/\.$/, ''); };
 
 // Everything optional; a missing fact is reported honestly, never assumed fine.
-export function pilotReadiness({ plan, records = {}, answers = {}, drill = null, register = null, mainnet = null, emergency = null, sheet = null, access = null, privacy = null, now = Date.now() } = {}) {
+export function pilotReadiness({ plan, records = {}, answers = {}, drill = null, register = null, mainnet = null, emergency = null, sheet = null, access = null, privacy = null, support = null, now = Date.now() } = {}) {
   const checks = [];
   const add = (group, state, title, detail, action = null) => checks.push({ group, state, title, detail, action });
   const approve = findStep(plan, APPROVE_KEY);
@@ -98,10 +100,17 @@ export function pilotReadiness({ plan, records = {}, answers = {}, drill = null,
     if (sheet && sheet.state !== 'current') add('safety', 'warn', 'Emergency sheet', sheet.state === 'never' ? 'Not saved yet. Download it and keep a printed copy before the pilot.' : sheet.text, { kind: 'emergency' });
   }
 
+  // 5. Support during the pilot: the tally from the support playbook (only when it was passed in).
+  const sc = supportCheck(support);
+  if (sc) add('support', sc.state, sc.title, sc.detail, sc.state === 'ok' ? null : { kind: 'support' });
+
   const count = s => checks.filter(c => c.state === s).length;
   const blockers = count('block'), warnings = count('warn');
-  const verdict = approved ? 'approved' : blockers ? 'blocked' : 'ready';
-  const headline = approved ? 'You recorded your written approval for the pilot.'
+  // Once the pilot is approved, a rollback trigger from support still has to stop it.
+  const stop = approved && sc?.state === 'block';
+  const verdict = stop ? 'stop' : approved ? 'approved' : blockers ? 'blocked' : 'ready';
+  const headline = stop ? 'Pilot running, but support shows a rollback trigger: the same complaint from two pilot users in a day. Follow the rollback plan.'
+    : approved ? 'You recorded your written approval for the pilot.'
     : blockers ? `Not ready for the pilot: ${plural(blockers, 'thing')} to finish first${warnings ? `, ${warnings} more to look at` : ''}.`
       : `Ready for your written approval${warnings ? ` · read the ${plural(warnings, 'point')} marked “Look at” first` : ''}.`;
   return { checks, blockers, warnings, ok: count('ok'), verdict, headline, approved };

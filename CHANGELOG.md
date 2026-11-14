@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-14 12:40 UTC — [autopilot] Owner workspace: count pilot support requests and spot a rollback trigger
+- Every ready answer in the "Pilot support playbook" now has a "Log this request" button. Press it each time a pilot customer writes in. Only the kind of request and the time are kept in this browser: no names, emails, wallet addresses or message text.
+- A new "Support requests during the pilot" box shows how many requests came in today and this week, a small 7-day chart, a table by kind and the latest ones (each can be removed; the last one has Undo and a "same person as an earlier request" tick, so one person writing twice is not counted as two).
+- It warns when your rollback rule is hit: the same complaint from two pilot users within a day. It also flags money and security requests that must be explained within 1 hour. "Mark as explained" clears a warning until a new request of that kind arrives.
+- Pilot go / no-go has a new "Support during the pilot" line. Once you have approved the pilot, a rollback trigger turns the headline red and says to follow the rollback plan.
+- "Copy support summary" gives a counts-only sheet for the pilot records.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness tab → Pilot support playbook).
+
 ## 2026-11-14 08:19 UTC — [autopilot] Owner workspace: a pilot support playbook with ready replies
 - Launch readiness has a new "Pilot support playbook" box (after Pilot go / no-go). It holds 13 ready answers for what pilot customers are most likely to send: a shared recovery phrase, someone pretending to be FYNX, money that left a wallet, an unexpected approval, a stuck transfer, a transfer that did not arrive, the wrong address, a wrong-looking balance, the pilot limit, sign-in trouble, network fees, privacy requests and "when will you open?".
 - Each answer says how fast to reply (security first, within 1 hour), what you may ask the customer for, what to check, when it becomes a reason to pause the pilot, and a reply you can copy. Replies are filled in with your own decisions (who answers, reply time, support hours, pilot limits and states) and always remind the customer that FYNX never asks for a recovery phrase, key, password or test transfer. Missing decisions are shown with a button to answer them.
