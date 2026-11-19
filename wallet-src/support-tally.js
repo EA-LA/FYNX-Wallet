@@ -15,14 +15,20 @@ const validTime = (v, now) => Number.isFinite(v) && v > now - KEEP_DAYS * DAY &&
 const cleanId = v => (typeof v === 'string' && /^[a-z0-9-]{4,40}$/.test(v) ? v : null);
 
 // Anything read back from storage is checked: unknown kinds, old or future times, duplicates and extra fields go.
+// `gone` remembers removed requests (id → the request's own time) so a test report from another device
+// does not bring them back; each marker is forgotten with the request it stands for, after KEEP_DAYS.
 export function cleanTally(raw, now = Date.now()) {
-  const out = { entries: [], cleared: {} };
+  const out = { entries: [], cleared: {}, gone: {} };
   if (!raw || typeof raw !== 'object') return out;
+  if (raw.gone && typeof raw.gone === 'object') {
+    const marks = Object.entries(raw.gone).map(([k, v]) => [cleanId(k), Number(v)]).filter(([k, t]) => k && validTime(t, now)).sort((a, b) => a[1] - b[1]);
+    out.gone = Object.fromEntries(marks.slice(-MAX_ENTRIES));
+  }
   const seen = new Set();
   for (const e of Array.isArray(raw.entries) ? raw.entries : []) {
     if (!e || typeof e !== 'object') continue;
     const id = cleanId(e.id), at = Number(e.at);
-    if (!id || seen.has(id) || !findSituation(e.situation) || !validTime(at, now)) continue;
+    if (!id || seen.has(id) || out.gone[id] !== undefined || !findSituation(e.situation) || !validTime(at, now)) continue;
     seen.add(id);
     out.entries.push({ id, situation: e.situation, at, again: e.again === true });
   }
@@ -43,8 +49,16 @@ export function logRequest(tally, { situation, again = false, at = Date.now(), i
   return { ...tally, entries: entries.slice(-MAX_ENTRIES) };
 }
 export function removeRequest(tally, id) {
-  const entries = tally.entries.filter(e => e.id !== id);
-  return entries.length === tally.entries.length ? tally : { ...tally, entries };
+  const hit = tally.entries.find(e => e.id === id);
+  if (!hit) return tally;
+  return { ...tally, entries: tally.entries.filter(e => e.id !== id), gone: { ...(tally.gone || {}), [id]: hit.at } };
+}
+// "Clear the tally": every request is removed and remembered as removed, so another device's report does not
+// bring them back. "Explained" times are kept: they only ever quieten older requests.
+export function clearTally(tally) {
+  const gone = { ...(tally.gone || {}) };
+  for (const e of tally.entries) gone[e.id] = e.at;
+  return { ...tally, entries: [], gone };
 }
 export function setAgain(tally, id, again) {
   return { ...tally, entries: tally.entries.map(e => (e.id === id ? { ...e, again: again === true } : e)) };
@@ -131,4 +145,76 @@ export function tallyMarkdown(summary, { date = new Date() } = {}) {
   for (const r of summary.rows) L.push(`| ${URGENCY[r.situation.urgency].label} | ${md(r.situation.title)} | ${r.last24} | ${r.last7} | ${r.total} |`);
   L.push('', '## Last 7 days (UTC)', '', '| Day | Requests |', '| --- | --- |', ...summary.days.map(d => `| ${d.day} | ${d.count} |`), '');
   return L.join('\n');
+}
+
+// Short form for "Today · What needs you" on the Dashboard tab: counts and fixed titles only.
+export function briefSupport(summary) {
+  if (!summary || !summary.total) return null;
+  return {
+    total: summary.total, last24: summary.last24, last7: summary.last7, stop: summary.stop, check: summary.check,
+    alerts: summary.alerts.map(a => ({ id: a.situation.id, title: a.situation.title, level: a.level, kind: a.kind, people: a.people || 0, lastAt: a.lastAt })),
+  };
+}
+
+// Travel between devices inside the Launch readiness test report: request kinds, times, the follow-up flag,
+// "explained" times and removals. Never names, emails, addresses, transaction IDs or message text.
+export const TALLY_SECTION = 'Pilot support requests (kinds and times only)';
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const iso = ms => new Date(ms).toISOString();
+
+export function tallyReportLines(tally, now = Date.now()) {
+  const t = cleanTally(tally, now), gone = Object.entries(t.gone), explained = Object.entries(t.cleared);
+  if (!t.entries.length && !gone.length && !explained.length) return [];
+  const L = [`## ${TALLY_SECTION}`, '', 'From Launch readiness → Pilot support playbook → “Support requests during the pilot”. Only the kind of request, its time and whether it was a follow-up: no names, emails, addresses, transaction IDs or message text.', ''];
+  for (const e of t.entries) L.push(`- ${e.id} · ${e.situation} · ${iso(e.at)}${e.again ? ' · follow-up' : ''} · ${findSituation(e.situation).title}`);
+  for (const [situation, at] of explained) L.push(`- explained · ${situation} · ${iso(at)}`);
+  for (const [id, at] of gone) L.push(`- removed · ${id} · ${iso(at)}`);
+  L.push('');
+  return L;
+}
+
+export function parseTallyReport(text, now = Date.now()) {
+  const raw = { entries: [], cleared: {}, gone: {} };
+  let inSection = false, unknown = 0, lines = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 20000)) {
+    if (/^##\s/.test(line)) { inSection = line.replace(/^##\s+/, '').trim() === TALLY_SECTION; continue; }
+    if (!inSection || !/^\s*[-*]\s/.test(line)) continue;
+    lines += 1;
+    const [first, second, third, ...rest] = line.replace(/^\s*[-*]\s+/, '').trim().split(' · ');
+    const at = ISO.test(third || '') ? Date.parse(third) : NaN;
+    if (!Number.isFinite(at)) { unknown += 1; continue; }
+    if (first === 'explained' && findSituation(second)) { raw.cleared[second] = Math.max(raw.cleared[second] || 0, at); continue; }
+    if (first === 'removed' && cleanId(second)) { raw.gone[second] = at; continue; }
+    if (cleanId(first) && findSituation(second)) { raw.entries.push({ id: first, situation: second, at, again: rest[0] === 'follow-up' }); continue; }
+    unknown += 1;
+  }
+  const tally = cleanTally(raw, now);
+  // Lines that were understood but are older than KEEP_DAYS (or in the future) are left out, not guessed.
+  const kept = tally.entries.length + Object.keys(tally.cleared).length + Object.keys(tally.gone).length;
+  return { tally, count: tally.entries.length, explained: Object.keys(tally.cleared).length, removed: Object.keys(tally.gone).length, unknown, leftOut: Math.max(0, lines - unknown - kept) };
+}
+
+// Union by request id. A removal on either device wins (removing is the deliberate act). When both have the
+// same request with a different follow-up flag, this browser's flag stays. The later "explained" time wins.
+export function mergeTallies(local, incoming, now = Date.now()) {
+  const mine = cleanTally(local, now), inc = cleanTally(incoming, now);
+  const gone = { ...mine.gone }, removed = [];
+  for (const [id, at] of Object.entries(inc.gone)) {
+    if (gone[id] === undefined) gone[id] = at;
+    if (mine.entries.some(e => e.id === id)) removed.push(id);
+  }
+  const byId = new Map(mine.entries.filter(e => gone[e.id] === undefined).map(e => [e.id, e]));
+  const added = [], same = [], kept = [];
+  for (const e of inc.entries) {
+    if (gone[e.id] !== undefined) continue;
+    const have = byId.get(e.id);
+    if (!have) { byId.set(e.id, e); added.push(e.id); }
+    else if (have.again === e.again && have.situation === e.situation) same.push(e.id);
+    else kept.push(e.id);
+  }
+  const cleared = { ...mine.cleared }, explained = [];
+  for (const [s, at] of Object.entries(inc.cleared)) if (!(cleared[s] >= at)) { cleared[s] = at; explained.push(s); }
+  const merged = cleanTally({ entries: [...byId.values()], cleared, gone }, now);
+  const dropped = added.filter(id => !merged.entries.some(e => e.id === id)).length;
+  return { tally: merged, added: added.filter(id => merged.entries.some(e => e.id === id)), same, kept, removed, explained, dropped, changes: added.length - dropped + removed.length + explained.length };
 }

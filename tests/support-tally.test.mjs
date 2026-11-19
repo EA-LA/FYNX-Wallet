@@ -25,7 +25,7 @@ test('storage is checked: unknown kinds, old or future times, duplicates and ext
   const t = cleanTally(raw, NOW);
   assert.deepEqual(t.entries, [{ id: 'r-eeee', situation: 'fees', at: NOW - 3 * H, again: false }, { id: 'r-aaaa', situation: 'pending', at: NOW - H, again: true }]);
   assert.deepEqual(t.cleared, { pending: NOW - H });
-  assert.deepEqual(cleanTally('garbage', NOW), { entries: [], cleared: {} });
+  assert.deepEqual(cleanTally('garbage', NOW), { entries: [], cleared: {}, gone: {} });
   assert.ok(!JSON.stringify(t).includes('example.com'), 'no customer data survives');
 });
 

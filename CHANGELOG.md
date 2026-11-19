@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-19 20:16 UTC — [autopilot] Owner workspace: pilot support alerts on Today, and the support tally now travels between your devices
+- The "Today · What needs you" box on the Dashboard tab now puts pilot support first. If the same complaint came from two pilot users within a day (your rollback rule), the headline says so in red and a "Pilot support" box explains what to do, with "Open support requests", "Mark as explained" and "When to roll back" buttons. Money or security requests that must be explained within 1 hour show there too.
+- A new "pilot support requests today" tile appears once you have logged a request (nothing shows before, so it never pretends all is well). "Copy today" includes the alerts.
+- The support tally now travels inside your test report (Copy test report / Download report → "Bring in results from another device"). If one complaint was logged on your phone and the same complaint on your laptop, the two now add up and raise the rollback trigger. Only the kind of request and its time travel; nothing a customer wrote. Removing a request or clearing the tally travels too, so it does not come back.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Dashboard tab → Today, and Launch readiness → Pilot support playbook).
+
 ## 2026-11-14 12:40 UTC — [autopilot] Owner workspace: count pilot support requests and spot a rollback trigger
 - Every ready answer in the "Pilot support playbook" now has a "Log this request" button. Press it each time a pilot customer writes in. Only the kind of request and the time are kept in this browser: no names, emails, wallet addresses or message text.
 - A new "Support requests during the pilot" box shows how many requests came in today and this week, a small 7-day chart, a table by kind and the latest ones (each can be removed; the last one has Undo and a "same person as an earlier request" tick, so one person writing twice is not counted as two).

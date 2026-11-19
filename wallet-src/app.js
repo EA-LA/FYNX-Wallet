@@ -34,7 +34,7 @@ import { SESSION_KEY, LENGTHS, NEEDS, needShort, planSession, cleanSession, star
 import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, estimateCorrections, paceRatio, timingLines, correctionsMarkdown, launchPace, daysAgo, minutesText as durationText, timingReportLines, parseTimingReport, mergeTimings, KEEP_PER_TEST as KEEP_TIMES } from './test-timing.js';
 import { pilotReadiness, approvalMarkdown, GROUPS as PILOT_GROUPS } from './pilot-readiness.js';
 import { SITUATIONS, URGENCY, LINKS, supportContext, replyTarget, replyText, matchMessage, playbookMarkdown } from './support-playbook.js';
-import { TALLY_KEY, cleanTally, logRequest, removeRequest as removeTallyRequest, setAgain, markExplained, tallySummary, tallyMarkdown } from './support-tally.js';
+import { TALLY_KEY, cleanTally, logRequest, removeRequest as removeTallyRequest, clearTally, setAgain, markExplained, tallySummary, tallyMarkdown, briefSupport, tallyReportLines, parseTallyReport, mergeTallies } from './support-tally.js';
 import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency, emergencyAttention } from './emergency-plan.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
@@ -79,7 +79,7 @@ let supportTally;
 try { supportTally = cleanTally(JSON.parse(localStorage.getItem(TALLY_KEY) || 'null')); } catch { supportTally = cleanTally(null); }
 let tallyStatus = '';
 function saveSupportTally() {
-  try { if (supportTally.entries.length || Object.keys(supportTally.cleared).length) localStorage.setItem(TALLY_KEY, JSON.stringify(supportTally)); else localStorage.removeItem(TALLY_KEY); }
+  try { if (supportTally.entries.length || Object.keys(supportTally.cleared).length || Object.keys(supportTally.gone || {}).length) localStorage.setItem(TALLY_KEY, JSON.stringify(supportTally)); else localStorage.removeItem(TALLY_KEY); }
   catch { tallyStatus = 'This browser blocked saving. The tally lasts until you close the page.'; }
 }
 let spenders = (() => { try { return cleanSpenders(JSON.parse(localStorage.getItem(SPENDERS_KEY) || '{}')); } catch { return {}; } })();
@@ -2417,6 +2417,7 @@ const TODAY_TARGETS = {
   privacy: () => goTo('registrations', '#wl-requests'),
   outside: () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'),
   wallet: () => goTo('wallet', '.cg-tests'),
+  support: () => goTo('launch', '#spb-tally'),
 };
 function currentTodayBrief() {
   const today = localToday();
@@ -2427,6 +2428,7 @@ function currentTodayBrief() {
     outside: { waiting, chase: outsideChase(99).count, share: outsideShare().length },
     session: testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null,
     wallet: { ...walletTests(launchPlan, launchRecords), lastSent: lastSentFromFynx() },
+    support: briefSupport(tallySummary(supportTally)),
   });
 }
 // Newest transfer this browser remembers submitting from FYNX (pilot register; public facts only).
@@ -2487,6 +2489,28 @@ function sinceBlock() {
   }
   return wrap;
 }
+// Open pilot support alerts on Today: the rollback trigger (same complaint from two pilot users within a day)
+// and security / rollback-type requests to explain within 1 hour. Fixed titles and counts only.
+function todaySupportBlock(alerts) {
+  const wrap = el('section', 'tb-support'); wrap.setAttribute('aria-labelledby', 'tb-support-title');
+  if (alerts.some(a => a.level === 'stop')) wrap.setAttribute('role', 'alert');
+  const h = el('h3', '', 'Pilot support'); h.id = 'tb-support-title'; wrap.append(h);
+  const list = el('ul', 'tb-support-list');
+  for (const a of alerts) {
+    const li = el('li', `is-${a.level}`), body = el('div', 'tb-support-body');
+    body.append(el('strong', '', a.level === 'stop' ? 'Rollback trigger' : 'Explain within 1 hour'),
+      el('span', '', a.level === 'stop' ? `“${a.title}” from ${a.people} pilot users in the last 24 hours. Your rollback plan says to stop the pilot: turn off real-money sending, unless you already know the cause and it is not a fault in FYNX.` : `“${a.title}”, last logged ${tallyTime(a.lastAt)}. If you cannot explain it within 1 hour, turn off real-money sending and follow the rollback plan.`));
+    const row = el('div', 'tb-support-actions');
+    const open = el('button', 'text-button', 'Open support requests'); open.type = 'button'; open.setAttribute('aria-label', `Open support requests: ${a.title}`);
+    open.addEventListener('click', () => TODAY_TARGETS.support());
+    const ex = el('button', 'text-button', 'Mark as explained'); ex.type = 'button'; ex.setAttribute('aria-label', `Mark as explained: ${a.title}`);
+    ex.addEventListener('click', () => { supportTally = markExplained(supportTally, a.id); todayStatus = `Marked as explained: ${a.title}. A new request of this kind raises it again.`; afterTallyChange(); document.getElementById('tb-title')?.setAttribute('tabindex', '-1'); document.getElementById('tb-title')?.focus(); });
+    const plan = el('a', 'text-button', 'When to roll back ↗'); plan.href = LINKS.rollback; plan.target = '_blank'; plan.rel = 'noopener noreferrer';
+    row.append(open, ex, plan); body.append(row); li.append(body); list.append(li);
+  }
+  wrap.append(list);
+  return wrap;
+}
 function renderTodayBrief() {
   const box = document.getElementById('today-brief'); if (!box) return;
   const b = currentTodayBrief(), today = localToday();
@@ -2499,7 +2523,8 @@ function renderTodayBrief() {
   open.addEventListener('click', () => goTo('launch', '#launch-overview'));
   head.append(title, open);
   box.append(head, el('p', `tb-headline is-${b.tone}`, b.headline));
-  const stats = el('ul', 'tb-stats');
+  if (b.supportAlerts.length) box.append(todaySupportBlock(b.supportAlerts));
+  const stats = el('ul', `tb-stats has-${b.stats.length}`);
   for (const s of b.stats) {
     const li = el('li'), btn = el('button', `tb-stat is-${s.tone}`); btn.type = 'button'; btn.dataset.today = s.id;
     btn.setAttribute('aria-label', `${s.value} ${s.label}, ${s.detail}. Open.`);
@@ -3536,7 +3561,7 @@ function renderLaunchFilters() {
 // Support requests during the pilot: the kind of request and the time only, kept in this browser.
 // Spots the rollback rule "same complaint from two pilot users within a day" and feeds Pilot go / no-go.
 let tallyLast = null;
-function afterTallyChange(status) { saveSupportTally(); if (status) tallyStatus = tallyStatus || status; renderSupportTally(); renderPilotGate(); }
+function afterTallyChange(status) { saveSupportTally(); if (status) tallyStatus = tallyStatus || status; renderSupportTally(); renderPilotGate(); renderTodayBrief(); }
 function logSupportRequest(id) {
   const before = supportTally.entries.length;
   supportTally = logRequest(supportTally, { situation: id });
@@ -3545,7 +3570,7 @@ function logSupportRequest(id) {
   afterTallyChange(`Logged: ${SITUATIONS.find(s => s.id === id).title}. Only the kind of request and the time are kept.`);
   spbStatus('Request logged in “Support requests during the pilot” below.');
 }
-const tallyTime = ms => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function tallyTime(ms) { return new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 function renderSupportTally() {
   const box = document.getElementById('spb-tally'); if (!box) return;
   const sum = tallySummary(supportTally);
@@ -3607,7 +3632,7 @@ function renderSupportTally() {
     const copy = el('button', 'button secondary', 'Copy support summary'); copy.type = 'button';
     copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(tallyMarkdown(tallySummary(supportTally))); setText('#spt-status', 'Summary copied. Counts only: keep it with the pilot records.'); } catch { setText('#spt-status', 'Copying was blocked by the browser.'); } });
     const clear = el('button', 'text-button', 'Clear the tally'); clear.type = 'button';
-    clear.addEventListener('click', () => { if (!confirm('Clear every logged support request in this browser? Copy the summary first if you need it for the pilot records.')) return; supportTally = cleanTally(null); tallyLast = null; afterTallyChange('Tally cleared.'); });
+    clear.addEventListener('click', () => { if (!confirm('Clear every logged support request in this browser? Copy the summary first if you need it for the pilot records.')) return; supportTally = clearTally(supportTally); tallyLast = null; afterTallyChange('Tally cleared. The cleared requests stay cleared when you bring in a report from another device.'); });
     actions.append(copy, clear); box.append(actions);
   }
   const status = el('p', 'status'); status.id = 'spt-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = tallyStatus; tallyStatus = '';
@@ -3698,7 +3723,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan), ...accessReportLines(accessReview, accessToday())] });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan), ...accessReportLines(accessReview, accessToday()), ...tallyReportLines(supportTally)] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -3762,13 +3787,15 @@ function previewReport(text) {
   const evIn = parseEvidenceReport(text), evCount = Object.keys(evIn.log.entries).length;
   const tmIn = parseTimingReport(text, launchPlan), tmCount = tmIn.count;
   const arIn = parseAccessReport(text, accessToday()), arCount = arIn.count;
-  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount && !arCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const stIn = parseTallyReport(text), stCount = stIn.count + stIn.explained + stIn.removed;
+  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount && !arCount && !stCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
   const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
   const rqm = mergeRequests(outsideRequests, rqIn.log), evm = mergeEvidence(outsideEvidence, evIn.log), tmm = mergeTimings(testTimings, tmIn.log, launchPlan);
   const arm = mergeAccessReviews(accessReview, arIn.review, accessToday());
-  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm, access: arm };
+  const stm = mergeTallies(supportTally, stIn.tally);
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm, access: arm, support: stm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -3906,15 +3933,30 @@ function previewReport(text) {
     }
     if (al.children.length) box.append(al);
   }
+  if (stCount || stIn.unknown) {
+    const ssum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', stm.added.length, 'new here'], ['is-same', stm.same.length, 'already here'], ['is-kept', stm.kept.length, 'kept: this browser’s follow-up mark stays'], ['is-update', stm.removed.length, 'removed on the other device, will be removed here'], ['is-update', stm.explained.length, `“explained” mark${stm.explained.length === 1 ? '' : 's'} newer than this browser`], ['is-kept', stm.dropped, `beyond the newest ${1000} kept, left out`], ['is-kept', stIn.leftOut, `older than 90 days, left out`], ['is-kept', stIn.unknown, `line${stIn.unknown === 1 ? '' : 's'} not understood`]]) if (n) ssum.append(guideEl('li', cls, `${n} ${label}`));
+    box.append(guideEl('h4', '', `${stIn.count} pilot support request${stIn.count === 1 ? '' : 's'} found in the report`), ssum);
+    const sl = guideEl('ul', 'launch-import-list'), byId = new Map(stIn.tally.entries.map(e => [e.id, e]));
+    for (const id of stm.added.slice(0, 20)) {
+      const e = byId.get(id); if (!e) continue;
+      const li = guideEl('li'), body = guideEl('div');
+      body.append(guideEl('span', '', `${SITUATIONS.find(x => x.id === e.situation)?.title || e.situation}${e.again ? ' (follow-up)' : ''}`), guideEl('small', '', `Logged ${new Date(e.at).toLocaleString()}`));
+      li.append(guideEl('span', 'import-mark import-added', what.added), body); sl.append(li);
+    }
+    if (stm.added.length > 20) sl.append(guideEl('li', 'hint', `and ${stm.added.length - 20} more`));
+    if (sl.children.length) box.append(sl);
+    box.append(guideEl('p', 'hint', 'Only the kind of request, its time and the follow-up mark travel. Removing a request or clearing the tally travels too; nothing a customer wrote is ever in the report.'));
+  }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length + rgm.checks.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length + rgm.checks.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, supportIn = stm.changes, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn + supportIn;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(rgm.added.length + rgm.updated.length, 'pilot transfer'), n(rgm.checks.length, 'transfer status answer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(rgm.added.length + rgm.updated.length, 'pilot transfer'), n(rgm.checks.length, 'transfer status answer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer'), n(stm.added.length, 'support request'), n(stm.removed.length, 'support request removal'), n(stm.explained.length, '“explained” mark')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi, access: ari } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi, access: ari, support: sti } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
@@ -3927,8 +3969,9 @@ function previewReport(text) {
     if (evTicks) { outsideEvidence = evi.log; saveOutsideEvidence(); }
     if (timesIn) { testTimings = tmi.log; saveTestTimings(); }
     if (accessIn) { accessReview = ari.review; saveAccessReview(); renderAccessTabBadge(); renderSecurity(); }
+    if (sti.changes || Object.keys(sti.tally.gone).length > Object.keys(supportTally.gone || {}).length) { supportTally = sti.tally; tallyLast = null; afterTallyChange(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times, the access review and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times, the access review, the pilot support tally and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });

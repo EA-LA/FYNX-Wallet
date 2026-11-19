@@ -15,7 +15,9 @@ const plural = (n, w, many = `${w}s`) => `${n} ${n === 1 ? w : many}`;
 //   wallet: optional Crypto tools tests ({ total, done, failed } from crypto-guide.js walletTests()) and
 //           lastSent ({ day: 'YYYY-MM-DD', when: optional short date for display, network, status: optional fixed words
 //           from lastSentStatus() }) of the newest transfer submitted from FYNX in this browser
-export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = {}, session = null, wallet = null } = {}) {
+//   support: optional pilot support tally from support-tally.js briefSupport() ({ total, last24, last7, stop, check,
+//            alerts: [{ id, title, level: 'stop' | 'check', kind, people }] }); null when nothing is logged
+export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = {}, session = null, wallet = null, support = null } = {}) {
   const o = { done: 0, total: 0, percent: 0, yours: 0, yoursDone: 0, failed: 0, ...overview };
   const d = { overdue: 0, today: 0, soon: 0, upcoming: 0, items: [], ...dates };
   const p = { open: 0, overdue: 0, dueSoon: 0, ...privacy };
@@ -24,8 +26,14 @@ export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = 
 
   // Headline: the most pressing thing first. Dated items already include privacy answers, reminders,
   // evidence to ask for again and access reviews, so they are not counted twice.
+  // A pilot rollback trigger (same complaint from two pilot users within a day) outranks everything: the
+  // rollback plan says to stop the pilot. A security or rollback-type request to explain within 1 hour comes next.
+  const sp = support && support.total ? { stop: 0, check: 0, last24: 0, last7: 0, alerts: [], ...support } : null;
+  const stopAlerts = sp ? sp.alerts.filter(a => a.level === 'stop') : [], checkAlerts = sp ? sp.alerts.filter(a => a.level === 'check') : [];
   let tone = 'calm', headline;
-  if (d.overdue) { tone = 'overdue'; headline = `${plural(d.overdue, 'dated item is', 'dated items are')} overdue: start there.`; }
+  if (stopAlerts.length) { tone = 'overdue'; headline = stopAlerts.length === 1 ? `Rollback trigger: “${stopAlerts[0].title}” came from ${stopAlerts[0].people} pilot users within a day. Turn off real-money sending and follow the rollback plan, or mark it explained.` : `Rollback trigger: ${stopAlerts.length} complaints each came from two or more pilot users within a day. Turn off real-money sending and follow the rollback plan, or mark them explained.`; }
+  else if (checkAlerts.length) { tone = 'overdue'; headline = `${plural(checkAlerts.length, 'pilot support request needs', 'pilot support requests need')} explaining within 1 hour of arriving: ${checkAlerts.map(a => `“${a.title}”`).join(', ')}.`; }
+  else if (d.overdue) { tone = 'overdue'; headline = `${plural(d.overdue, 'dated item is', 'dated items are')} overdue: start there.`; }
   else if (d.today) { tone = 'due'; headline = `${plural(d.today, 'item is', 'items are')} due today.`; }
   else if (session) { tone = 'active'; headline = `Your test session is under way: ${session.recorded} of ${session.total} recorded.`; }
   else if (o.failed) { tone = 'due'; headline = `${plural(o.failed, 'test')} failed and ${o.failed === 1 ? 'needs' : 'need'} a retest once fixed.`; }
@@ -52,9 +60,18 @@ export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = 
       tone: w.failed ? 'overdue' : w.total && !open ? 'done' : 'info',
     });
   }
+  if (sp) {
+    stats.push({
+      id: 'support', value: String(sp.last24), label: sp.last24 === 1 ? 'pilot support request today' : 'pilot support requests today',
+      detail: stopAlerts.length ? `${plural(stopAlerts.length, 'rollback trigger')} open` : checkAlerts.length ? `${checkAlerts.length} to explain` : `${sp.last7} in 7 days · no repeat`,
+      tone: stopAlerts.length || checkAlerts.length ? 'overdue' : 'info',
+    });
+  }
   // The dated items that matter today: overdue, due today and the coming week, soonest first (the page shows a few).
   const urgent = (d.items || []).filter(i => i.state === 'overdue' || i.state === 'today' || i.state === 'soon');
-  return { tone, headline, stats, urgent };
+  // Open support alerts, rollback triggers first (the page lists them with a button to the tally).
+  const supportAlerts = [...stopAlerts, ...checkAlerts];
+  return { tone, headline, stats, urgent, supportAlerts };
 }
 
 // Fixed words for what the last status check said about the newest transfer sent from FYNX (pilot register
@@ -69,6 +86,10 @@ export function lastSentStatus(outcome, deep = false) {
 export function briefText(b, { today = '' } = {}) {
   const lines = [`FYNX owner workspace · today${today ? ` (${today})` : ''}`, '', b.headline, ''];
   for (const s of b.stats) lines.push(`- ${s.value} ${s.label} (${s.detail})`);
+  if (b.supportAlerts?.length) {
+    lines.push('', 'Pilot support:');
+    for (const a of b.supportAlerts) lines.push(`- ${a.level === 'stop' ? `Rollback trigger: ${a.title} (${a.people} pilot users within a day)` : `To explain within 1 hour: ${a.title}`}`);
+  }
   if (b.urgent.length) {
     lines.push('', 'Dated items:');
     for (const i of b.urgent) lines.push(`- ${i.date} · ${i.when}: ${i.title}`);
