@@ -28,6 +28,8 @@ Write the UTC time next to each step as you do it.
 6. **Reconcile** every network used in the pilot (next section) and keep the reports.
 7. **Decide on reopening.** Reopen only when the reconciliation is **Balanced** (or every flag is explained in writing), the cause is fixed and retested, and you give written approval. Turning real-money sending back on needs a fresh sign-in and the typed confirmation, as before.
 
+**Rollback record.** Launch readiness → **Rollback record** keeps these times for you in that browser: choose *A real rollback* (or *A practice*) and the reason, then press **Done now** as you finish each step (steps 4 and 5 can be marked **Not needed**). Each step has a button to the place where it is done; the record itself never switches anything off or on. Step 7 has the three reopening conditions as tick boxes, and the record can only end as *Reopened* once all three are ticked and every step is recorded; otherwise close it as *Pilot stays paused*. While a real rollback is open, Today leads with it and Pilot go / no-go says *stop*. **Copy record** or **Download record** gives the timed table for the pilot files (step names, UTC times and your short notes; no keys, addresses or customer details). A rollback trigger in the support tally offers **Start a rollback record** with the reason filled in.
+
 ## Reconcile after a rollback
 
 Use **Crypto tools → Portfolio & history** (read-only; nothing is signed or sent):
@@ -53,7 +55,8 @@ Before the pilot, practise the rollback once:
 
 1. Launch readiness → **Incident practice run** → choose **Pilot transfers do not add up**. Walk through all seven stages with at least one other person and note any gaps as follow-ups.
 2. On a test network, send one small test transfer from Crypto tools, then run the reconciliation and save the report. It should read **Balanced** once the transfer is confirmed and the balances are checked.
-3. Record the pilot / rollback step in Launch readiness with the date of the practice run and of the saved report.
+3. Optionally, keep a **Rollback record** in Launch readiness while you practise (choose *A practice*) so you know how long each step takes; Pilot go / no-go shows the finished practice.
+4. Record the pilot / rollback step in Launch readiness with the date of the practice run and of the saved report.
 
 ## Before you approve the pilot
 

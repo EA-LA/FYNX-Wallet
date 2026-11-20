@@ -35,6 +35,7 @@ import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, es
 import { pilotReadiness, approvalMarkdown, GROUPS as PILOT_GROUPS } from './pilot-readiness.js';
 import { SITUATIONS, URGENCY, LINKS, supportContext, replyTarget, replyText, matchMessage, playbookMarkdown } from './support-playbook.js';
 import { TALLY_KEY, cleanTally, logRequest, removeRequest as removeTallyRequest, clearTally, setAgain, markExplained, tallySummary, tallyMarkdown, briefSupport, tallyReportLines, parseTallyReport, mergeTallies } from './support-tally.js';
+import { ROLLBACK_KEY, TRIGGERS, STEPS, REOPEN_CHECKS, OUTCOMES, MAX_NOTE, cleanLog as cleanRollbackLog, startRollback, markStep, unmarkStep, setCheck, closeOptions, closeRollback, removePast, rollbackProgress, briefRollback, rollbackMarkdown, durationText as rbDuration } from './rollback-log.js';
 import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency, emergencyAttention } from './emergency-plan.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
@@ -77,6 +78,8 @@ let permReading = null, permReadingAt = 0, permBusy = false;
 // Pilot support tally (Launch readiness → Pilot support playbook); declared early because Pilot go / no-go reads it.
 let supportTally;
 try { supportTally = cleanTally(JSON.parse(localStorage.getItem(TALLY_KEY) || 'null')); } catch { supportTally = cleanTally(null); }
+let rollbackLog;
+try { rollbackLog = cleanRollbackLog(JSON.parse(localStorage.getItem(ROLLBACK_KEY) || 'null')); } catch { rollbackLog = cleanRollbackLog(null); }
 let tallyStatus = '';
 function saveSupportTally() {
   try { if (supportTally.entries.length || Object.keys(supportTally.cleared).length || Object.keys(supportTally.gone || {}).length) localStorage.setItem(TALLY_KEY, JSON.stringify(supportTally)); else localStorage.removeItem(TALLY_KEY); }
@@ -2418,6 +2421,7 @@ const TODAY_TARGETS = {
   outside: () => goTo('launch', document.getElementById('lo-out') ? '#lo-out' : '#launch-order'),
   wallet: () => goTo('wallet', '.cg-tests'),
   support: () => goTo('launch', '#spb-tally'),
+  rollback: () => openRollback(),
 };
 function currentTodayBrief() {
   const today = localToday();
@@ -2429,6 +2433,7 @@ function currentTodayBrief() {
     session: testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null,
     wallet: { ...walletTests(launchPlan, launchRecords), lastSent: lastSentFromFynx() },
     support: briefSupport(tallySummary(supportTally)),
+    rollback: briefRollback(rollbackLog),
   });
 }
 // Newest transfer this browser remembers submitting from FYNX (pilot register; public facts only).
@@ -2506,7 +2511,9 @@ function todaySupportBlock(alerts) {
     const ex = el('button', 'text-button', 'Mark as explained'); ex.type = 'button'; ex.setAttribute('aria-label', `Mark as explained: ${a.title}`);
     ex.addEventListener('click', () => { supportTally = markExplained(supportTally, a.id); todayStatus = `Marked as explained: ${a.title}. A new request of this kind raises it again.`; afterTallyChange(); document.getElementById('tb-title')?.setAttribute('tabindex', '-1'); document.getElementById('tb-title')?.focus(); });
     const plan = el('a', 'text-button', 'When to roll back ↗'); plan.href = LINKS.rollback; plan.target = '_blank'; plan.rel = 'noopener noreferrer';
-    row.append(open, ex, plan); body.append(row); li.append(body); list.append(li);
+    row.append(open, ex, plan);
+    if (a.level === 'stop') { const rb = el('button', 'text-button', rollbackLog.current ? 'Open the rollback record' : 'Start a rollback record'); rb.type = 'button'; rb.addEventListener('click', () => openRollback('support')); row.append(rb); }
+    body.append(row); li.append(body); list.append(li);
   }
   wrap.append(list);
   return wrap;
@@ -3356,7 +3363,7 @@ function currentPilotReadiness() {
     plan: launchPlan, records: launchRecords, answers: decisionAnswers, drill, register: pilotRegister, mainnet: mainnetPolicy(),
     emergency, sheet: emergency ? sheetFreshness(emergencySaved, emergency.state, accessToday()) : null,
     access: accessSummary(accessReview, accessToday()), privacy: privacyAttention(privacyLog, localToday()),
-    support: tallySummary(supportTally),
+    support: tallySummary(supportTally), rollback: rollbackLog,
   });
 }
 function pilotGateAction(action) {
@@ -3371,13 +3378,14 @@ function pilotGateAction(action) {
   if (action.kind === 'access') { selectTab('security'); openAccessService(accessSummary(accessReview, accessToday()).attention[0]?.service.id); return; }
   if (action.kind === 'emergency') { openEmergencyPlan(); return; }
   if (action.kind === 'support') { selectTab('launch'); scrollToCard('#spb-tally'); return; }
+  if (action.kind === 'rollback') { openRollback(); return; }
   if (action.kind === 'failed') {
     const failed = nextActions(launchPlan, launchRecords, 200).find(a => a.failed);
     selectTab('launch'); if (failed) openStep(stepKey(failed.gate.id, failed.step.id));
   }
 }
 const PILOT_STATE = { ok: ['OK', 'is-ok'], warn: ['Look at', 'is-warn'], block: ['To finish', 'is-block'], info: ['Note', 'is-info'] };
-const PILOT_GO = { step: 'Open the step', decision: 'Open the decision', drill: 'Open the practice run', mainnet: 'Open Real-money sending', reconcile: 'Open Portfolio & history', wallet: 'Open Crypto tools', privacy: 'Open the request', access: 'Open the access review', emergency: 'Open the emergency plan', support: 'Open the support requests', failed: 'Open the failed test' };
+const PILOT_GO = { step: 'Open the step', decision: 'Open the decision', drill: 'Open the practice run', mainnet: 'Open Real-money sending', reconcile: 'Open Portfolio & history', wallet: 'Open Crypto tools', privacy: 'Open the request', access: 'Open the access review', emergency: 'Open the emergency plan', support: 'Open the support requests', rollback: 'Open the rollback record', failed: 'Open the failed test' };
 function pilotApprovalText() { return approvalMarkdown(currentPilotReadiness(), { plan: launchPlan, answers: decisionAnswers, mainnet: mainnetPolicy() }); }
 function renderPilotGate() {
   const box = document.getElementById('pilot-gate'); if (!box) return;
@@ -3597,7 +3605,9 @@ function renderSupportTally() {
     ex.addEventListener('click', () => { supportTally = markExplained(supportTally, a.situation.id); afterTallyChange(`Marked as explained: ${a.situation.title}. A new request of this kind raises it again.`); });
     const open = el('button', 'text-button', 'Open the answer'); open.type = 'button'; open.addEventListener('click', () => openSituation(a.situation.id));
     const plan = el('a', 'text-button', 'When to roll back ↗'); plan.href = LINKS.rollback; plan.target = '_blank'; plan.rel = 'noopener noreferrer';
-    row.append(ex, open, plan); div.append(row); box.append(div);
+    row.append(ex, open, plan);
+    if (a.level === 'stop') { const rb = el('button', 'text-button', rollbackLog.current ? 'Open the rollback record' : 'Start a rollback record'); rb.type = 'button'; rb.addEventListener('click', () => openRollback('support')); row.append(rb); }
+    div.append(row); box.append(div);
   }
   if (sum.total) {
     const days = el('div', 'spt-days'); days.setAttribute('role', 'img');
@@ -3638,6 +3648,167 @@ function renderSupportTally() {
   const status = el('p', 'status'); status.id = 'spt-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = tallyStatus; tallyStatus = '';
   box.append(status);
 }
+// Rollback record (Launch readiness): the UTC time of each rollback step while a real rollback or a practice of
+// one is under way, the reopening conditions and how it ended. Kept in this browser; never switches anything.
+let rollbackStatus = '', rollbackPreset = '';
+const RB_PLACES = {
+  mainnet: ['Open Real-money sending', () => { selectTab('wallet'); scrollToCard('#mainnet-card'); }],
+  support: ['Open the support playbook', () => goTo('launch', '#support-playbook')],
+  reconcile: ['Open Portfolio & history', () => { selectTab('wallet'); scrollToCard('#portfolio-card'); }],
+};
+const RB_RELEASE = 'https://github.com/EA-LA/FYNX-Wallet/blob/main/docs/RELEASE-PROCESS.md#backend-changes-and-rollback';
+const RB_PLAN = 'https://github.com/EA-LA/FYNX-Wallet/blob/main/docs/PILOT-ROLLBACK.md#roll-back-step-by-step';
+function saveRollbackLog() {
+  try { if (rollbackLog.current || rollbackLog.past.length) localStorage.setItem(ROLLBACK_KEY, JSON.stringify(rollbackLog)); else localStorage.removeItem(ROLLBACK_KEY); } catch { /* storage blocked: the record still works on this page */ }
+}
+function afterRollbackChange(status, focus = '') {
+  saveRollbackLog(); if (status) rollbackStatus = status;
+  renderRollbackLog(); renderPilotGate(); renderTodayBrief();
+  if (focus) { const n = document.querySelector(focus); if (n) { if (!n.matches('button, input, select, textarea')) n.setAttribute('tabindex', '-1'); n.focus({ preventScroll: true }); } }
+}
+function openRollback(trigger = '') {
+  if (trigger && !rollbackLog.current) rollbackPreset = trigger;
+  renderRollbackLog(); goTo('launch', '#rollback-log');
+}
+const rbClock = ms => { const d = new Date(ms); return `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${d.toISOString().slice(11, 16)} UTC)`; };
+const rbProblem = p => (p === 'secret' ? 'That looks like a recovery phrase or key, so it was not saved. Never type one into any website.' : p);
+function rollbackDownload(run) {
+  const url = URL.createObjectURL(new Blob([rollbackMarkdown(run)], { type: 'text/markdown' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-${run.practice ? 'rollback-practice' : 'rollback'}-${new Date(run.startedAt).toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function rollbackCopyButtons(run, label = 'record') {
+  const copy = el('button', 'button secondary', `Copy ${label}`); copy.type = 'button';
+  copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(rollbackMarkdown(run)); setText('#rbl-status', 'Record copied. Keep it with the reconciliation reports.'); } catch { setText('#rbl-status', 'Copying was blocked by the browser. Use Download instead.'); } });
+  const dl = el('button', 'button secondary', `Download ${label}`); dl.type = 'button';
+  dl.addEventListener('click', () => { rollbackDownload(run); setText('#rbl-status', 'Record downloaded: times, step names and your notes only; no keys, addresses or customer details.'); });
+  return [copy, dl];
+}
+function rollbackStartForm() {
+  const form = el('div', 'rbl-start');
+  const kind = el('fieldset', 'rbl-kind'); kind.append(el('legend', '', 'What is this?'));
+  for (const [value, text, hint] of [['practice', 'A practice', 'Walk through the seven steps once with someone, before the pilot.'], ['real', 'A real rollback', 'Something in “When to roll back” happened during the pilot.']]) {
+    const lab = el('label', 'rbl-radio'), r = el('input'); r.type = 'radio'; r.name = 'rbl-kind'; r.value = value; r.checked = rollbackPreset ? value === 'real' : value === 'practice';
+    const txt = el('span'); txt.append(el('strong', '', text), el('span', 'muted', ` ${hint}`)); lab.append(r, txt); kind.append(lab);
+  }
+  const tl = el('label', 'rbl-field'); tl.append(el('span', '', 'Why'));
+  const sel = el('select'); sel.id = 'rbl-trigger';
+  for (const t of TRIGGERS) { const o = el('option', '', t.title); o.value = t.id; sel.append(o); }
+  if (rollbackPreset) sel.value = rollbackPreset;
+  tl.append(sel);
+  const nl = el('label', 'rbl-field'); nl.append(el('span', '', 'Short note (optional)'));
+  const note = el('input'); note.type = 'text'; note.id = 'rbl-note'; note.maxLength = MAX_NOTE; note.autocomplete = 'off'; note.spellcheck = false; note.placeholder = 'For example: practice with Sam, or which complaint';
+  nl.append(note);
+  const start = el('button', 'button', 'Start the record'); start.type = 'button'; start.id = 'rbl-begin';
+  start.addEventListener('click', () => {
+    const practice = form.querySelector('input[name="rbl-kind"]:checked')?.value !== 'real';
+    if (!practice && !confirm('Start a real rollback record? Today and Pilot go / no-go will show the pilot as stopped until you close it. Nothing is switched off by this button: do step 1 yourself in Real-money sending.')) return;
+    const r = startRollback(rollbackLog, { trigger: sel.value, practice, note: note.value });
+    if (r.problem) { if (r.problem === 'secret') note.value = ''; setText('#rbl-status', rbProblem(r.problem)); return; }
+    rollbackLog = r.log; rollbackPreset = '';
+    afterRollbackChange(practice ? 'Practice record started. Press Done now as you walk through each step.' : 'Rollback record started. Do step 1 now: turn off real-money sending.', '#rbl-steps');
+  });
+  form.append(kind, tl, nl, el('div', 'actions'));
+  form.lastChild.append(start);
+  return form;
+}
+function rollbackStepRow(run, step, index, p) {
+  const e = run.steps[step.id], isNext = p.next?.id === step.id;
+  const li = el('li', `rbl-step${e ? (e.skip ? ' is-skip' : ' is-done') : isNext ? ' is-next' : ''}`); li.dataset.rbStep = step.id;
+  const top = el('div', 'rbl-step-top');
+  top.append(el('span', 'rbl-num', String(index + 1)), el('strong', 'rbl-step-title', step.title),
+    el('span', `launch-mark${e && !e.skip ? ' is-ok' : ''}`, e ? (e.skip ? 'Not needed' : `Done ${rbClock(e.at)}`) : isNext ? 'Next' : 'To do'));
+  li.append(top, el('p', 'hint rbl-how', step.how));
+  if (step.id === 'reopen' && !run.practice) {
+    const box = el('div', 'rbl-checks');
+    for (const c of REOPEN_CHECKS) {
+      const lab = el('label', 'rbl-check'), cb = el('input'); cb.type = 'checkbox'; cb.checked = !!run.checks[c.id]; cb.dataset.rbCheck = c.id;
+      cb.addEventListener('change', () => { rollbackLog = setCheck(rollbackLog, c.id, cb.checked); afterRollbackChange(cb.checked ? `Ticked: ${c.title}.` : `Unticked: ${c.title}.`, `[data-rb-check="${c.id}"]`); });
+      lab.append(cb, el('span', '', c.title)); box.append(lab);
+    }
+    li.append(box);
+  }
+  const row = el('div', 'rbl-actions');
+  if (!e) {
+    const done = el('button', isNext ? 'button' : 'button secondary', run.practice ? 'Walked through' : 'Done now'); done.type = 'button'; done.setAttribute('aria-label', `${run.practice ? 'Walked through' : 'Done now'}: ${step.title}`);
+    done.addEventListener('click', () => { const r = markStep(rollbackLog, step.id, { note: note.value }); if (r.problem) { setText('#rbl-status', rbProblem(r.problem)); if (r.problem === 'secret') note.value = ''; return; } rollbackLog = r.log; afterRollbackChange(`Step ${index + 1} recorded at ${rbClock(Date.now())}.`, `[data-rb-step="${step.id}"] .rbl-undo`); });
+    row.append(done);
+    if (step.optional) {
+      const skip = el('button', 'text-button', 'Not needed'); skip.type = 'button'; skip.setAttribute('aria-label', `Not needed: ${step.title}`);
+      skip.addEventListener('click', () => { const r = markStep(rollbackLog, step.id, { skip: true, note: note.value }); if (r.problem) { setText('#rbl-status', rbProblem(r.problem)); return; } rollbackLog = r.log; afterRollbackChange(`Step ${index + 1} marked as not needed.`, `[data-rb-step="${step.id}"] .rbl-undo`); });
+      row.append(skip);
+    }
+  } else {
+    const undo = el('button', 'text-button rbl-undo', 'Undo'); undo.type = 'button'; undo.setAttribute('aria-label', `Undo: ${step.title}`);
+    undo.addEventListener('click', () => { rollbackLog = unmarkStep(rollbackLog, step.id); afterRollbackChange(`Step ${index + 1} is open again.`, `[data-rb-step="${step.id}"] button`); });
+    row.append(undo);
+  }
+  const place = RB_PLACES[step.place];
+  if (place) { const go = el('button', 'text-button', place[0]); go.type = 'button'; go.addEventListener('click', place[1]); row.append(go); }
+  else if (step.place === 'release') { const a = el('a', 'text-button', 'Release and rollback steps ↗'); a.href = RB_RELEASE; a.target = '_blank'; a.rel = 'noopener noreferrer'; row.append(a); }
+  const note = el('input', 'rbl-step-note'); note.type = 'text'; note.maxLength = MAX_NOTE; note.autocomplete = 'off'; note.spellcheck = false; note.value = e?.note || '';
+  note.placeholder = 'Note (optional)'; note.setAttribute('aria-label', `Note for step ${index + 1}: ${step.title}`);
+  if (e) note.addEventListener('change', () => { const r = markStep(rollbackLog, step.id, { skip: !!e.skip, note: note.value }); if (r.problem) { note.value = e.note || ''; setText('#rbl-status', rbProblem(r.problem)); return; } rollbackLog = r.log; saveRollbackLog(); setText('#rbl-status', 'Note saved.'); });
+  li.append(row, note);
+  return li;
+}
+function renderRollbackLog() {
+  const box = document.getElementById('rollback-log'); if (!box) return;
+  const wasOpen = box.querySelector('.rbl-past')?.open;
+  const run = rollbackLog.current, p = rollbackProgress(run);
+  box.replaceChildren();
+  const head = el('div', 'lo-head rbl-head'), h = el('h3', '', 'Rollback record'); h.id = 'rbl-title';
+  const mark = el('span', `launch-mark${run && !run.practice ? ' is-stop' : ''}`, run ? `${run.practice ? 'Practice' : 'Under way'} · ${p.done} of ${p.total}` : 'None open');
+  const top = el('div', 'spt-head'); top.append(h, mark);
+  head.append(top, el('p', 'hint', 'Write down the time of each rollback step as you do it, the way the rollback plan asks, then keep the record with the reconciliation reports. Use it once as a practice before the pilot. Nothing here switches anything off or on: each step says where to do it. Kept in this browser only.'));
+  box.append(head);
+  if (!run) box.append(rollbackStartForm());
+  else {
+    const sum = el('div', `rbl-summary${run.practice ? '' : ' is-real'}`); if (!run.practice && !run.steps.stop) sum.setAttribute('role', 'alert');
+    const trig = TRIGGERS.find(t => t.id === run.trigger).title;
+    sum.append(el('strong', '', run.practice ? 'Practice under way' : 'Rollback under way'),
+      el('span', '', ` Started ${rbClock(run.startedAt)} · ${trig}${run.note ? ` · ${run.note}` : ''}. `),
+      el('span', 'rbl-elapsed', `${rbDuration(p.minutes)} so far${p.stopMinutes !== null ? `; transfers stopped after ${rbDuration(p.stopMinutes)}` : ''}.`));
+    box.append(sum);
+    const list = el('ol', 'rbl-steps'); list.id = 'rbl-steps'; list.setAttribute('aria-label', 'Rollback steps');
+    STEPS.forEach((s, i) => list.append(rollbackStepRow(run, s, i, p)));
+    box.append(list);
+    const close = el('div', 'rbl-close'); close.append(el('h4', '', 'Close the record'));
+    for (const o of closeOptions(run)) {
+      const wrap = el('div', 'rbl-close-row'), b = el('button', o.outcome === 'cancelled' ? 'text-button' : 'button secondary', o.outcome === 'cancelled' ? 'Discard (started by mistake)' : OUTCOMES[o.outcome]); b.type = 'button'; b.disabled = !o.ok;
+      b.addEventListener('click', () => {
+        if (o.outcome === 'reopened' && !confirm('Close the record as reopened? Turn real-money sending back on yourself in Real-money sending; this button does not.')) return;
+        const r = closeRollback(rollbackLog, { outcome: o.outcome }); if (r.problem) { setText('#rbl-status', r.problem); return; }
+        rollbackLog = r.log;
+        afterRollbackChange(o.outcome === 'cancelled' ? 'Record discarded.' : `Record closed: ${OUTCOMES[o.outcome]}. Copy or download it below for the pilot records.`, '#rbl-title');
+      });
+      wrap.append(b); if (o.why) wrap.append(el('span', 'muted', o.why)); close.append(wrap);
+    }
+    const actions = el('div', 'od-actions'); actions.append(...rollbackCopyButtons(run));
+    const plan = el('a', 'text-button', 'Rollback plan ↗'); plan.href = RB_PLAN; plan.target = '_blank'; plan.rel = 'noopener noreferrer'; actions.append(plan);
+    box.append(close, actions);
+  }
+  if (rollbackLog.past.length) {
+    const det = el('details', 'ts-out rbl-past'); det.open = !!wasOpen; det.append(el('summary', '', `Earlier records (${rollbackLog.past.length})`));
+    const ul = el('ul', 'rbl-past-list');
+    for (const r of rollbackLog.past) {
+      const pr = rollbackProgress(r), li = el('li');
+      li.append(el('span', 'rbl-past-when', new Date(r.startedAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'),
+        el('span', 'rbl-past-what', `${r.practice ? 'Practice' : 'Rollback'} · ${OUTCOMES[r.outcome]} · ${rbDuration(pr.minutes)}${pr.stopMinutes !== null ? ` · stopped after ${rbDuration(pr.stopMinutes)}` : ''}`));
+      const row = el('div', 'rbl-actions'); row.append(...rollbackCopyButtons(r, 'record').map(b => { b.className = 'text-button'; return b; }));
+      const rm = el('button', 'text-button', 'Remove'); rm.type = 'button'; rm.setAttribute('aria-label', `Remove the record from ${new Date(r.startedAt).toISOString().slice(0, 10)}`);
+      rm.addEventListener('click', () => { if (!confirm('Remove this record from this browser? Copy or download it first if you need it.')) return; rollbackLog = removePast(rollbackLog, r.id); afterRollbackChange('Record removed from this browser.', '#rbl-title'); });
+      row.append(rm); li.append(row); ul.append(li);
+    }
+    det.append(ul); box.append(det);
+  }
+  const status = el('p', 'status'); status.id = 'rbl-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = rollbackStatus; rollbackStatus = '';
+  box.append(status);
+}
+// Keep "… so far" current without re-drawing (and losing a half-typed note).
+setInterval(() => {
+  const run = rollbackLog.current, span = document.querySelector('#rollback-log .rbl-elapsed'); if (!run || !span) return;
+  const p = rollbackProgress(run); span.textContent = `${rbDuration(p.minutes)} so far${p.stopMinutes !== null ? `; transfers stopped after ${rbDuration(p.stopMinutes)}` : ''}.`;
+}, 60000);
 function recordStep(gate, step, patch) {
   const key = stepKey(gate.id, step.id), prev = launchRecords[key] || { result: '', note: '', at: 0 };
   const next = { ...prev, ...patch, at: Date.now() };
@@ -3700,7 +3871,7 @@ function stepRow(gate, step) {
 function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   const open = new Set([...document.querySelectorAll('#launch-checklist details[open]')].map(d => d.dataset.gate));
   if (keepOpen) open.add(keepOpen);
-  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderSupportPlaybook(); renderSupportTally(); renderLaunchFilters();
+  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderSupportPlaybook(); renderSupportTally(); renderRollbackLog(); renderLaunchFilters();
   const list = $('#launch-checklist'); list.replaceChildren();
   for (const item of launchPlan.items) {
     if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;

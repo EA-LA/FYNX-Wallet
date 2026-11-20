@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-20 04:19 UTC — [autopilot] Owner workspace: a timed rollback record for the pilot
+- New "Rollback record" box in Launch readiness (below the Pilot support playbook). If something goes wrong during the pilot, choose "A real rollback" and the reason, then press "Done now" as you finish each of the seven rollback steps: the time is written down for you, in your time and in UTC, the way the rollback plan asks. Steps 4 and 5 (putting the website or server back) can be marked "Not needed".
+- Every step has a button to where it is done (Real-money sending, the support playbook, Portfolio & history, the release steps). The record never switches anything off or on by itself.
+- Step 7 has the three conditions for reopening as tick boxes (reconciliation balanced, cause fixed and retested, your written approval). The record can only end as "Reopened" once all three are ticked; otherwise close it as "Pilot stays paused".
+- While a real rollback is open, Today on the Dashboard leads with it in red ("do step 1 now" until transfers are stopped) and shows a "rollback steps done" tile; Pilot go / no-go says stop.
+- Use "A practice" once before the pilot to time the steps; the finished practice then shows as OK in Pilot go / no-go. A rollback trigger in the support tally (and on Today) now has a "Start a rollback record" button with the reason filled in.
+- "Copy record" / "Download record" gives a timed table for the pilot files (step names, times and your short notes only). Earlier records are kept under "Earlier records".
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness → Rollback record, and Dashboard → Today).
+
 ## 2026-11-19 20:16 UTC — [autopilot] Owner workspace: pilot support alerts on Today, and the support tally now travels between your devices
 - The "Today · What needs you" box on the Dashboard tab now puts pilot support first. If the same complaint came from two pilot users within a day (your rollback rule), the headline says so in red and a "Pilot support" box explains what to do, with "Open support requests", "Mark as explained" and "When to roll back" buttons. Money or security requests that must be explained within 1 hour show there too.
 - A new "pilot support requests today" tile appears once you have logged a request (nothing shows before, so it never pretends all is well). "Copy today" includes the alerts.

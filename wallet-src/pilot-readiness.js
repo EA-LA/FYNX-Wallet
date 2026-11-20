@@ -8,6 +8,7 @@
 import { stepKey, stepState, overview } from './launch-tracker.js';
 import { runSummary, STAGES } from './incident-drill.js';
 import { supportCheck } from './support-tally.js';
+import { rollbackCheck } from './rollback-log.js';
 
 export const APPROVE_KEY = stepKey('pilot', 'approve');
 export const PILOT_SCENARIO = 'pilot';
@@ -34,7 +35,7 @@ function findStep(plan, key) {
 const shortText = text => { const t = String(text || '').replace(/\s+/g, ' ').trim(); const cut = t.split(/(?<=[a-z0-9)])\.\s|:\s/i)[0]; return cut.length < t.length && cut.length > 12 ? cut : t.replace(/\.$/, ''); };
 
 // Everything optional; a missing fact is reported honestly, never assumed fine.
-export function pilotReadiness({ plan, records = {}, answers = {}, drill = null, register = null, mainnet = null, emergency = null, sheet = null, access = null, privacy = null, support = null, now = Date.now() } = {}) {
+export function pilotReadiness({ plan, records = {}, answers = {}, drill = null, register = null, mainnet = null, emergency = null, sheet = null, access = null, privacy = null, support = null, rollback = null, now = Date.now() } = {}) {
   const checks = [];
   const add = (group, state, title, detail, action = null) => checks.push({ group, state, title, detail, action });
   const approve = findStep(plan, APPROVE_KEY);
@@ -75,6 +76,9 @@ export function pilotReadiness({ plan, records = {}, answers = {}, drill = null,
     add('practice', 'ok', 'Rollback practice run', `“Pilot transfers do not add up” practised on ${utcDay(good.finishedAt)} with ${plural(good.people.length, 'person', 'people')} (${s.handled} of ${STAGES.length} stages handled).`, { kind: 'drill' });
   } else if (runs.length) add('practice', 'block', 'Rollback practice run', `Your last “Pilot transfers do not add up” run (${utcDay(runs[0].finishedAt)}) does not count yet: ${runSummary(runs[0], now).reasons.join(' ')}`, { kind: 'drill' });
   else add('practice', 'block', 'Rollback practice run', 'Run the incident practice “Pilot transfers do not add up” with at least two people.', { kind: 'drill' });
+  // The rollback record (only when it was passed in): a finished practice record shows the seven steps were timed.
+  const rc = rollbackCheck(rollback, now);
+  if (rc && !rc.stop) add('practice', rc.state, rc.title, rc.detail, rc.state === 'ok' ? null : { kind: 'rollback' });
   const open = runs.flatMap(r => STAGES.map(st => r.answers?.[st.id]).filter(a => a?.followUp && !a.doneAt));
   if (open.length) add('practice', 'warn', 'Follow-ups from the practice', `${plural(open.length, 'follow-up')} from the pilot practice ${open.length === 1 ? 'is' : 'are'} still open. Tick them off once handled.`, { kind: 'drill' });
   const sent = (register?.entries || []).filter(e => e.kind === 'page' && e.outcome === 'confirmed').sort((a, b) => b.at - a.at)[0];
@@ -103,13 +107,17 @@ export function pilotReadiness({ plan, records = {}, answers = {}, drill = null,
   // 5. Support during the pilot: the tally from the support playbook (only when it was passed in).
   const sc = supportCheck(support);
   if (sc) add('support', sc.state, sc.title, sc.detail, sc.state === 'ok' ? null : { kind: 'support' });
+  // A real rollback that is still open stops the pilot until its record is closed.
+  if (rc?.stop) add('support', 'block', rc.title, rc.detail, { kind: 'rollback' });
 
   const count = s => checks.filter(c => c.state === s).length;
   const blockers = count('block'), warnings = count('warn');
   // Once the pilot is approved, a rollback trigger from support still has to stop it.
-  const stop = approved && sc?.state === 'block';
+  const rolling = !!rc?.stop;
+  const stop = (approved && sc?.state === 'block') || rolling;
   const verdict = stop ? 'stop' : approved ? 'approved' : blockers ? 'blocked' : 'ready';
-  const headline = stop ? 'Pilot running, but support shows a rollback trigger: the same complaint from two pilot users in a day. Follow the rollback plan.'
+  const headline = rolling ? 'A rollback is under way: the pilot stays stopped until its record is closed. Follow the steps in the rollback record.'
+    : stop ? 'Pilot running, but support shows a rollback trigger: the same complaint from two pilot users in a day. Follow the rollback plan.'
     : approved ? 'You recorded your written approval for the pilot.'
     : blockers ? `Not ready for the pilot: ${plural(blockers, 'thing')} to finish first${warnings ? `, ${warnings} more to look at` : ''}.`
       : `Ready for your written approval${warnings ? ` · read the ${plural(warnings, 'point')} marked “Look at” first` : ''}.`;
