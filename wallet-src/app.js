@@ -11,7 +11,7 @@ import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
 import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, launchOrder, waitingOn, stepIndex, shortStep, gateBlockers, engineeringBrief, reportMarkdown, parseReport, mergeRecords, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
-import { RELIABILITY_KEY, AUTO_MINUTES, VERDICT as REL_VERDICT, cleanChecks as cleanServiceChecks, recordStatus, recordServerDown, serverDownError, reliabilitySummary, outageLines, msText as relMs, reliabilityMarkdown } from './service-reliability.js';
+import { RELIABILITY_KEY, AUTO_MINUTES, VERDICT as REL_VERDICT, cleanChecks as cleanServiceChecks, recordStatus, recordServerDown, serverDownError, reliabilitySummary, outageLines, msText as relMs, reliabilityMarkdown, briefReliability, reliabilityReportLines, parseReliabilityReport, mergeServiceChecks } from './service-reliability.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { PARTIES, partyStatus, partyLine, outsideBrief, handoffStateText } from './outside-handoff.js';
@@ -36,7 +36,7 @@ import { TIMING_KEY, sessionTimings, cleanTimings, addTimings, measuredTimes, es
 import { pilotReadiness, approvalMarkdown, GROUPS as PILOT_GROUPS } from './pilot-readiness.js';
 import { SITUATIONS, URGENCY, LINKS, supportContext, replyTarget, replyText, matchMessage, playbookMarkdown } from './support-playbook.js';
 import { TALLY_KEY, cleanTally, logRequest, removeRequest as removeTallyRequest, clearTally, setAgain, markExplained, tallySummary, tallyMarkdown, briefSupport, tallyReportLines, parseTallyReport, mergeTallies } from './support-tally.js';
-import { ROLLBACK_KEY, TRIGGERS, STEPS, REOPEN_CHECKS, OUTCOMES, MAX_NOTE, cleanLog as cleanRollbackLog, startRollback, markStep, unmarkStep, setCheck, closeOptions, closeRollback, removePast, rollbackProgress, briefRollback, rollbackMarkdown, durationText as rbDuration } from './rollback-log.js';
+import { ROLLBACK_KEY, TRIGGERS, STEPS, REOPEN_CHECKS, OUTCOMES, MAX_NOTE, cleanLog as cleanRollbackLog, startRollback, markStep, unmarkStep, setCheck, closeOptions, closeRollback, removePast, rollbackProgress, briefRollback, rollbackMarkdown, durationText as rbDuration, rollbackReportLines, parseRollbackReport, mergeRollbacks, rollbackDate } from './rollback-log.js';
 import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, sheetMarkdown, recordSheet, cleanEmergency, emergencyAttention } from './emergency-plan.js';
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
@@ -627,7 +627,7 @@ async function servicesCheck(auto) {
   } catch (error) {
     if (serverDownError(error)) { serviceLog = recordServerDown(serviceLog, { now: Date.now(), auto }); saveServiceLog(); }
     throw error;
-  } finally { renderReliability(); renderPilotGate(); }
+  } finally { renderReliability(); renderPilotGate(); renderTodayBrief(); }
 }
 function saveServiceLog() {
   try { if (serviceLog.checks.length) localStorage.setItem(RELIABILITY_KEY, JSON.stringify(serviceLog)); else localStorage.removeItem(RELIABILITY_KEY); } catch { /* storage blocked: the figures still show on this page */ }
@@ -2531,6 +2531,7 @@ const TODAY_TARGETS = {
   wallet: () => goTo('wallet', '.cg-tests'),
   support: () => goTo('launch', '#spb-tally'),
   rollback: () => openRollback(),
+  services: () => goTo('launch', '#services'),
 };
 function currentTodayBrief() {
   const today = localToday();
@@ -2543,6 +2544,7 @@ function currentTodayBrief() {
     wallet: { ...walletTests(launchPlan, launchRecords), lastSent: lastSentFromFynx() },
     support: briefSupport(tallySummary(supportTally)),
     rollback: briefRollback(rollbackLog),
+    services: briefReliability(serviceLog), now: Date.now(),
   });
 }
 // Newest transfer this browser remembers submitting from FYNX (pilot register; public facts only).
@@ -3014,12 +3016,13 @@ function outsideAskAgain(limit = 2) {
 const DATES_SHOWN = 6;
 let datesExpanded = false;
 const ownerLink = () => (location.protocol === 'https:' ? `${location.origin}${location.pathname}` : '');
-const ownerDates = () => collectDates({ privacy: privacyLog, requests: outsideRequests, evidence: outsideEvidence, openRequests: evidenceRows().filter(r => r.open), access: accessReview, emergency: { saved: emergencySaved, state: session ? currentEmergencyPlan().state : null }, today: localToday() });
+const ownerDates = () => collectDates({ privacy: privacyLog, requests: outsideRequests, evidence: outsideEvidence, openRequests: evidenceRows().filter(r => r.open), access: accessReview, emergency: { saved: emergencySaved, state: session ? currentEmergencyPlan().state : null }, rollback: rollbackDate(rollbackLog), today: localToday() });
 const shortDay = day => { const d = new Date(`${day}T12:00:00Z`); return Number.isNaN(d.getTime()) ? day : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }); };
 function openDateItem(item) {
   if (item.kind === 'privacy') openPrivacyRequest(item.ref.id);
   else if (item.kind === 'access') openAccessService(item.ref.serviceId);
   else if (item.kind === 'emergency') openEmergencyPlan();
+  else if (item.kind === 'rollback') openRollback();
   else openOutsideRequest(item.ref.partyId, item.ref.stepKey, item.kind === 'evidence');
 }
 function renderLaunchDates() {
@@ -3027,7 +3030,7 @@ function renderLaunchDates() {
   const d = ownerDates(), status = el('p', 'hint ld-status'); status.setAttribute('role', 'status');
   box.replaceChildren();
   const head = el('div', 'lo-head');
-  head.append(el('h3', '', 'Your dates'), el('p', 'hint', 'Everything in this workspace that has a date: privacy answers, reminders to outside parties, evidence to ask for again, the 90-day access reviews and when to save a fresh emergency sheet. Add them to your calendar so nothing is missed between visits.'));
+  head.append(el('h3', '', 'Your dates'), el('p', 'hint', 'Everything in this workspace that has a date: privacy answers, reminders to outside parties, evidence to ask for again, the 90-day access reviews, when to save a fresh emergency sheet and an open pilot rollback. Add them to your calendar so nothing is missed between visits.'));
   box.append(head);
   const line = el('p', `od-headline ${d.overdue ? 'is-overdue' : d.today || d.soon ? 'is-due-soon' : ''}`, datesHeadline(d)); box.append(line);
   if (!d.items.length) {
@@ -3773,7 +3776,7 @@ function saveRollbackLog() {
 }
 function afterRollbackChange(status, focus = '') {
   saveRollbackLog(); if (status) rollbackStatus = status;
-  renderRollbackLog(); renderPilotGate(); renderTodayBrief();
+  renderRollbackLog(); renderPilotGate(); renderTodayBrief(); renderLaunchDates();
   if (focus) { const n = document.querySelector(focus); if (n) { if (!n.matches('button, input, select, textarea')) n.setAttribute('tabindex', '-1'); n.focus({ preventScroll: true }); } }
 }
 function openRollback(trigger = '') {
@@ -4004,7 +4007,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan), ...accessReportLines(accessReview, accessToday()), ...tallyReportLines(supportTally)] });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan), ...accessReportLines(accessReview, accessToday()), ...tallyReportLines(supportTally), ...reliabilityReportLines(serviceLog), ...rollbackReportLines(rollbackLog)] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -4069,14 +4072,16 @@ function previewReport(text) {
   const tmIn = parseTimingReport(text, launchPlan), tmCount = tmIn.count;
   const arIn = parseAccessReport(text, accessToday()), arCount = arIn.count;
   const stIn = parseTallyReport(text), stCount = stIn.count + stIn.explained + stIn.removed;
-  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount && !arCount && !stCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const svIn = parseReliabilityReport(text), svCount = svIn.count, rbIn = parseRollbackReport(text), rbCount = rbIn.count;
+  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount && !arCount && !stCount && !svCount && !rbCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
   const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
   const rqm = mergeRequests(outsideRequests, rqIn.log), evm = mergeEvidence(outsideEvidence, evIn.log), tmm = mergeTimings(testTimings, tmIn.log, launchPlan);
   const arm = mergeAccessReviews(accessReview, arIn.review, accessToday());
   const stm = mergeTallies(supportTally, stIn.tally);
-  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm, access: arm, support: stm };
+  const svm = mergeServiceChecks(serviceLog, svIn.log), rbm = mergeRollbacks(rollbackLog, rbIn);
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm, access: arm, support: stm, services: svm, rollbacks: rbm };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -4229,15 +4234,39 @@ function previewReport(text) {
     if (sl.children.length) box.append(sl);
     box.append(guideEl('p', 'hint', 'Only the kind of request, its time and the follow-up mark travel. Removing a request or clearing the tally travels too; nothing a customer wrote is ever in the report.'));
   }
+  if (svCount || svIn.unknown) {
+    const vsum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', svm.added, `check${svm.added === 1 ? '' : 's'} new here`], ['is-same', svm.same, 'already here'], ['is-kept', svm.dropped, 'beyond the newest 1,500 kept, left out'], ['is-kept', svIn.leftOut, 'older than 90 days, left out'], ['is-kept', svIn.unknown, `line${svIn.unknown === 1 ? '' : 's'} not understood`]]) if (n) vsum.append(guideEl('li', cls, `${n} ${label}`));
+    box.append(guideEl('h4', '', `${svCount} service check${svCount === 1 ? '' : 's'} found in the report`), vsum);
+    if (svm.added) {
+      const before = reliabilitySummary(serviceLog, { days: 14 }), after = reliabilitySummary(svm.log, { days: 14 });
+      box.append(guideEl('p', 'hint', `Last 14 days after adding them: ${after.count} check${after.count === 1 ? '' : 's'} on ${after.dayCount} day${after.dayCount === 1 ? '' : 's'} (now ${before.count} on ${before.dayCount}). Pilot go / no-go counts them together.`));
+    }
+    box.append(guideEl('p', 'hint', 'Only the time of each check and each service’s state and answer time travel. “Forget kept checks” does not travel: do it on each device.'));
+  }
+  if (rbCount || rbIn.unknown) {
+    const bsum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', rbm.added.length, `record${rbm.added.length === 1 ? '' : 's'} new here`], ['is-update', rbm.updated.length, `with steps or an ending recorded on the other device`], ['is-same', rbm.same.length, 'already here'], ['is-kept', rbm.conflict.length, 'still open on the other device, left out because another record is open here'], ['is-kept', rbIn.unknown, `line${rbIn.unknown === 1 ? '' : 's'} not understood`]]) if (n) bsum.append(guideEl('li', cls, `${n} ${label}`));
+    box.append(guideEl('h4', '', `${rbCount} rollback record${rbCount === 1 ? '' : 's'} found in the report`), bsum);
+    const bl = guideEl('ul', 'launch-import-list'), all = [...rbIn.open, ...rbIn.past];
+    for (const [kind, ids] of [['added', rbm.added], ['updated', rbm.updated], ['kept', rbm.conflict]]) for (const id of ids) {
+      const r = all.find(x => x.id === id); if (!r) continue;
+      const li = guideEl('li'), body = guideEl('div'), done = Object.keys(r.steps).length;
+      body.append(guideEl('span', '', `${r.practice ? 'Practice' : 'Rollback'}: ${TRIGGERS.find(t => t.id === r.trigger)?.title || r.trigger}`), guideEl('small', '', `Started ${new Date(r.startedAt).toLocaleString()} · ${done} of ${STEPS.length} steps${r.outcome ? ` · ${OUTCOMES[r.outcome]}` : ' · open'}${rbm.ended.includes(id) ? ' · ended on the other device, ends here too' : ''}${kind === 'kept' ? ' · finish the open record here first' : ''}`));
+      li.append(guideEl('span', `import-mark import-${kind}`, kind === 'kept' ? 'Left out' : what[kind]), body); bl.append(li);
+    }
+    if (bl.children.length) box.append(bl);
+    box.append(guideEl('p', 'hint', 'Only the reason, the time of each step, the ticked reopening conditions and how it ended travel. Notes stay on the device where you typed them. Removing an earlier record or unticking a condition does not travel.'));
+  }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length + rgm.checks.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, supportIn = stm.changes, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn + supportIn;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length + rgm.checks.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, supportIn = stm.changes, checksIn = svm.added, rollbacksIn = rbm.changes, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn + supportIn + checksIn + rollbacksIn;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(rgm.added.length + rgm.updated.length, 'pilot transfer'), n(rgm.checks.length, 'transfer status answer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer'), n(stm.added.length, 'support request'), n(stm.removed.length, 'support request removal'), n(stm.explained.length, '“explained” mark')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(rgm.added.length + rgm.updated.length, 'pilot transfer'), n(rgm.checks.length, 'transfer status answer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer'), n(stm.added.length, 'support request'), n(stm.removed.length, 'support request removal'), n(stm.explained.length, '“explained” mark'), n(checksIn, 'service check'), n(rollbacksIn, 'rollback record')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi, access: ari, support: sti } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi, access: ari, support: sti, services: svi, rollbacks: rbi } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
@@ -4251,8 +4280,10 @@ function previewReport(text) {
     if (timesIn) { testTimings = tmi.log; saveTestTimings(); }
     if (accessIn) { accessReview = ari.review; saveAccessReview(); renderAccessTabBadge(); renderSecurity(); }
     if (sti.changes || Object.keys(sti.tally.gone).length > Object.keys(supportTally.gone || {}).length) { supportTally = sti.tally; tallyLast = null; afterTallyChange(); }
+    if (svi.added) { serviceLog = svi.log; saveServiceLog(); renderReliability(); }
+    if (rbi.changes) { rollbackLog = rbi.log; saveRollbackLog(); renderRollbackLog(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times, the access review, the pilot support tally and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times, the access review, the pilot support tally, the service checks, the rollback records and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });

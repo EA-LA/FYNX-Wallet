@@ -66,6 +66,8 @@ Tick **Re-check every 10 minutes while this page is open** during test sessions 
 
 The FYNX owner server is counted as down only when the call fails with *unavailable*, *internal* or *timeout*; sign-in, App Check, rate-limit and "not updated yet" errors say nothing about uptime and are not counted. Only times, fixed state words and milliseconds are kept: never keys, addresses or error text. **Copy reliability report** / **Download report** gives the table and the outage list for the pilot files; **Forget kept checks** starts again.
 
+Checks made on more than one device add up: the Launch readiness test report carries the newest 300 checks of the last 30 days (section "Service checks": the exact time of each check and each service's state and answer time; nothing else). Paste it under **Bring in results from another device** and Pilot go / no-go counts them together. **Forget kept checks** does not travel: do it on each device. The Dashboard **Today** box shows a "services answering" tile with the time of the last check; when the FYNX server or both network links did not answer at a check in the last 24 hours, Today leads with it, because transfers cannot be checked then.
+
 **Pilot go / no-go** reads the last 14 days: it asks for at least 20 checks on 3 different days, flags any network service (server, Alchemy, backup) under 99%, and says **To finish** when the server, or both network connections, did not answer at the last check. CoinGecko only affects dollar values and never holds up the pilot.
 
 ## If something is wrong

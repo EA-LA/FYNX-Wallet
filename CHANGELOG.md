@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-20 20:20 UTC — [autopilot] Owner workspace: service health on Today, and pilot records that travel between your devices
+- **Today** (Dashboard tab) has a new **services answering** tile: how many of your services answered at the last check and how long ago that was. It turns red when Alchemy or the network backup did not answer, amber when only prices are affected or the last check is more than a day old. Press it to go to Your services.
+- If the FYNX server, or both network connections, did not answer at a check in the last 24 hours, **Today leads with it**: transfers cannot be checked then, which your rollback plan names as a reason to stop. **Copy today** lists the services that did not answer.
+- **Service checks travel between your devices**: the test report now carries your recent service checks (times and answers only). Bring the report in on your other device and the checks add up, so the pilot's "20 checks over 3 days" counts both your phone and your computer.
+- **A rollback record travels too**: start it on your phone, continue on your computer. Steps done on either device are kept; a record closed on one device closes on the other. Notes stay on the device where you typed them, and two rollbacks are never open at once.
+- While a real rollback is open, it shows in **Your dates** (and the calendar file) as due today, every day until you close it.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Dashboard (Today), and Launch readiness → Bring in results from another device.
+
 ## 2026-11-20 12:22 UTC — [autopilot] Owner workspace: measured reliability of your services
 - "Your services" (Launch readiness) now remembers every check and shows **How dependable they have been**: for the FYNX owner server, Alchemy, the public network backup and CoinGecko, the share of checks each one answered, how fast it usually answers and its slowest answers, the last failure, and a plain state such as "Dependable" or "Not answering now".
 - A list of **times a service stopped answering**, from when it stopped to when it came back.

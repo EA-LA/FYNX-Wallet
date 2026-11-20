@@ -253,3 +253,100 @@ export function rollbackMarkdown(run, { now = Date.now() } = {}) {
   L.push('', 'FYNX is self-custody: a rollback stops new activity and puts the software back; it cannot reverse on-chain transfers. Keep this record with the reconciliation reports. It contains no keys, addresses or customer details.', '');
   return L.join('\n');
 }
+
+// Travel between devices inside the Launch readiness test report: a rollback started on the phone can be
+// continued on the computer. Only the record id, real or practice, the fixed reason, each step's time (or
+// "not needed"), the ticked reopening conditions and how it ended travel. Notes stay on the device where they
+// were typed (they may name people or providers).
+export const ROLLBACK_SECTION = 'Rollback records (times and fixed names only)';
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const iso = ms => new Date(ms).toISOString();
+
+export function rollbackReportLines(log, now = Date.now()) {
+  const l = cleanLog(log, now), runs = [...(l.current ? [l.current] : []), ...l.past];
+  if (!runs.length) return [];
+  const L = [`## ${ROLLBACK_SECTION}`, '', 'From Launch readiness → Rollback record. Times in UTC; notes stay on the device where they were typed.', ''];
+  for (const r of runs) {
+    L.push(`- ${r.id} · started · ${iso(r.startedAt)} · ${r.practice ? 'practice' : 'real'} · ${r.trigger} · ${findTrigger(r.trigger).title}`);
+    for (const s of STEPS) { const e = r.steps[s.id]; if (e) L.push(`- ${r.id} · step · ${iso(e.at)} · ${s.id}${e.skip ? ' · not needed' : ''} · ${s.title}`); }
+    for (const c of REOPEN_CHECKS) if (r.checks[c.id]) L.push(`- ${r.id} · condition · ${iso(r.startedAt)} · ${c.id} · ${c.title}`);
+    if (r.outcome) L.push(`- ${r.id} · ended · ${iso(r.closedAt)} · ${r.outcome} · ${OUTCOMES[r.outcome]}`);
+  }
+  L.push('');
+  return L;
+}
+
+export function parseRollbackReport(text, now = Date.now()) {
+  const runs = new Map();
+  let inSection = false, unknown = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 20000)) {
+    if (/^##\s/.test(line)) { inSection = line.replace(/^##\s+/, '').trim() === ROLLBACK_SECTION; continue; }
+    if (!inSection || !/^\s*[-*]\s/.test(line)) continue;
+    const [id, kind, time, a, b] = line.replace(/^\s*[-*]\s+/, '').trim().split(' · ');
+    const at = ISO.test(time || '') ? Date.parse(time) : NaN;
+    if (!cleanId(id) || !Number.isFinite(at)) { unknown += 1; continue; }
+    const run = runs.get(id) || { id, steps: {}, checks: {} };
+    if (kind === 'started' && (a === 'real' || a === 'practice') && findTrigger(b)) Object.assign(run, { startedAt: at, practice: a === 'practice', trigger: b });
+    else if (kind === 'step' && findStepDef(a)) run.steps[a] = { at, ...(b === 'not needed' ? { skip: true } : {}) };
+    else if (kind === 'condition' && REOPEN_CHECKS.some(c => c.id === a)) run.checks[a] = true;
+    else if (kind === 'ended' && OUTCOMES[a]) Object.assign(run, { outcome: a, closedAt: at });
+    else { unknown += 1; continue; }
+    runs.set(id, run);
+  }
+  const all = [...runs.values()].map(r => cleanRun(r, now)).filter(Boolean);
+  const open = all.filter(r => !r.outcome).sort((x, y) => y.startedAt - x.startedAt);
+  const past = all.filter(r => r.outcome).sort((x, y) => y.closedAt - x.closedAt);
+  return { open, past, count: all.length, unknown, leftOut: runs.size - all.length };
+}
+
+// Bring records from the report into this browser's log, matched by record id:
+// - a record new here is added (an open one only when no other record is open here; otherwise it is left out
+//   and named in `conflict`, so two rollbacks are never open at once);
+// - for a record on both: steps and conditions recorded on either device are kept (this browser's time and note
+//   win for a step on both); a record ended on either device is ended here too.
+// Removing an earlier record and unticking a condition do not travel: do them on each device.
+export function mergeRollbacks(local, parsed, now = Date.now()) {
+  const mine = cleanLog(local, now);
+  let current = mine.current;
+  const past = new Map(mine.past.map(r => [r.id, r]));
+  const added = [], updated = [], same = [], conflict = [], ended = [];
+  const combine = (have, inc) => {
+    const steps = { ...inc.steps, ...have.steps };
+    const checks = { ...inc.checks, ...have.checks };
+    const out = { ...have, steps, checks };
+    if (!have.outcome && inc.outcome) { out.outcome = inc.outcome; out.closedAt = inc.closedAt; }
+    return out;
+  };
+  const sameRun = (x, y) => JSON.stringify([x.steps, x.checks, x.outcome || null]) === JSON.stringify([y.steps, y.checks, y.outcome || null]);
+  for (const inc of [...(parsed?.past || []), ...(parsed?.open || [])]) {
+    const have = current?.id === inc.id ? current : past.get(inc.id);
+    if (have) {
+      const out = combine(have, inc);
+      if (sameRun(out, have)) { same.push(inc.id); continue; }
+      updated.push(inc.id);
+      if (current?.id === inc.id && out.outcome) { current = null; past.set(out.id, out); ended.push(out.id); }
+      else if (current?.id === inc.id) current = out;
+      else past.set(out.id, out);
+      continue;
+    }
+    if (inc.outcome) { past.set(inc.id, inc); added.push(inc.id); continue; }
+    if (current) { conflict.push(inc.id); continue; }
+    current = inc; added.push(inc.id);
+  }
+  const log = cleanLog({ current, past: [...past.values()] }, now);
+  const keptIds = new Set([...(log.current ? [log.current.id] : []), ...log.past.map(r => r.id)]);
+  return { log, added: added.filter(id => keptIds.has(id)), updated, same, conflict, ended, changes: added.filter(id => keptIds.has(id)).length + updated.length };
+}
+
+// For "Your dates" (owner-dates.js): an open real rollback is due today until it is closed. Practice records
+// are left out: they are not urgent.
+export function rollbackDate(log, now = Date.now()) {
+  const run = log?.current;
+  if (!run || run.practice) return null;
+  const p = rollbackProgress(run, now);
+  return {
+    startedDay: new Date(run.startedAt).toISOString().slice(0, 10),
+    title: p.next ? `Finish the rollback: next “${p.next.title}”` : 'Close the rollback record',
+    detail: `Started ${utcStamp(run.startedAt)} UTC (${findTrigger(run.trigger).title.toLowerCase()}); ${p.done} of ${p.total} steps recorded. Launch readiness → Rollback record.`,
+  };
+}

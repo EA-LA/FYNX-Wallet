@@ -183,3 +183,99 @@ export function reliabilityMarkdown(log, { now = Date.now(), days = 7 } = {}) {
   if (pc) L.push('', `## For the pilot (last ${PILOT_WINDOW_DAYS} days)`, '', `${pc.state === 'ok' ? 'OK' : pc.state === 'block' ? 'Stop' : 'Look at'}: ${md(pc.detail)}`);
   return L.join('\n');
 }
+
+// Short form for "Today · What needs you" on the Dashboard tab. null until a check was kept. `down` lists the
+// services whose last check failed; `block` is true when the owner server, or every measured network link,
+// did not answer (the rollback plan's "cannot check transfers"). A last check older than a day is `stale`:
+// it says how things were, not how they are, so it never leads the Today headline.
+export function briefReliability(log, now = Date.now()) {
+  const checks = log?.checks || [];
+  if (!checks.length) return null;
+  const sum = reliabilitySummary(log, { now, days: null });
+  const lastAt = checks[checks.length - 1].at;
+  const rows = sum.rows.filter(r => r.last && MEASURED.has(r.last.state));
+  const down = rows.filter(r => r.verdict === 'down');
+  const net = rows.filter(r => r.network && r.id !== 'server');
+  const block = down.some(r => r.id === 'server') || (net.length > 0 && net.every(r => r.verdict === 'down'));
+  const stale = now - lastAt > DAY;
+  const since = id => outages(checks, id).find(o => o.ongoing)?.from ?? null;
+  return {
+    lastAt, stale, block, measured: rows.length, answering: rows.length - down.length,
+    down: down.map(r => ({ id: r.id, name: r.name, since: since(r.id), network: r.network })),
+    headline: !down.length ? '' : block
+      ? `${down.filter(r => r.network).map(r => r.name.replace(/ \(.*\)$/, '')).join(' and ')} did not answer at the last check: transfers cannot be checked. Check your services again; if it lasts, the rollback plan says to stop new real-money transfers.`
+      : `${down.map(r => r.name.replace(/ \(.*\)$/, '')).join(' and ')} did not answer at the last check; ${down.every(r => !r.network) ? 'only dollar values are affected' : 'the other network link still works'}.`,
+  };
+}
+
+// Travel between devices inside the Launch readiness test report, so checks made on the phone and on the
+// computer add up to the pilot's "20 checks over 3 days". One line per check: its exact time and each
+// service's fixed state and milliseconds. Never keys, URLs, addresses or error text.
+export const RELIABILITY_SECTION = 'Service checks (times and states only)';
+export const REPORT_DAYS = 30;
+export const REPORT_MAX = 300;
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const MS_WORD = /^(\d{1,6}) ms$/;
+
+export function reliabilityReportLines(log, now = Date.now()) {
+  const checks = cleanChecks(log, now).checks.filter(c => c.at >= now - REPORT_DAYS * DAY).slice(-REPORT_MAX);
+  if (!checks.length) return [];
+  const L = [`## ${RELIABILITY_SECTION}`, '', `From Launch readiness → Your services → “How dependable they have been”: the newest ${REPORT_MAX} checks of the last ${REPORT_DAYS} days. Each line is one check: its time, then each service with its answer time in ms, or its state (error, missing, invalid). “server down” means the FYNX owner server did not answer.`, ''];
+  for (const c of checks) {
+    const parts = [new Date(c.at).toISOString()];
+    if (c.server === 'down') parts.push('server down');
+    else {
+      parts.push(c.ms === null || c.ms === undefined ? 'server ok' : `server ${c.ms} ms`);
+      for (const svc of SERVICES) {
+        const v = c.s?.[svc.id]; if (!v) continue;
+        parts.push(v[0] === 'working' ? (v[1] === undefined ? `${svc.id} working` : `${svc.id} ${v[1]} ms`) : `${svc.id} ${v[0]}`);
+      }
+    }
+    if (c.auto) parts.push('auto');
+    L.push(`- ${parts.join(' · ')}`);
+  }
+  L.push('');
+  return L;
+}
+
+export function parseReliabilityReport(text, now = Date.now()) {
+  const raw = [];
+  let inSection = false, unknown = 0, lines = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 20000)) {
+    if (/^##\s/.test(line)) { inSection = line.replace(/^##\s+/, '').trim() === RELIABILITY_SECTION; continue; }
+    if (!inSection || !/^\s*[-*]\s/.test(line)) continue;
+    lines += 1;
+    const [time, server, ...rest] = line.replace(/^\s*[-*]\s+/, '').trim().split(' · ');
+    if (!ISO.test(time || '')) { unknown += 1; continue; }
+    const at = Date.parse(time), auto = rest[rest.length - 1] === 'auto';
+    if (auto) rest.pop();
+    if (server === 'server down' && !rest.length) { raw.push({ at, server: 'down', auto }); continue; }
+    const sm = /^server (?:ok|(\d{1,6}) ms)$/.exec(server || '');
+    if (!sm) { unknown += 1; continue; }
+    const s = {}; let bad = false;
+    for (const part of rest) {
+      const sp = part.indexOf(' '), id = part.slice(0, sp), word = part.slice(sp + 1), m = MS_WORD.exec(word);
+      if (sp < 1 || !IDS.has(id) || id === 'server' || s[id]) { bad = true; break; }
+      if (m) s[id] = ['working', Number(m[1])];
+      else if (STATES.has(word)) s[id] = [word];
+      else { bad = true; break; }
+    }
+    if (bad) { unknown += 1; continue; }
+    raw.push({ at, server: 'ok', ms: sm[1] === undefined ? null : Number(sm[1]), auto, s });
+  }
+  const log = cleanChecks({ checks: raw }, now);
+  return { log, count: log.checks.length, unknown, leftOut: Math.max(0, lines - unknown - log.checks.length) };
+}
+
+// Union by exact check time (each check is one moment in one browser). A check this browser already has stays
+// as it is. "Forget kept checks" does not travel: forget on each device.
+export function mergeServiceChecks(local, incoming, now = Date.now()) {
+  const mine = cleanChecks(local, now), inc = cleanChecks(incoming, now);
+  const have = new Set(mine.checks.map(c => c.at));
+  const fresh = inc.checks.filter(c => !have.has(c.at));
+  const merged = cleanChecks({ checks: [...mine.checks, ...fresh] }, now);
+  const keptAt = new Set(merged.checks.map(c => c.at));
+  const added = fresh.filter(c => keptAt.has(c.at)).length;
+  const days = new Set(merged.checks.map(c => new Date(c.at).toISOString().slice(0, 10))).size;
+  return { log: merged, added, same: inc.checks.length - fresh.length, dropped: fresh.length - added, days };
+}

@@ -19,7 +19,10 @@ const plural = (n, w, many = `${w}s`) => `${n} ${n === 1 ? w : many}`;
 //            alerts: [{ id, title, level: 'stop' | 'check', kind, people }] }); null when nothing is logged
 //   rollback: optional open rollback record from rollback-log.js briefRollback() ({ practice, done, total, stopped,
 //             next, headline }); null when no record is open
-export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = {}, session = null, wallet = null, support = null, rollback = null } = {}) {
+//   services: optional service-reliability.js briefReliability() ({ lastAt, stale, block, measured, answering,
+//             down: [{ id, name, since, network }], headline }); null until a services check was kept
+//   now: the current time in ms (for "checked n minutes ago")
+export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = {}, session = null, wallet = null, support = null, rollback = null, services = null, now = Date.now() } = {}) {
   const o = { done: 0, total: 0, percent: 0, yours: 0, yoursDone: 0, failed: 0, ...overview };
   const d = { overdue: 0, today: 0, soon: 0, upcoming: 0, items: [], ...dates };
   const p = { open: 0, overdue: 0, dueSoon: 0, ...privacy };
@@ -34,8 +37,14 @@ export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = 
   const stopAlerts = sp ? sp.alerts.filter(a => a.level === 'stop') : [], checkAlerts = sp ? sp.alerts.filter(a => a.level === 'check') : [];
   // A real rollback under way outranks everything else: the owner is in the middle of stopping the pilot.
   const rb = rollback && rollback.headline ? rollback : null;
+  // The owner server or every network link not answering at a recent check: transfers cannot be checked, which
+  // the rollback plan names as a reason to stop. It ranks after a rollback trigger, before the rest.
+  const sv = services && services.lastAt ? services : null;
+  const svBlock = sv && sv.block && !sv.stale && sv.down.length;
   let tone = 'calm', headline;
   if (rb && !rb.practice) { tone = 'overdue'; headline = rb.headline; }
+  else if (stopAlerts.length && svBlock) { tone = 'overdue'; headline = stopAlerts.length === 1 ? `Rollback trigger: “${stopAlerts[0].title}” came from ${stopAlerts[0].people} pilot users within a day, and ${sv.headline}` : `Rollback trigger: ${stopAlerts.length} complaints each came from two or more pilot users within a day, and ${sv.headline}`; }
+  else if (svBlock) { tone = 'overdue'; headline = sv.headline; }
   else if (stopAlerts.length) { tone = 'overdue'; headline = stopAlerts.length === 1 ? `Rollback trigger: “${stopAlerts[0].title}” came from ${stopAlerts[0].people} pilot users within a day. Turn off real-money sending and follow the rollback plan, or mark it explained.` : `Rollback trigger: ${stopAlerts.length} complaints each came from two or more pilot users within a day. Turn off real-money sending and follow the rollback plan, or mark them explained.`; }
   else if (checkAlerts.length) { tone = 'overdue'; headline = `${plural(checkAlerts.length, 'pilot support request needs', 'pilot support requests need')} explaining within 1 hour of arriving: ${checkAlerts.map(a => `“${a.title}”`).join(', ')}.`; }
   else if (d.overdue) { tone = 'overdue'; headline = `${plural(d.overdue, 'dated item is', 'dated items are')} overdue: start there.`; }
@@ -72,6 +81,16 @@ export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = 
       tone: stopAlerts.length || checkAlerts.length ? 'overdue' : 'info',
     });
   }
+  if (sv) {
+    const mins = Math.max(0, Math.floor((now - sv.lastAt) / 60000));
+    const ago = mins < 1 ? 'checked just now' : mins < 60 ? `checked ${mins} min ago` : mins < 48 * 60 ? `checked ${Math.floor(mins / 60)} h ago` : `checked ${Math.floor(mins / 1440)} days ago`;
+    const first = sv.down[0];
+    stats.push({
+      id: 'services', value: `${sv.answering}/${sv.measured}`, label: 'services answering',
+      detail: first ? `${first.name.replace(/ \(.*\)$/, '')} not answering${sv.down.length > 1 ? ` (+${sv.down.length - 1})` : ''} · ${ago}` : sv.stale ? `${ago} · check again` : ago,
+      tone: first && !sv.stale ? (sv.block || first.network ? 'overdue' : 'soon') : sv.stale ? 'soon' : 'done',
+    });
+  }
   if (rb) {
     stats.push({
       id: 'rollback', value: `${rb.done}/${rb.total}`, label: rb.practice ? 'rollback practice steps' : 'rollback steps done',
@@ -83,7 +102,7 @@ export function todayBrief({ overview = {}, dates = {}, privacy = {}, outside = 
   const urgent = (d.items || []).filter(i => i.state === 'overdue' || i.state === 'today' || i.state === 'soon');
   // Open support alerts, rollback triggers first (the page lists them with a button to the tally).
   const supportAlerts = [...stopAlerts, ...checkAlerts];
-  return { tone, headline, stats, urgent, supportAlerts, rollback: rb };
+  return { tone, headline, stats, urgent, supportAlerts, rollback: rb, services: sv && sv.down.length && !sv.stale ? sv : null };
 }
 
 // Fixed words for what the last status check said about the newest transfer sent from FYNX (pilot register
@@ -99,6 +118,10 @@ export function briefText(b, { today = '' } = {}) {
   const lines = [`FYNX owner workspace · today${today ? ` (${today})` : ''}`, '', b.headline, ''];
   if (b.rollback && b.rollback.practice) lines.splice(3, 0, b.rollback.headline);
   for (const s of b.stats) lines.push(`- ${s.value} ${s.label} (${s.detail})`);
+  if (b.services) {
+    lines.push('', 'Services:');
+    for (const x of b.services.down) lines.push(`- Not answering at the last check: ${x.name}`);
+  }
   if (b.supportAlerts?.length) {
     lines.push('', 'Pilot support:');
     for (const a of b.supportAlerts) lines.push(`- ${a.level === 'stop' ? `Rollback trigger: ${a.title} (${a.people} pilot users within a day)` : `To explain within 1 hour: ${a.title}`}`);
