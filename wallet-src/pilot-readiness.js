@@ -9,6 +9,7 @@ import { stepKey, stepState, overview } from './launch-tracker.js';
 import { runSummary, STAGES } from './incident-drill.js';
 import { supportCheck } from './support-tally.js';
 import { rollbackCheck } from './rollback-log.js';
+import { reliabilityCheck } from './service-reliability.js';
 
 export const APPROVE_KEY = stepKey('pilot', 'approve');
 export const PILOT_SCENARIO = 'pilot';
@@ -35,7 +36,7 @@ function findStep(plan, key) {
 const shortText = text => { const t = String(text || '').replace(/\s+/g, ' ').trim(); const cut = t.split(/(?<=[a-z0-9)])\.\s|:\s/i)[0]; return cut.length < t.length && cut.length > 12 ? cut : t.replace(/\.$/, ''); };
 
 // Everything optional; a missing fact is reported honestly, never assumed fine.
-export function pilotReadiness({ plan, records = {}, answers = {}, drill = null, register = null, mainnet = null, emergency = null, sheet = null, access = null, privacy = null, support = null, rollback = null, now = Date.now() } = {}) {
+export function pilotReadiness({ plan, records = {}, answers = {}, drill = null, register = null, mainnet = null, emergency = null, sheet = null, access = null, privacy = null, support = null, rollback = null, reliability = null, now = Date.now() } = {}) {
   const checks = [];
   const add = (group, state, title, detail, action = null) => checks.push({ group, state, title, detail, action });
   const approve = findStep(plan, APPROVE_KEY);
@@ -103,6 +104,9 @@ export function pilotReadiness({ plan, records = {}, answers = {}, drill = null,
     else add('safety', 'ok', 'Emergency plan', `Ready for all ${emergency.total} situations.`);
     if (sheet && sheet.state !== 'current') add('safety', 'warn', 'Emergency sheet', sheet.state === 'never' ? 'Not saved yet. Download it and keep a printed copy before the pilot.' : sheet.text, { kind: 'emergency' });
   }
+  // Measured service reliability (only when the check log was passed in): the network must be dependable.
+  const rel = reliabilityCheck(reliability, now);
+  if (rel) add('safety', rel.state, rel.title, rel.detail, rel.state === 'ok' ? null : { kind: 'services' });
 
   // 5. Support during the pilot: the tally from the support playbook (only when it was passed in).
   const sc = supportCheck(support);

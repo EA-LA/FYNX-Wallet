@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-20 12:22 UTC — [autopilot] Owner workspace: measured reliability of your services
+- "Your services" (Launch readiness) now remembers every check and shows **How dependable they have been**: for the FYNX owner server, Alchemy, the public network backup and CoinGecko, the share of checks each one answered, how fast it usually answers and its slowest answers, the last failure, and a plain state such as "Dependable" or "Not answering now".
+- A list of **times a service stopped answering**, from when it stopped to when it came back.
+- Choose the last 24 hours, 7 days, 30 days or everything kept. **Copy** or **Download** a reliability report for the pilot files (counts, percentages and times only; no keys or addresses).
+- Optional **Re-check every 10 minutes while this page is open**, so the figures build up during a test session without pressing the button. It pauses when the page is hidden and stops when you sign out.
+- **Pilot go / no-go** has a new check, "Services measured as dependable": at least 20 checks over 3 days, every network service at 99% or better, and a stop when the server or both network connections are down.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness → Your services.
+
 ## 2026-11-20 04:19 UTC — [autopilot] Owner workspace: a timed rollback record for the pilot
 - New "Rollback record" box in Launch readiness (below the Pilot support playbook). If something goes wrong during the pilot, choose "A real rollback" and the reason, then press "Done now" as you finish each of the seven rollback steps: the time is written down for you, in your time and in UTC, the way the rollback plan asks. Steps 4 and 5 (putting the website or server back) can be marked "Not needed".
 - Every step has a button to where it is done (Real-money sending, the support playbook, Portfolio & history, the release steps). The record never switches anything off or on by itself.

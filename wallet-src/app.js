@@ -11,6 +11,7 @@ import launchPlan from './launch-checklist.json';
 import { statusLabels } from './launch-status.js';
 import { TRACKER_KEY, RESULTS, resultLabels, byLabels, tabLabels, groupOf, groupLabels, stepKey, looksSecret, cleanRecords, stepState, gateProgress, overview, nextActions, launchOrder, waitingOn, stepIndex, shortStep, gateBlockers, engineeringBrief, reportMarkdown, parseReport, mergeRecords, browserSummary } from './launch-tracker.js';
 import { checkConnections } from './connection-checks.js';
+import { RELIABILITY_KEY, AUTO_MINUTES, VERDICT as REL_VERDICT, cleanChecks as cleanServiceChecks, recordStatus, recordServerDown, serverDownError, reliabilitySummary, outageLines, msText as relMs, reliabilityMarkdown } from './service-reliability.js';
 import { methodLabel, passkeyRows, signInMethods, freshness, idleLeft, minutesText, checkup, summaryText as securitySummary, relativeTime, identityTests, gateTests } from './security-checkup.js';
 import { setupSteps, faucetsFor, walletTests, TX_STEPS, txNote, walletTestSummary, swapHint } from './crypto-guide.js';
 import { PARTIES, partyStatus, partyLine, outsideBrief, handoffStateText } from './outside-handoff.js';
@@ -79,6 +80,11 @@ let permReading = null, permReadingAt = 0, permBusy = false;
 let supportTally;
 try { supportTally = cleanTally(JSON.parse(localStorage.getItem(TALLY_KEY) || 'null')); } catch { supportTally = cleanTally(null); }
 let rollbackLog;
+// Service reliability (Your services): every services check kept in this browser (times, fixed states, ms only).
+const SVC_AUTO_KEY = 'fynx-owner-service-auto-v1';
+let serviceLog, svcAuto = false, svcAutoTimer = 0, svcAutoLast = 0, svcPeriod = 7;
+try { serviceLog = cleanServiceChecks(JSON.parse(localStorage.getItem(RELIABILITY_KEY) || 'null')); } catch { serviceLog = cleanServiceChecks(null); }
+try { svcAuto = localStorage.getItem(SVC_AUTO_KEY) === 'on'; } catch { svcAuto = false; }
 try { rollbackLog = cleanRollbackLog(JSON.parse(localStorage.getItem(ROLLBACK_KEY) || 'null')); } catch { rollbackLog = cleanRollbackLog(null); }
 let tallyStatus = '';
 function saveSupportTally() {
@@ -240,6 +246,7 @@ async function refreshSession() {
   if (expected !== generation || !auth.currentUser) throw new Error('Your session changed. Sign in again.');
   session = result; setMainnetPolicy(result.mainnet); renderMainnet(); renderPasskeys(); updateWalletControls();
   renderLaunch(); // the emergency plan's dates and next steps depend on the signed-in account
+  if (svcAuto && !svcAutoTimer) scheduleServiceAuto();
 }
 function renderPasskeys() {
   const list = $('#passkey-list'); list.replaceChildren();
@@ -608,11 +615,113 @@ function renderServices(data) {
   const ready = (data.services || []).filter(s => s.state === 'working').length;
   setText('#svc-checked', `${ready} of ${(data.services || []).length} working · checked ${new Date(data.checkedAt).toLocaleTimeString()}`);
 }
-function clearServices() { $('#svc-list').replaceChildren(); setText('#svc-checked', ''); setText('#svc-status', ''); }
+function clearServices() { $('#svc-list').replaceChildren(); setText('#svc-checked', ''); setText('#svc-status', ''); stopServiceAuto(); setText('#svc-auto-status', ''); }
+// One services check, timed in this browser and kept in the reliability log. A server that does not answer
+// (unavailable, internal error, timeout) is recorded as down; sign-in, rate-limit or not-deployed errors are not.
+async function servicesCheck(auto) {
+  const started = Date.now();
+  try {
+    const data = await api({ action: 'services-status' });
+    serviceLog = recordStatus(serviceLog, data, { now: Date.now(), ms: Date.now() - started, auto }); saveServiceLog();
+    return data;
+  } catch (error) {
+    if (serverDownError(error)) { serviceLog = recordServerDown(serviceLog, { now: Date.now(), auto }); saveServiceLog(); }
+    throw error;
+  } finally { renderReliability(); renderPilotGate(); }
+}
+function saveServiceLog() {
+  try { if (serviceLog.checks.length) localStorage.setItem(RELIABILITY_KEY, JSON.stringify(serviceLog)); else localStorage.removeItem(RELIABILITY_KEY); } catch { /* storage blocked: the figures still show on this page */ }
+}
 $('#svc-check').addEventListener('click', event => run(event.currentTarget, async checkSession => {
-  const data = await serverCall({ action: 'services-status' }, '#svc-status'); checkSession();
-  if (data) { renderServices(data); setText('#svc-status', 'Checked. Keys are never shown here.'); }
+  let data;
+  try { data = await servicesCheck(false); } catch (error) { if (notDeployed(error)) { setText('#svc-status', SERVER_UPDATE); return; } throw error; }
+  checkSession();
+  renderServices(data); setText('#svc-status', 'Checked. Keys are never shown here. The answer was added to “How dependable they have been” below.');
+  scheduleServiceAuto();
 }, '#svc-status'));
+// Automatic re-check every AUTO_MINUTES while signed in, the page is visible and nothing else is running.
+// The 15-minute idle sign-out still applies: checks never count as activity.
+function stopServiceAuto() { clearTimeout(svcAutoTimer); svcAutoTimer = 0; }
+function scheduleServiceAuto() {
+  stopServiceAuto();
+  if (!svcAuto || !session) return;
+  const wait = Math.max(15000, (svcAutoLast || Date.now()) + AUTO_MINUTES * 60000 - Date.now());
+  svcAutoTimer = setTimeout(serviceAutoTick, wait);
+}
+async function serviceAutoTick() {
+  svcAutoTimer = 0;
+  if (!svcAuto || !session) return;
+  if (document.hidden || busy) { setText('#svc-auto-status', document.hidden ? 'Automatic re-check waits while this page is hidden.' : 'Automatic re-check waits for the current action to finish.'); svcAutoTimer = setTimeout(serviceAutoTick, 30000); return; }
+  const expected = generation; svcAutoLast = Date.now();
+  try {
+    const data = await servicesCheck(true);
+    if (expected !== generation) return;
+    renderServices(data); setText('#svc-auto-status', `Last automatic check ${new Date(svcAutoLast).toLocaleTimeString()} · next in about ${AUTO_MINUTES} minutes.`);
+  } catch (error) {
+    if (expected !== generation) return;
+    if (notDeployed(error)) { svcAuto = false; saveSvcAuto(); $('#svc-auto').checked = false; setText('#svc-auto-status', SERVER_UPDATE); return; }
+    setText('#svc-auto-status', `Automatic check at ${new Date(svcAutoLast).toLocaleTimeString()}: ${serverDownError(error) ? 'the FYNX server did not answer (recorded)' : errorMessage(error)}. Trying again in about ${AUTO_MINUTES} minutes.`);
+  }
+  scheduleServiceAuto();
+}
+function saveSvcAuto() { try { if (svcAuto) localStorage.setItem(SVC_AUTO_KEY, 'on'); else localStorage.removeItem(SVC_AUTO_KEY); } catch { /* not remembered */ } }
+$('#svc-auto').checked = svcAuto;
+$('#svc-auto').addEventListener('change', event => {
+  svcAuto = event.currentTarget.checked; saveSvcAuto();
+  if (svcAuto) { svcAutoLast = 0; scheduleServiceAuto(); setText('#svc-auto-status', session ? 'On. The first automatic check runs in a few seconds, then about every 10 minutes while this page is open.' : 'On. It starts when you sign in.'); }
+  else { stopServiceAuto(); setText('#svc-auto-status', 'Off.'); }
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && svcAuto && session && !svcAutoTimer) scheduleServiceAuto(); });
+const REL_TONE = { ok: 'ok', recent: 'flag', watch: 'todo', down: 'flag', 'not-added': 'todo', none: 'todo' };
+const relUtc = ms => `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+function relDownload() {
+  const url = URL.createObjectURL(new Blob([reliabilityMarkdown(serviceLog, { days: svcPeriod })], { type: 'text/markdown' })), a = document.createElement('a');
+  a.href = url; a.download = `fynx-service-reliability-${new Date().toISOString().slice(0, 10)}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function renderReliability() {
+  const box = document.getElementById('svc-reliability'); if (!box) return;
+  const sum = reliabilitySummary(serviceLog, { days: svcPeriod });
+  box.replaceChildren();
+  const head = el('div', 'rel-head'), h = el('h4', '', 'How dependable they have been');
+  const lab = el('label', 'rel-period'), sel = el('select'); sel.id = 'svc-period';
+  lab.append(el('span', '', 'Period'), sel); lab.htmlFor = 'svc-period';
+  for (const [v, t] of [[1, 'Last 24 hours'], [7, 'Last 7 days'], [30, 'Last 30 days'], [0, 'Everything kept (90 days)']]) { const o = el('option', '', t); o.value = String(v); o.selected = v === svcPeriod; sel.append(o); }
+  sel.addEventListener('change', () => { svcPeriod = Number(sel.value); renderReliability(); $('#svc-period').focus(); });
+  head.append(h, lab); box.append(head);
+  const total = serviceLog.checks.length;
+  if (!total) { box.append(el('p', 'hint rel-empty', 'No checks kept yet. Each press of Check my services (and each automatic re-check) is added here, so you can see how often each service answered, how fast, and when it stopped. Only times, states and response times are kept, in this browser.')); return; }
+  box.append(el('p', 'hint rel-line', sum.count ? `${sum.count} check${sum.count === 1 ? '' : 's'} on ${sum.dayCount} day${sum.dayCount === 1 ? '' : 's'}${sum.auto ? ` (${sum.auto} automatic)` : ''} · first ${relUtc(sum.since)}. Checks run only while this workspace is open: time between checks is not observed.` : `No checks in this period. ${total} older check${total === 1 ? ' is' : 's are'} kept: choose a longer period.`));
+  if (!sum.count) return;
+  const table = el('table', 'rel-table'), thead = el('thead'), tr0 = el('tr');
+  for (const t of ['Service', 'Worked', 'Typical answer', 'Slowest 5%', 'Last failure', 'State']) tr0.append(el('th', '', t));
+  thead.append(tr0); table.append(thead);
+  const body = el('tbody');
+  for (const r of sum.rows) {
+    const tr = el('tr', `is-${r.verdict}`);
+    const name = el('td'); name.dataset.label = 'Service'; name.append(el('strong', '', r.name), el('span', 'hint', r.role));
+    const worked = el('td', '', r.measured ? `${r.percent}% · ${r.working} of ${r.measured}` : r.notAdded ? 'Not added yet' : '—'); worked.dataset.label = 'Worked';
+    const typ = el('td', '', relMs(r.medianMs)); typ.dataset.label = 'Typical answer';
+    const slow = el('td', '', relMs(r.p95Ms)); slow.dataset.label = 'Slowest 5%';
+    const last = el('td', '', r.lastFailedAt ? relUtc(r.lastFailedAt) : r.measured ? 'None' : '—'); last.dataset.label = 'Last failure';
+    const st = el('td'); st.dataset.label = 'State'; st.append(el('span', `svc-state is-${REL_TONE[r.verdict]}`, REL_VERDICT[r.verdict]));
+    if (r.measured) { const bar = el('span', 'rel-bar'), fill = el('span'); fill.style.width = `${r.percent}%`; bar.append(fill); bar.setAttribute('aria-hidden', 'true'); worked.append(bar); }
+    tr.append(name, worked, typ, slow, last, st); body.append(tr);
+  }
+  table.append(body); box.append(table);
+  const lines = outageLines(sum, 6);
+  const out = el('div', 'rel-outages'); out.append(el('h5', '', 'Times a service stopped answering'));
+  if (!lines.length) out.append(el('p', 'hint', 'None in this period.'));
+  else { const ul = el('ul'); for (const o of lines) ul.append(el('li', o.ongoing ? 'is-ongoing' : '', o.text)); out.append(ul); }
+  box.append(out);
+  const actions = el('div', 'od-actions');
+  const copy = el('button', 'button secondary', 'Copy reliability report'); copy.type = 'button';
+  copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(reliabilityMarkdown(serviceLog, { days: svcPeriod })); setText('#svc-status', 'Reliability report copied: counts, percentages, response times and outage times only.'); } catch { setText('#svc-status', 'Copying was blocked by the browser. Use Download instead.'); } });
+  const dl = el('button', 'button secondary', 'Download report'); dl.type = 'button';
+  dl.addEventListener('click', () => { relDownload(); setText('#svc-status', 'Reliability report downloaded. Keep it with the pilot records.'); });
+  const forget = el('button', 'text-button', 'Forget kept checks'); forget.type = 'button';
+  forget.addEventListener('click', () => { if (!confirm(`Forget all ${total} kept service checks in this browser? The reliability figures start again from zero.`)) return; serviceLog = cleanServiceChecks(null); saveServiceLog(); renderReliability(); renderPilotGate(); setText('#svc-status', 'Kept checks forgotten in this browser.'); $('#svc-check').focus(); });
+  actions.append(copy, dl, forget); box.append(actions);
+}
 
 const usd = value => value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const amountText = value => { const n = Number(value); return n === 0 ? '0' : n < 0.0001 ? '< 0.0001' : n.toLocaleString(undefined, { maximumFractionDigits: 6 }); };
@@ -3363,7 +3472,7 @@ function currentPilotReadiness() {
     plan: launchPlan, records: launchRecords, answers: decisionAnswers, drill, register: pilotRegister, mainnet: mainnetPolicy(),
     emergency, sheet: emergency ? sheetFreshness(emergencySaved, emergency.state, accessToday()) : null,
     access: accessSummary(accessReview, accessToday()), privacy: privacyAttention(privacyLog, localToday()),
-    support: tallySummary(supportTally), rollback: rollbackLog,
+    support: tallySummary(supportTally), rollback: rollbackLog, reliability: serviceLog,
   });
 }
 function pilotGateAction(action) {
@@ -3379,13 +3488,14 @@ function pilotGateAction(action) {
   if (action.kind === 'emergency') { openEmergencyPlan(); return; }
   if (action.kind === 'support') { selectTab('launch'); scrollToCard('#spb-tally'); return; }
   if (action.kind === 'rollback') { openRollback(); return; }
+  if (action.kind === 'services') { selectTab('launch'); scrollToCard('#services'); return; }
   if (action.kind === 'failed') {
     const failed = nextActions(launchPlan, launchRecords, 200).find(a => a.failed);
     selectTab('launch'); if (failed) openStep(stepKey(failed.gate.id, failed.step.id));
   }
 }
 const PILOT_STATE = { ok: ['OK', 'is-ok'], warn: ['Look at', 'is-warn'], block: ['To finish', 'is-block'], info: ['Note', 'is-info'] };
-const PILOT_GO = { step: 'Open the step', decision: 'Open the decision', drill: 'Open the practice run', mainnet: 'Open Real-money sending', reconcile: 'Open Portfolio & history', wallet: 'Open Crypto tools', privacy: 'Open the request', access: 'Open the access review', emergency: 'Open the emergency plan', support: 'Open the support requests', rollback: 'Open the rollback record', failed: 'Open the failed test' };
+const PILOT_GO = { step: 'Open the step', decision: 'Open the decision', drill: 'Open the practice run', mainnet: 'Open Real-money sending', reconcile: 'Open Portfolio & history', wallet: 'Open Crypto tools', privacy: 'Open the request', access: 'Open the access review', emergency: 'Open the emergency plan', support: 'Open the support requests', rollback: 'Open the rollback record', services: 'Open Your services', failed: 'Open the failed test' };
 function pilotApprovalText() { return approvalMarkdown(currentPilotReadiness(), { plan: launchPlan, answers: decisionAnswers, mainnet: mainnetPolicy() }); }
 function renderPilotGate() {
   const box = document.getElementById('pilot-gate'); if (!box) return;
@@ -3871,7 +3981,7 @@ function stepRow(gate, step) {
 function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   const open = new Set([...document.querySelectorAll('#launch-checklist details[open]')].map(d => d.dataset.gate));
   if (keepOpen) open.add(keepOpen);
-  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderSupportPlaybook(); renderSupportTally(); renderRollbackLog(); renderLaunchFilters();
+  renderLaunchOverview(); renderLaunchOrder(); renderTestSession(); renderPilotGate(); renderSupportPlaybook(); renderSupportTally(); renderRollbackLog(); renderReliability(); renderLaunchFilters();
   const list = $('#launch-checklist'); list.replaceChildren();
   for (const item of launchPlan.items) {
     if (launchFilter !== 'all' && groupOf(item.status) !== launchFilter) continue;

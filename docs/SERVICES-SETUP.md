@@ -54,6 +54,20 @@ This deploys only the FYNX owner function. Never run a plain `firebase deploy` i
 2. Open **Crypto tools → Portfolio & history**. Press **Check balances**, then choose a network and press **Load history**. Compare one transfer with the block explorer link next to it.
 3. Record the results in Launch readiness (Assets gate: "Compare balances" and "Track confirmation").
 
+## Measure how dependable they are (before and during the pilot)
+
+Every **Check my services** answer is kept in that browser and added up under **How dependable they have been** (Launch readiness → Your services):
+
+- per service (FYNX owner server, Alchemy, public network backup, CoinGecko): the share of checks it answered, its typical answer time and its slowest 5%, the last failure, and a state (**Dependable**, **Failed in the last 24 hours**, **Has failed**, **Not answering now**, **Not added yet**);
+- **Times a service stopped answering**: from the first failed check to the next check that worked (at least that long, because time between checks is not observed);
+- periods: last 24 hours, 7 days, 30 days, or everything kept (90 days, newest 1,500 checks).
+
+Tick **Re-check every 10 minutes while this page is open** during test sessions to measure without pressing the button. It pauses while the page is hidden or another action runs, stops when you sign out, and does not keep you signed in (the 15-minute idle sign-out still applies). Each check is the same read-only `services-status` call; at about 6 per hour it stays far inside the server's limit of 120 calls per 15 minutes and CoinGecko's free monthly quota.
+
+The FYNX owner server is counted as down only when the call fails with *unavailable*, *internal* or *timeout*; sign-in, App Check, rate-limit and "not updated yet" errors say nothing about uptime and are not counted. Only times, fixed state words and milliseconds are kept: never keys, addresses or error text. **Copy reliability report** / **Download report** gives the table and the outage list for the pilot files; **Forget kept checks** starts again.
+
+**Pilot go / no-go** reads the last 14 days: it asks for at least 20 checks on 3 different days, flags any network service (server, Alchemy, backup) under 99%, and says **To finish** when the server, or both network connections, did not answer at the last check. CoinGecko only affects dollar values and never holds up the pilot.
+
 ## If something is wrong
 
 - **Key looks wrong:** the value is too short or contains spaces. Copy the key again (just the key, not a URL) and add a new secret version.
