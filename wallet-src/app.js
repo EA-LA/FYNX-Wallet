@@ -44,6 +44,7 @@ import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue,
 import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { pilotList, inviteCSV, decidedPilot, openStopRequests, pilotSummary, headline as pilotHeadline, cleanSize, cleanCode, DEFAULT_SIZE as PILOT_DEFAULT } from './pilot-invites.js';
+import { launchChips, walletChips, guideItems, activeIndex, itemLabel } from './section-guide.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -103,6 +104,7 @@ function selectTab(name) {
   if (name === 'registrations') { renderWaitlistTests(); renderPrivacyLog(); }
   if (name === 'wallet') { renderCryptoSetup(); renderCryptoTests(); }
   if (name === 'launch') renderPilotGate(); // the switch, register and sign-in facts may have changed on other tabs
+  scheduleGuide();
 }
 function clearDashboard() {
   clearTimeout(dashboardTimer);
@@ -2630,6 +2632,7 @@ function todaySupportBlock(alerts) {
   return wrap;
 }
 function renderTodayBrief() {
+  scheduleGuide();
   const box = document.getElementById('today-brief'); if (!box) return;
   const b = currentTodayBrief(), today = localToday();
   box.replaceChildren();
@@ -3501,6 +3504,7 @@ const PILOT_STATE = { ok: ['OK', 'is-ok'], warn: ['Look at', 'is-warn'], block: 
 const PILOT_GO = { step: 'Open the step', decision: 'Open the decision', drill: 'Open the practice run', mainnet: 'Open Real-money sending', reconcile: 'Open Portfolio & history', wallet: 'Open Crypto tools', privacy: 'Open the request', access: 'Open the access review', emergency: 'Open the emergency plan', support: 'Open the support requests', rollback: 'Open the rollback record', services: 'Open Your services', failed: 'Open the failed test' };
 function pilotApprovalText() { return approvalMarkdown(currentPilotReadiness(), { plan: launchPlan, answers: decisionAnswers, mainnet: mainnetPolicy() }); }
 function renderPilotGate() {
+  scheduleGuide();
   const box = document.getElementById('pilot-gate'); if (!box) return;
   const r = currentPilotReadiness();
   box.replaceChildren();
@@ -4402,6 +4406,7 @@ function applyDecisionDraft(details, decision, draft) {
   markDecisionDirty(details, true);
 }
 function renderDecisions() {
+  scheduleGuide();
   const list = document.getElementById('ld-list'); if (!list) return;
   const open = new Set([...list.querySelectorAll('details[open]')].map(d => d.dataset.decision));
   const drafts = decisionDrafts(list), focused = list.contains(document.activeElement) && document.activeElement.id ? document.activeElement.id : '';
@@ -4571,6 +4576,7 @@ function drillSummaryBox(run) {
   return box;
 }
 function renderDrill() {
+  scheduleGuide();
   const body = document.getElementById('dr-body'); if (!body) return;
   const run = drill.current, rec = launchRecords[DRILL_STEP], recorded = rec?.result === 'pass' || rec?.result === 'skip';
   const score = $('#dr-score'), s = runSummary(run);
@@ -4654,6 +4660,7 @@ function goToControl(id) {
   focusable?.focus({ preventScroll: true });
 }
 function renderCryptoSetup() {
+  scheduleGuide();
   const list = document.getElementById('cg-steps'); if (!list) return;
   let network; try { network = selectedNetwork(); } catch { return; }
   const verified = !!verifiedAddress && connection?.address === verifiedAddress;
@@ -4757,6 +4764,80 @@ $('#run-connection-checks').addEventListener('click', event => run(event.current
   }
   setText('#connection-status', `Checked ${new Date().toLocaleString()}. Results describe this moment only; they do not certify signing, transfers or launch readiness.`);
 }, '#connection-status'));
+// Section guide: a sticky row of jump buttons on the long tabs (Launch readiness, Crypto tools), each with a
+// short live status from what this browser already knows. Read-only; it only scrolls and moves focus.
+let guideFrame = 0, guideScrollFrame = 0;
+function scheduleGuide() {
+  if (guideFrame || typeof requestAnimationFrame !== 'function') return;
+  guideFrame = requestAnimationFrame(() => { guideFrame = 0; try { renderSectionGuide(); } catch { /* the guide must never break the page */ } });
+}
+function visibleGuideTab() {
+  for (const tab of ['launch', 'wallet']) { const panel = document.getElementById(`tab-${tab}`); if (panel && !panel.hidden) return tab; }
+  return null;
+}
+function guideChips(tab) {
+  if (tab === 'wallet') {
+    let waiting = 0; try { waiting = waitingItems(journal.values(), selectedNetwork().id).length; } catch { waiting = 0; }
+    const verified = !!verifiedAddress && connection?.address === verifiedAddress;
+    return walletChips({ tests: walletTests(launchPlan, launchRecords), wallet: verified ? 'verified' : connection?.address ? 'connected' : 'none', waiting, mainnet: !!mainnetPolicy().enabled });
+  }
+  const o = overview(launchPlan, launchRecords);
+  const drillEntry = launchIndex.get('operations/drill');
+  return launchChips({
+    overview: o, dates: ownerDates(), readyYou: launchOrder(launchPlan, launchRecords).readyYou.length,
+    session: testSession && !testSession.finished ? sessionProgress(testSession, launchPlan, launchRecords) : null,
+    pilot: currentPilotReadiness(), support: briefSupport(tallySummary(supportTally)), rollback: briefRollback(rollbackLog),
+    services: briefReliability(serviceLog), decisions: decisionsProgress(launchPlan, launchRecords, decisionAnswers),
+    drill: { done: !!drillEntry && stepState(drillEntry.gate, drillEntry.step, launchRecords) === 'done', running: !!drill?.current },
+  });
+}
+function renderSectionGuide() {
+  const tab = visibleGuideTab(); if (!tab) return;
+  const nav = document.getElementById(`sec-guide-${tab}`); if (!nav) return;
+  const items = guideItems(tab, guideChips(tab), target => { const node = document.querySelector(target); return !!node && !node.hidden; });
+  const focusedId = nav.contains(document.activeElement) ? document.activeElement.dataset.section : null;
+  const keepLeft = nav.querySelector('ol')?.scrollLeft || 0;
+  const list = el('ol', 'sec-guide-list');
+  for (const item of items) {
+    const li = el('li'), b = el('button', 'sec-link'); b.type = 'button'; b.dataset.section = item.id; b.dataset.target = item.target;
+    b.append(el('span', 'sec-link-label', item.label));
+    if (item.chip) { const c = el('span', `sec-chip is-${item.chip.tone}`, item.chip.text); c.setAttribute('aria-hidden', 'true'); b.append(c); }
+    b.setAttribute('aria-label', itemLabel(item));
+    b.addEventListener('click', () => jumpToSection(item.target));
+    li.append(b); list.append(li);
+  }
+  nav.replaceChildren(list); nav.hidden = items.length < 2;
+  list.scrollLeft = keepLeft;
+  if (focusedId) list.querySelector(`[data-section="${CSS.escape(focusedId)}"]`)?.focus({ preventScroll: true });
+  markActiveSection(false);
+}
+function guideLine(nav) { return (nav?.getBoundingClientRect().height || 0) + 28; }
+function jumpToSection(target) {
+  const node = document.querySelector(target); if (!node) return;
+  node.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  const heading = node.matches('h2, h3') ? node : node.querySelector('h2, h3');
+  if (heading) { if (!heading.hasAttribute('tabindex')) heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+}
+function markActiveSection(follow = true) {
+  const tab = visibleGuideTab(); if (!tab) return;
+  const nav = document.getElementById(`sec-guide-${tab}`); if (!nav || nav.hidden) return;
+  const buttons = [...nav.querySelectorAll('.sec-link')]; if (!buttons.length) return;
+  const tops = buttons.map(b => { const node = document.querySelector(b.dataset.target); return node ? node.getBoundingClientRect().top : NaN; });
+  const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+  let index = activeIndex(tops, guideLine(nav));
+  if (atEnd) { let last = -1; tops.forEach((t, i) => { if (Number.isFinite(t) && t < window.innerHeight) last = i; }); if (last > index) index = last; }
+  buttons.forEach((b, i) => { if (i === index) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+  const active = buttons[index], list = nav.querySelector('ol');
+  if (follow && active && list) {
+    const l = active.offsetLeft - list.offsetLeft, r = l + active.offsetWidth;
+    if (l < list.scrollLeft || r > list.scrollLeft + list.clientWidth) list.scrollLeft = Math.max(0, l - 16);
+  }
+}
+window.addEventListener('scroll', () => {
+  if (guideScrollFrame) return;
+  guideScrollFrame = requestAnimationFrame(() => { guideScrollFrame = 0; markActiveSection(); });
+}, { passive: true });
+window.addEventListener('resize', () => markActiveSection(false), { passive: true });
 for (const event of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(event, () => { lastActivity = Date.now(); }, { passive: true });
 setInterval(() => { if (auth?.currentUser && Date.now() - lastActivity > 15 * 60000) { signOut(auth); setText('#auth-status', 'Signed out after 15 minutes of inactivity.'); } }, 30000);
 renderPermissions();

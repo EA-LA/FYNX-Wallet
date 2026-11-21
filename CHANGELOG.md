@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-21 00:25 UTC — [autopilot] Owner workspace: a section bar on the two longest tabs
+- **Launch readiness** now opens with a bar of buttons, one per part of the tab: Overview, Your dates, Progress update, Finished, What can move now, Test session, Pilot go / no-go, Support playbook, Rollback record, Your services, Checklist, Decisions, Practice run and Connections. Press one to jump straight there instead of scrolling a very long page (about 20 screens on a phone).
+- Each button shows a small live status from what this browser has recorded, for example "18%", "26 ready", "9 to finish", "Not checked", "0/12" or "Not yet". Red means something needs you now (an overdue date, a failed test, a real rollback, a service down), amber means waiting on you, green means done. Nothing is invented: a part with nothing recorded shows no status.
+- **Crypto tools** gets the same bar: Test guide (your wallet tests done), Connect (not connected / connected / verified), Balances, Send, Swap, Spending permissions, Track (transactions still waiting), Buy & sell, Real-money switch (on / off) and Portfolio & history.
+- The bar stays at the top of the screen while you scroll and highlights the part you are reading. It works on phones (swipe the bar sideways) and with the keyboard and screen readers. It only scrolls the page: it never changes, sends or switches anything.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Launch readiness, and → Crypto tools.
+
 ## 2026-11-20 20:20 UTC — [autopilot] Owner workspace: service health on Today, and pilot records that travel between your devices
 - **Today** (Dashboard tab) has a new **services answering** tile: how many of your services answered at the last check and how long ago that was. It turns red when Alchemy or the network backup did not answer, amber when only prices are affected or the last check is more than a day old. Press it to go to Your services.
 - If the FYNX server, or both network connections, did not answer at a check in the last 24 hours, **Today leads with it**: transfers cannot be checked then, which your rollback plan names as a reason to stop. **Copy today** lists the services that did not answer.
