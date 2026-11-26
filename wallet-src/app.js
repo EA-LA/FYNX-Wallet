@@ -44,7 +44,7 @@ import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue,
 import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { pilotList, inviteCSV, decidedPilot, openStopRequests, pilotSummary, headline as pilotHeadline, cleanSize, cleanCode, DEFAULT_SIZE as PILOT_DEFAULT } from './pilot-invites.js';
-import { launchChips, walletChips, guideItems, activeIndex, itemLabel } from './section-guide.js';
+import { launchChips, walletChips, securityChips, waitlistChips, guideItems, activeIndex, itemLabel, GUIDE_TABS, cleanResume, rememberPart, resumeTarget } from './section-guide.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
 const $ = selector => document.querySelector(selector);
@@ -95,7 +95,13 @@ function saveSupportTally() {
 let spenders = (() => { try { return cleanSpenders(JSON.parse(localStorage.getItem(SPENDERS_KEY) || '{}')); } catch { return {}; } })();
 let autoLastRun = null, autoRunning = false;
 let queueAutoLast = null, queueAutoRunning = false; // "Check the wallet's numbers" automatic re-check
+// Section guide state (declared early: renders anywhere in this file schedule the guide).
+let guideFrame = 0, guideScrollFrame = 0;
+const RESUME_KEY = 'fynx-owner-sections-v1';
+let resumeParts = (() => { try { return cleanResume(JSON.parse(localStorage.getItem(RESUME_KEY) || '{}')); } catch { return {}; } })();
 function selectTab(name) {
+  const leaving = visibleGuideTab();
+  if (leaving && leaving !== name) rememberActivePart(leaving);
   for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== `tab-${name}`;
   setText('#workspace-status', '');
@@ -105,6 +111,7 @@ function selectTab(name) {
   if (name === 'wallet') { renderCryptoSetup(); renderCryptoTests(); }
   if (name === 'launch') renderPilotGate(); // the switch, register and sign-in facts may have changed on other tabs
   scheduleGuide();
+  if (leaving !== name) resumePart(name);
 }
 function clearDashboard() {
   clearTimeout(dashboardTimer);
@@ -251,6 +258,7 @@ async function refreshSession() {
   if (svcAuto && !svcAutoTimer) scheduleServiceAuto();
 }
 function renderPasskeys() {
+  scheduleGuide();
   const list = $('#passkey-list'); list.replaceChildren();
   const rows = passkeyRows(session?.passkeys);
   for (const key of rows) {
@@ -334,9 +342,11 @@ function renderSecurity() {
   renderAccessReview();
   renderEmergencyPlan();
   renderSecurityTimes();
+  scheduleGuide();
 }
 // Identity-gate tests recorded right here; the same records as Launch readiness (this browser only).
 function renderSecurityTests() {
+  scheduleGuide();
   const box = document.getElementById('sec-tests'); if (!box) return;
   const { gate, steps, total, done, failed } = identityTests(launchPlan, launchRecords);
   setText('#sec-tests-count', total ? `${done} of ${total} recorded${failed ? ` · ${failed} failed` : ''}` : '');
@@ -408,6 +418,7 @@ function setAccess(id, patch, focus, message) {
   if (message) setText('#ar-status', message);
 }
 function renderAccessReview() {
+  scheduleGuide();
   const list = document.getElementById('ar-list'); if (!list) return;
   const today = accessToday(), sum = accessSummary(accessReview, today);
   renderAccessBadge(sum);
@@ -511,6 +522,7 @@ function openEmergencyPlan(scenario = '') {
 const EMERGENCY_GO = { passkeys: 'Go to Passkeys ↓', access: 'Open the access review ↑', mainnet: 'Open Real-money sending ↗', spend: 'Open “Who can spend your USDC?” ↗', drill: 'Open the incident practice run ↗', restore: 'Open that launch test ↗', revoke: 'Open that launch test ↗' };
 const EMERGENCY_FIX = { passkeys: 'Go to Add a passkey ↓', access: 'Open the access review ↑', drill: 'Start a practice run ↗', restore: 'Open the restore test ↗', revoke: 'Open the revoke test ↗' };
 function renderEmergencyPlan() {
+  scheduleGuide();
   const list = document.getElementById('ep-list'); if (!list || !session) return;
   const plan = currentEmergencyPlan(), today = accessToday();
   const score = $('#ep-score'); score.replaceChildren();
@@ -1995,7 +2007,7 @@ function renderRegistrations() {
   setText('#waitlist-count', waitlistEmail ? `${waitlistTotal} matching registration${waitlistTotal === 1 ? '' : 's'}` : `${waitlistTotal} registrations · ${waitlistRecords.size} loaded`);
   show('#more-waitlist', !!waitlistCursor);
   waitlistFlags = addressFlags(waitlistRecords.values());
-  renderWaitlistInsights(); renderWaitlistTests();
+  renderWaitlistInsights(); renderWaitlistTests(); scheduleGuide();
   const body = $('#waitlist-rows'); body.replaceChildren();
   const visible = waitlistEmail ? [...waitlistRecords.values()] : visibleRegistrations();
   if (!visible.length) {
@@ -2097,6 +2109,7 @@ function renderWaitlistInsights() {
     box.append(list); wrap.append(box);
   }
   renderAddressCheck(); renderPilotInvites();
+  scheduleGuide();
 }
 // Address check: counts with a "Show" button that sets the row filter.
 function renderAddressCheck() {
@@ -2171,6 +2184,7 @@ renderAccessTabBadge();
 setInterval(renderAccessTabBadge, 60 * 60000);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function renderPrivacyLog(focus) {
+  scheduleGuide();
   const today = localToday(), s = logSummary(privacyLog, today);
   if (!$('#pr-received').value) $('#pr-received').value = today;
   $('#pr-received').max = today;
@@ -2256,6 +2270,7 @@ $('#wl-reply-log').addEventListener('click', () => {
 // Website-gate tests recorded right here (same records as Launch readiness, this browser only),
 // with a check of the loaded test sign-ups and a one-press record after removing one.
 function renderWaitlistTests() {
+  scheduleGuide();
   const box = document.getElementById('wl-tests'); if (!box) return;
   const { gate, steps, total, done, failed } = gateTests(launchPlan, launchRecords, 'website');
   setText('#wl-tests-count', total ? `${done} of ${total} recorded${failed ? ` · ${failed} failed` : ''}` : '');
@@ -2331,6 +2346,7 @@ function pilotOptions() {
   return { decided, size: cleanSize($('#wl-pilot-size').value), order, code: $('#wl-pilot-code').value, includeShared: $('#wl-pilot-shared').checked };
 }
 function renderPilotInvites() {
+  scheduleGuide();
   const o = pilotOptions();
   show('#wl-pilot-code-wrap', o.order === 'draw');
   setText('#wl-pilot-source', o.decided.size
@@ -4766,16 +4782,33 @@ $('#run-connection-checks').addEventListener('click', event => run(event.current
 }, '#connection-status'));
 // Section guide: a sticky row of jump buttons on the long tabs (Launch readiness, Crypto tools), each with a
 // short live status from what this browser already knows. Read-only; it only scrolls and moves focus.
-let guideFrame = 0, guideScrollFrame = 0;
 function scheduleGuide() {
   if (guideFrame || typeof requestAnimationFrame !== 'function') return;
   guideFrame = requestAnimationFrame(() => { guideFrame = 0; try { renderSectionGuide(); } catch { /* the guide must never break the page */ } });
 }
 function visibleGuideTab() {
-  for (const tab of ['launch', 'wallet']) { const panel = document.getElementById(`tab-${tab}`); if (panel && !panel.hidden) return tab; }
+  for (const tab of GUIDE_TABS) { const panel = document.getElementById(`tab-${tab}`); if (panel && !panel.hidden) return tab; }
   return null;
 }
 function guideChips(tab) {
+  if (tab === 'security') {
+    const { result, passkeys } = securityState(), sum = accessSummary(accessReview, accessToday()), plan = session ? currentEmergencyPlan() : null;
+    return securityChips({
+      checkup: session ? { done: result.done, total: result.total } : null, tests: identityTests(launchPlan, launchRecords),
+      access: { fine: sum.fine, total: sum.total, urgent: sum.urgent.length, risk: sum.risk },
+      emergency: plan ? { done: plan.ready, total: plan.total } : null, passkeys: session ? passkeys.length : NaN,
+    });
+  }
+  if (tab === 'registrations') {
+    const loaded = waitlistRecords.size && !waitlistEmail ? { loaded: waitlistRecords.size, total: Math.max(waitlistTotal, waitlistRecords.size) } : waitlistRecords.size ? undefined : null;
+    let last7 = NaN, quality = null;
+    if (loaded) { last7 = summarize(waitlistRecords.values(), { total: waitlistTotal }).last7; quality = checkCounts(waitlistRecords.values(), waitlistFlags); }
+    const p = logSummary(privacyLog, localToday());
+    return waitlistChips({
+      loaded, last7, quality, invited: loaded && pilotResult ? pilotResult.invited.length : NaN,
+      privacy: privacyLog.entries.length ? p : null, tests: gateTests(launchPlan, launchRecords, 'website'),
+    });
+  }
   if (tab === 'wallet') {
     let waiting = 0; try { waiting = waitingItems(journal.values(), selectedNetwork().id).length; } catch { waiting = 0; }
     const verified = !!verifiedAddress && connection?.address === verifiedAddress;
@@ -4794,7 +4827,7 @@ function guideChips(tab) {
 function renderSectionGuide() {
   const tab = visibleGuideTab(); if (!tab) return;
   const nav = document.getElementById(`sec-guide-${tab}`); if (!nav) return;
-  const items = guideItems(tab, guideChips(tab), target => { const node = document.querySelector(target); return !!node && !node.hidden; });
+  const items = guideItems(tab, guideChips(tab), sectionShown);
   const focusedId = nav.contains(document.activeElement) ? document.activeElement.dataset.section : null;
   const keepLeft = nav.querySelector('ol')?.scrollLeft || 0;
   const list = el('ol', 'sec-guide-list');
@@ -4811,12 +4844,34 @@ function renderSectionGuide() {
   if (focusedId) list.querySelector(`[data-section="${CSS.escape(focusedId)}"]`)?.focus({ preventScroll: true });
   markActiveSection(false);
 }
+// A part counts only while it is on screen (it and every parent shown), e.g. Sign-up insights after loading.
+function sectionShown(target) { const node = document.querySelector(target); return !!node && !node.hidden && node.getClientRects().length > 0; }
+// Coming back to a tab returns to the part you were reading (remembered in this browser; ids only).
+function saveResume(next) { resumeParts = next; try { localStorage.setItem(RESUME_KEY, JSON.stringify(next)); } catch { /* private mode: remember for this page only */ } }
+function activePartId(tab) {
+  const nav = document.getElementById(`sec-guide-${tab}`); if (!nav || nav.hidden) return null;
+  const buttons = [...nav.querySelectorAll('.sec-link')]; if (!buttons.length) return null;
+  const tops = buttons.map(b => { const node = document.querySelector(b.dataset.target); return node && node.getClientRects().length ? node.getBoundingClientRect().top : NaN; });
+  const index = activeIndex(tops, guideLine(nav));
+  return index >= 0 ? buttons[index].dataset.section : null;
+}
+function rememberActivePart(tab) { try { const id = activePartId(tab); if (id) saveResume(rememberPart(resumeParts, tab, id)); } catch { /* never block a tab change */ } }
+function resumePart(tab) {
+  try { renderSectionGuide(); } catch { return; }
+  const target = resumeTarget(resumeParts, tab, sectionShown);
+  if (!target) return;
+  document.querySelector(target)?.scrollIntoView({ block: 'start', behavior: 'auto' });
+  markActiveSection();
+}
 function guideLine(nav) { return (nav?.getBoundingClientRect().height || 0) + 28; }
 function jumpToSection(target) {
   const node = document.querySelector(target); if (!node) return;
   node.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   const heading = node.matches('h2, h3') ? node : node.querySelector('h2, h3');
   if (heading) { if (!heading.hasAttribute('tabindex')) heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+  else if (node.hasAttribute('tabindex')) node.focus({ preventScroll: true });
+  const tab = visibleGuideTab(), item = tab && document.querySelector(`#sec-guide-${tab} [data-target="${CSS.escape(target)}"]`);
+  if (item) saveResume(rememberPart(resumeParts, tab, item.dataset.section));
 }
 function markActiveSection(follow = true) {
   const tab = visibleGuideTab(); if (!tab) return;

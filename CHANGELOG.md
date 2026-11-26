@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-26 20:45 UTC — [autopilot] Owner workspace: section bar on Account security and Waitlist, and tabs remember where you were
+
+- **Account security** now has the same sticky row of jump buttons as Launch readiness and Crypto tools: Checkup, Launch tests, Access review, Emergency plan, Passkeys and Account & recovery. Each button shows a live status (for example "3/5", "1 failed", "2 to review", "0/6", "None").
+- **Waitlist** gets one too: Find & load, Sign-up insights, Address check, Pilot invite list, Registrations, Privacy requests and Launch tests, with statuses such as "50 of 120" loaded, "4 this week", "3 to look at", "40 to invite" and "1 overdue" (red) for privacy requests. Parts that only appear after loading registrations join the row once they are loaded.
+- **Every long tab now remembers the part you were reading.** Switch to another tab and back and you return to the same place (Launch readiness, Crypto tools, Account security and Waitlist). Only the part's name is kept in this browser; going back to the top forgets it.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (sign in, then open Account security or Waitlist).
+
 ## 2026-11-21 00:25 UTC — [autopilot] Owner workspace: a section bar on the two longest tabs
 - **Launch readiness** now opens with a bar of buttons, one per part of the tab: Overview, Your dates, Progress update, Finished, What can move now, Test session, Pilot go / no-go, Support playbook, Rollback record, Your services, Checklist, Decisions, Practice run and Connections. Press one to jump straight there instead of scrolling a very long page (about 20 screens on a phone).
 - Each button shows a small live status from what this browser has recorded, for example "18%", "26 ready", "9 to finish", "Not checked", "0/12" or "Not yet". Red means something needs you now (an overdue date, a failed test, a real rollback, a service down), amber means waiting on you, green means done. Nothing is invented: a part with nothing recorded shows no status.

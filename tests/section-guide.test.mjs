@@ -42,7 +42,7 @@ test('the page keeps the guide up to date from the places that change its facts'
   for (const fn of ['renderTodayBrief', 'renderPilotGate', 'renderCryptoSetup', 'renderDecisions', 'renderDrill']) {
     assert.match(app, new RegExp(`function ${fn}\\(\\) \\{\\n  scheduleGuide\\(\\);`), fn);
   }
-  assert.match(app, /if \(name === 'launch'\) renderPilotGate\(\);[^\n]*\n  scheduleGuide\(\);\n\}/);
+  assert.match(app, /if \(name === 'launch'\) renderPilotGate\(\);[^\n]*\n  scheduleGuide\(\);\n  if \(leaving !== name\) resumePart\(name\);\n\}/);
   assert.match(app, /window\.addEventListener\('scroll', \(\) => \{\n(?:[^\n]*\n){1,2}[^\n]*markActiveSection\(\)[^\n]*\n\}, \{ passive: true \}\);/);
 });
 

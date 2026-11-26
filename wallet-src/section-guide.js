@@ -1,5 +1,5 @@
-// Section guide: a sticky row of jump buttons at the top of the long workspace tabs (Launch readiness and
-// Crypto tools), each with a one-word live status read from what this browser already knows. Pure: the
+// Section guide: a sticky row of jump buttons at the top of the long workspace tabs (Launch readiness,
+// Crypto tools, Account security and Waitlist), each with a one-word live status read from what this browser already knows. Pure: the
 // page passes the facts in; nothing here reads storage, the network or the page.
 
 export const SECTIONS = {
@@ -30,6 +30,23 @@ export const SECTIONS = {
     { id: 'fiat', label: 'Buy & sell', target: '#fiat-card' },
     { id: 'mainnet', label: 'Real-money switch', target: '#mainnet-card' },
     { id: 'portfolio', label: 'Portfolio & history', target: '#portfolio-card' },
+  ],
+  security: [
+    { id: 'checkup', label: 'Checkup', target: '#sec-checkup' },
+    { id: 'tests', label: 'Launch tests', target: '#sec-tests-box' },
+    { id: 'access', label: 'Access review', target: '#access-review' },
+    { id: 'emergency', label: 'Emergency plan', target: '#emergency-plan' },
+    { id: 'passkeys', label: 'Passkeys', target: '#passkey-card' },
+    { id: 'recovery', label: 'Account & recovery', target: '#recovery-card' },
+  ],
+  registrations: [
+    { id: 'find', label: 'Find & load', target: '#wl-main' },
+    { id: 'insights', label: 'Sign-up insights', target: '#waitlist-insights' },
+    { id: 'quality', label: 'Address check', target: '#wl-quality-box' },
+    { id: 'pilot', label: 'Pilot invite list', target: '#wl-pilot-box' },
+    { id: 'rows', label: 'Registrations', target: '#wl-table' },
+    { id: 'privacy', label: 'Privacy requests', target: '#wl-requests' },
+    { id: 'tests', label: 'Launch tests', target: '#wl-tests-box' },
   ],
 };
 
@@ -105,6 +122,92 @@ export function walletChips(f = {}) {
   if (f.mainnet === true) out.mainnet = chip('On', 'warn', 'real-money sending is on');
   else if (f.mainnet === false) out.mainnet = chip('Off', 'info', 'real-money sending is off');
   return out;
+}
+
+// Shared shape for "n of m tests recorded" chips.
+function testsChip(t, what) {
+  if (!t || !(t.total > 0)) return null;
+  return t.failed > 0
+    ? chip(`${plural(n(t.failed), 'failed', 'failed')}`, 'block', `${plural(n(t.failed), 'test')} failed, retest`)
+    : chip(`${n(t.done)}/${n(t.total)}`, t.done >= t.total ? 'ok' : 'info', `${n(t.done)} of ${n(t.total)} ${what} recorded`);
+}
+const ofChip = (part, what, doneWord) => (part && part.total > 0
+  ? chip(`${n(part.done)}/${n(part.total)}`, part.done >= part.total ? 'ok' : 'warn', `${n(part.done)} of ${n(part.total)} ${what}${part.done >= part.total && doneWord ? `, ${doneWord}` : ''}`)
+  : null);
+
+// Account security. checkup/emergency: { done, total }; access: { fine, total, urgent, risk }; passkeys: a count.
+export function securityChips(f = {}) {
+  const out = {};
+  const c = ofChip(f.checkup, 'security checks done', 'all done'); if (c) out.checkup = c;
+  const t = testsChip(f.tests, 'account-security tests'); if (t) out.tests = t;
+  const a = f.access;
+  if (a && a.total > 0) {
+    out.access = n(a.risk) ? chip(`${plural(n(a.risk), 'gap')}`, 'block', `${plural(n(a.risk), 'account')} with a gap`)
+      : n(a.urgent) ? chip(`${n(a.urgent)} to review`, 'warn', `${plural(n(a.urgent), 'account')} to review`)
+        : chip(`${n(a.fine)}/${n(a.total)}`, a.fine >= a.total ? 'ok' : 'info', `${n(a.fine)} of ${n(a.total)} accounts reviewed`);
+  }
+  const e = ofChip(f.emergency, 'emergency situations prepared'); if (e) out.emergency = e;
+  if (Number.isFinite(f.passkeys)) out.passkeys = f.passkeys > 0
+    ? chip(String(n(f.passkeys)), 'ok', `${plural(n(f.passkeys), 'passkey')} registered`)
+    : chip('None', 'warn', 'no passkey yet');
+  return out;
+}
+
+// Waitlist. loaded: { loaded, total } (null before loading); last7; quality: address-check counts;
+// invited: people on the pilot list; privacy: { open, overdue, dueSoon }; tests: { done, total, failed }.
+export function waitlistChips(f = {}) {
+  const out = {};
+  const l = f.loaded;
+  if (l === null) out.find = chip('Not loaded', 'info', 'registrations not loaded yet');
+  else if (l && Number.isFinite(l.total)) out.find = l.loaded >= l.total
+    ? chip(`${n(l.total)} loaded`, 'ok', `all ${n(l.total)} registrations loaded`)
+    : chip(`${n(l.loaded)} of ${n(l.total)}`, 'info', `${n(l.loaded)} of ${n(l.total)} registrations loaded`);
+  if (l && Number.isFinite(f.last7)) out.insights = chip(`${n(f.last7)} this week`, 'info', `${plural(n(f.last7), 'sign-up')} in the last 7 days`);
+  const q = f.quality;
+  if (l && q) {
+    const look = n(q.attention);
+    out.quality = look ? chip(`${look} to look at`, 'warn', `${plural(look, 'registration')} to look at`) : chip('All clear', 'ok', 'no address problems found');
+  }
+  if (l && Number.isFinite(f.invited)) out.pilot = chip(`${n(f.invited)} to invite`, f.invited > 0 ? 'info' : 'warn', `${plural(n(f.invited), 'person', 'people')} on the invite list`);
+  const p = f.privacy;
+  if (p) {
+    out.privacy = n(p.overdue) ? chip(`${n(p.overdue)} overdue`, 'block', `${plural(n(p.overdue), 'request')} overdue`)
+      : n(p.dueSoon) ? chip(`${n(p.dueSoon)} due soon`, 'warn', `${plural(n(p.dueSoon), 'request')} due within a week`)
+        : n(p.open) ? chip(`${n(p.open)} open`, 'info', `${plural(n(p.open), 'open request')}`)
+          : chip('None open', 'ok', 'no open requests');
+  }
+  const t = testsChip(f.tests, 'waitlist tests'); if (t) out.tests = t;
+  return out;
+}
+
+// The tab a section bar belongs to, from its panel id ("tab-launch" → "launch").
+export const GUIDE_TABS = Object.keys(SECTIONS);
+
+// Where each tab was left, so coming back to a tab returns to the same part. Kept as { tab: sectionId }
+// in this browser; only known tabs and section ids are kept, so a stored value can never point elsewhere.
+export function cleanResume(value) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  for (const tab of GUIDE_TABS) {
+    const id = value[tab];
+    if (typeof id === 'string' && SECTIONS[tab].some(s => s.id === id)) out[tab] = id;
+  }
+  return out;
+}
+// Remember a part; the first part of a tab is its top, so it is simply forgotten.
+export function rememberPart(state, tab, id) {
+  const next = { ...cleanResume(state) };
+  const list = SECTIONS[tab];
+  if (!list) return next;
+  if (!list.some(s => s.id === id) || list[0].id === id) delete next[tab];
+  else next[tab] = id;
+  return next;
+}
+// The section to return to on a tab (a target selector), or '' for the top.
+export function resumeTarget(state, tab, present = () => true) {
+  const id = cleanResume(state)[tab];
+  const section = id ? SECTIONS[tab].find(s => s.id === id) : null;
+  return section && present(section.target) ? section.target : '';
 }
 
 // The buttons to draw: every section the page actually has, with its status (or none).
