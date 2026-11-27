@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-27 04:20 UTC — [autopilot] Owner workspace: ask for a specific amount, and see when it arrives
+
+- **Crypto tools → Step 2 "Receive crypto" can now ask for an amount.** Type an amount (for example 0.001 ETH or 5 USDC) under "Ask for an amount" and the QR code changes to a payment request: when the other person scans it, their wallet opens with your address, the right network and that amount already filled in. Leave it empty and it works exactly as before (any amount).
+- A line under the code says in plain words what it asks for ("This code asks for 0.001 test ETH on Base Sepolia."). Mistakes are explained as you type (for example a comma instead of a dot, too many decimals, or 0).
+- **Copy request message** puts a ready-to-send message on the clipboard: the amount, the network and its chain ID, your full address, the USDC contract when it is USDC, the wallet link, whether these are test assets, and a reminder that you never ask for a recovery phrase.
+- **Download QR** saves the code as a picture to share.
+- **Watch for this payment** checks your balance every 15 seconds for up to 10 minutes and tells you when the money arrived (or that only part of it arrived, or that nothing came). It only reads your balance; it never signs or sends anything, and it stops by itself if you change wallet or network or sign out.
+- Helps with the launch test "Scan the Receive QR code with a phone wallet". See it at https://ea-la.github.io/FYNX-Wallet/owner.html (sign in → Crypto tools → Step 2).
+
 ## 2026-11-26 20:45 UTC — [autopilot] Owner workspace: section bar on Account security and Waitlist, and tabs remember where you were
 
 - **Account security** now has the same sticky row of jump buttons as Launch readiness and Crypto tools: Checkup, Launch tests, Access review, Emergency plan, Passkeys and Account & recovery. Each button shows a live status (for example "3/5", "1 failed", "2 to review", "0/6", "None").

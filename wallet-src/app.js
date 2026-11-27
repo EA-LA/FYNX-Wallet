@@ -4,7 +4,8 @@ import { getAuth, inMemoryPersistence, setPersistence, GoogleAuthProvider, signI
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { startRegistration, startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { firebaseConfig, recaptchaEnterpriseSiteKey, functionsRegion } from '../public-site/firebase-config.js';
-import { AssetConnection, receiveURI } from './asset-client.js';
+import { AssetConnection } from './asset-client.js';
+import { parseRequestAmount, requestURI, requestCaption, requestMessage, compareBalances, watchNext, watchLine } from './payment-request.js';
 import { networkFor } from '../firebase-wallet/functions/networks.js';
 import QRCode from 'qrcode';
 import launchPlan from './launch-checklist.json';
@@ -194,6 +195,7 @@ function clearWallet() {
   recipientFacts.clear(); recipientAuto.clear(); recipientPasted = false; setText('#rcpt-net-status', '');
   connection?.cancelAction();
   for (const id of ['#receive-qr', '#swap-quote', '#action-review', '#checkout-link']) show(id, false);
+  try { clearPaymentWatch(); setText('#receive-caption', ''); } catch { /* runs again once the page has loaded */ }
   checkoutId = null; $('#check-provider-order').disabled = true; setText('#fiat-order-status', '');
   $('#checkout-link').removeAttribute('href');
   $('#quote-details').replaceChildren(); $('#action-details').replaceChildren();
@@ -225,7 +227,8 @@ function updateWalletControls() {
   try { renderRecipientCheck(); } catch { /* runs again once the page has finished loading */ }
   const connected = !!connection?.address && !!session;
   $('#verify-wallet').disabled = busy || !connected;
-  for (const id of ['#refresh-balance', '#copy-address', '#review-transfer']) $(id).disabled = busy || !verifiedAddress || connection?.address !== verifiedAddress;
+  for (const id of ['#refresh-balance', '#copy-address', '#review-transfer', '#copy-request', '#watch-payment']) $(id).disabled = busy || !verifiedAddress || connection?.address !== verifiedAddress;
+  $('#download-qr').disabled = busy || $('#receive-qr').hidden;
   const verified = !!verifiedAddress && connection?.address === verifiedAddress && !!session;
   const canSend = verified && canTransact(connection.network);
   $('#review-transfer').disabled = busy || !canSend;
@@ -1478,19 +1481,92 @@ async function refreshBalances(checkSession = () => {}) {
   lastBalances = { eth: eth.status === 'fulfilled' ? String(eth.value) : null, usdc: usdc.status === 'fulfilled' ? String(usdc.value) : null };
   renderCryptoSetup();
 }
+// Step 2 "Receive crypto": the QR code and link carry the verified address, the network and (optionally) an amount
+// (wallet-src/payment-request.js). "Watch for this payment" compares read-only balance readings; it never signs or sends.
+let paymentWatch = null, paymentWatchTimer = null;
+function receiveRequest() {
+  const symbol = $('#receive-asset').value, parsed = parseRequestAmount($('#receive-amount').value, symbol);
+  return { symbol, units: parsed.error ? null : parsed.units, error: parsed.error || '' };
+}
+function stopPaymentWatch(reason) {
+  clearTimeout(paymentWatchTimer); paymentWatchTimer = null;
+  if (!paymentWatch) return;
+  if (reason) paymentWatch.stopped = paymentWatch.stopped || reason;
+  setText('#watch-payment-status', watchLine(paymentWatch, Date.now(), paymentWatch.symbol));
+  $('#watch-payment').textContent = 'Watch for this payment';
+}
+function clearPaymentWatch() {
+  clearTimeout(paymentWatchTimer); paymentWatchTimer = null; paymentWatch = null;
+  setText('#watch-payment-status', ''); $('#watch-payment').textContent = 'Watch for this payment';
+}
+async function readAssetBalance(current, symbol) { return String(symbol === 'ETH' ? await current.balance() : await current.tokenBalance(symbol)); }
+async function paymentWatchTick() {
+  paymentWatchTimer = null;
+  const watch = paymentWatch; if (!watch || watch.stopped) return;
+  const current = connection, here = { address: current?.address, chainId: current?.network?.id };
+  const before = watchNext(watch, Date.now(), here);
+  if (!before.go) { stopPaymentWatch(before.reason); return; }
+  if (!document.hidden) {
+    try {
+      const now = await readAssetBalance(current, watch.symbol);
+      if (watch !== paymentWatch || current !== connection) return;
+      watch.checks += 1; watch.result = compareBalances(watch.symbol, watch.start, now, watch.units);
+    } catch { if (watch !== paymentWatch) return; watch.checks += 1; watch.failures = (watch.failures || 0) + 1; if (watch.failures >= 3) { watch.result = { state: 'unreadable' }; stopPaymentWatch('unreadable'); return; } }
+  }
+  const after = watchNext(watch, Date.now(), here);
+  if (!after.go) { stopPaymentWatch(after.reason); return; }
+  setText('#watch-payment-status', watchLine(watch, Date.now(), watch.symbol));
+  paymentWatchTimer = setTimeout(paymentWatchTick, after.wait);
+}
+async function startPaymentWatch() {
+  if (paymentWatch && !paymentWatch.stopped) { stopPaymentWatch('user'); return; }
+  if (!verifiedAddress || connection?.address !== verifiedAddress) return;
+  const req = receiveRequest(); if (req.error) { setText('#receive-amount-msg', req.error); $('#receive-amount').focus(); return; }
+  const current = connection, start = await readAssetBalance(current, req.symbol);
+  if (current !== connection) return;
+  clearPaymentWatch();
+  paymentWatch = { symbol: req.symbol, units: req.units, start, startText: start, startedAt: Date.now(), checks: 0, address: current.address, chainId: current.network.id, testnet: !!current.network.testnet, result: null, stopped: '' };
+  $('#watch-payment').textContent = 'Stop watching';
+  setText('#watch-payment-status', watchLine(paymentWatch, Date.now(), req.symbol));
+  paymentWatchTimer = setTimeout(paymentWatchTick, 15000);
+}
 async function renderReceive() {
+  const req = receiveRequest();
+  setText('#receive-amount-msg', req.error);
+  $('#receive-amount').setAttribute('aria-invalid', req.error ? 'true' : 'false');
   if (!verifiedAddress || connection?.address !== verifiedAddress) return;
   const current = connection, epoch = current.epoch, address = verifiedAddress;
   await current.assertCurrent(epoch);
   const canvas = document.createElement('canvas');
-  await QRCode.toCanvas(canvas, receiveURI(current.network, address, $('#receive-asset').value), { width: 200, margin: 2, errorCorrectionLevel: 'M' });
+  await QRCode.toCanvas(canvas, requestURI(current.network, address, req.symbol, req.units), { width: 200, margin: 2, errorCorrectionLevel: 'M' });
   await current.assertCurrent(epoch);
   if (current !== connection || address !== verifiedAddress) return;
   const target = $('#receive-qr'); target.width = canvas.width; target.height = canvas.height;
   target.getContext('2d').drawImage(canvas, 0, 0); show('#receive-qr', true);
+  target.setAttribute('aria-label', `QR code: ${requestCaption(current.network, req.symbol, req.units)}`);
+  setText('#receive-caption', req.error ? 'The code below asks for any amount until the amount is fixed.' : requestCaption(current.network, req.symbol, req.units));
   setText('#receive-network', current.network.name + (current.network.testnet ? ' · test assets only, no monetary value' : canTransact(current.network) ? ' · real assets: double-check the network before sending' : ' · real assets, sending is off'));
+  if (paymentWatch && !paymentWatch.stopped && (paymentWatch.symbol !== req.symbol || paymentWatch.units !== req.units)) stopPaymentWatch('user');
+  updateWalletControls();
 }
 $('#receive-asset').addEventListener('change', () => run(null, renderReceive));
+let receiveAmountTimer = null;
+$('#receive-amount').addEventListener('input', () => { clearTimeout(receiveAmountTimer); receiveAmountTimer = setTimeout(() => renderReceive().catch(() => {}), 300); });
+$('#copy-request').addEventListener('click', event => run(event.currentTarget, async () => {
+  await connection.assertCurrent(); const req = receiveRequest();
+  if (req.error) { setText('#receive-amount-msg', req.error); return; }
+  const uri = requestURI(connection.network, verifiedAddress, req.symbol, req.units);
+  await navigator.clipboard.writeText(requestMessage(connection.network, verifiedAddress, req.symbol, req.units, uri));
+  setText('#workspace-status', `Request copied. It names ${connection.network.name} only.`);
+}));
+$('#download-qr').addEventListener('click', () => {
+  if ($('#receive-qr').hidden || !connection) return;
+  const req = receiveRequest(), a = document.createElement('a');
+  a.href = $('#receive-qr').toDataURL('image/png');
+  a.download = `fynx-request-${connection.network.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${req.symbol.toLowerCase()}${req.units ? `-${$('#receive-amount').value.trim()}` : ''}.png`;
+  document.body.append(a); a.click(); a.remove();
+});
+$('#watch-payment').addEventListener('click', event => run(event.currentTarget, startPaymentWatch));
 $('#network-choice').addEventListener('change', () => {
   connection?.close(); connection = null; clearWallet();
   renderNetworkNote();
