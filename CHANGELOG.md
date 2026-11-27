@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-27 16:15 UTC — [autopilot] Owner workspace: the search box now finds your own notes, answers and wallet names
+- The "Find in workspace" box above the tabs now also looks through what you wrote yourself: your notes on launch tests, your answers in "Decisions only you can make" and the names you gave wallets.
+- Each match shows the matching piece of your note or answer with the word highlighted, so you can see why it came up.
+- Picking a wallet name opens Crypto tools → Portfolio & history and, when the history is loaded, shows only transfers with that wallet.
+- Nothing is sent anywhere and the search is not saved; anything that looks like a key or recovery phrase is never searched.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (type in the search box, or press /).
+
 ## 2026-11-27 12:20 UTC — [autopilot] Owner workspace: find anything with one search box
 
 - **A new search box sits right above the tabs: "Find a step, tool or part".** Type a word like *passkey*, *swap*, *privacy*, *stuck*, *GitHub* or *lost phone* and a list shows every matching place across all five tabs, best match first, with the matching words highlighted.

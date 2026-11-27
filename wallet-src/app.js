@@ -4979,7 +4979,7 @@ setInterval(() => { if (auth?.currentUser && Date.now() - lastActivity > 15 * 60
 const findInput = $('#ws-find-input'), findList = $('#ws-find-list'), findPop = $('#ws-find-pop');
 function findIndexNow() {
   const decisionStates = Object.fromEntries(DECISIONS.map(d => [decisionKey(d), decisionState(launchPlan, d, launchRecords, decisionAnswers)]));
-  return buildFindIndex({ plan: launchPlan, records: launchRecords, decisionStates });
+  return buildFindIndex({ plan: launchPlan, records: launchRecords, decisionStates, decisionAnswers, walletNames });
 }
 function currentTabName() { return document.querySelector('[data-tab][aria-selected="true"]')?.dataset.tab || ''; }
 function setFindOpen(open) {
@@ -5007,6 +5007,11 @@ function renderFind() {
     const title = el('span', 'ws-find-title');
     for (const piece of findHighlight(e.title, query)) title.append(piece.match ? el('mark', '', piece.text) : document.createTextNode(piece.text));
     li.append(top, title, el('span', 'ws-find-where', e.where));
+    if (e.snippet) {
+      const mine = el('span', 'ws-find-mine'); mine.append(el('span', 'ws-find-mine-label', `${e.mineLabel || 'Your words'}: `));
+      for (const piece of findHighlight(e.snippet, query)) mine.append(piece.match ? el('mark', '', piece.text) : document.createTextNode(piece.text));
+      li.append(mine);
+    }
     li.addEventListener('pointerdown', event => event.preventDefault()); // keep focus in the box until the click lands
     li.addEventListener('click', () => openFindResult(i));
     return li;
@@ -5026,6 +5031,7 @@ function openFindResult(index) {
   if (go.type === 'scenario') { openEmergencyPlan(go.id); return; }
   if (go.type === 'service') { openAccessService(go.id); return; }
   if (currentTabName() !== e.tab) selectTab(e.tab);
+  if (go.type === 'name') { afterTabPaint(() => openWalletName(go.address, go.label)); return; }
   afterTabPaint(() => {
     if (go.type === 'part') {
       if (sectionShown(go.target)) jumpToSection(go.target);
@@ -5034,6 +5040,18 @@ function openFindResult(index) {
     else if (go.type === 'decision') openDecision(go.key);
     else if (go.type === 'situation') openSituation(go.id);
   });
+}
+// A wallet name found by the search: with the history loaded, filter it to that wallet; otherwise say how.
+function openWalletName(address, label) {
+  const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
+  if (lastHistory && sectionShown('#hx-tools')) {
+    $('#hx-direction').value = 'all'; $('#hx-token').value = 'all'; $('#hx-query').value = address; historyEditing = ''; renderHistory();
+    jumpToSection('#hx-tools'); $('#hx-query').focus({ preventScroll: true });
+    setText('#hx-status', `Showing transfers with “${label}” (${short}). Clear filters to see everything again.`);
+    return;
+  }
+  jumpToSection('#portfolio-card');
+  setText('#workspace-status', `“${label}” is your name for ${short}. Press Load history in Portfolio & history to see its transfers; the search then filters to them.`);
 }
 function clearFind() { if (!findInput) return; findInput.value = ''; findResults = []; findList.replaceChildren(); setText('#ws-find-count', ''); setText('#ws-find-live', ''); setFindOpen(false); }
 findInput.addEventListener('input', renderFind);
