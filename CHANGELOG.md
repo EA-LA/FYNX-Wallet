@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-27 12:20 UTC — [autopilot] Owner workspace: find anything with one search box
+
+- **A new search box sits right above the tabs: "Find a step, tool or part".** Type a word like *passkey*, *swap*, *privacy*, *stuck*, *GitHub* or *lost phone* and a list shows every matching place across all five tabs, best match first, with the matching words highlighted.
+- It searches the tabs and every part of them (Checkup, Track, Pilot invite list…), all 83 launch steps, your 12 decisions, the 13 support-playbook situations, the 6 emergency-plan situations and the accounts in the access review.
+- Each result says where it lives, and for launch steps who does it and your own result (To do, Done, or Failed, retest); decisions show To decide / In progress / Decided.
+- Choose a result (click, tap, or arrows + Enter) and the workspace switches to the right tab and opens that exact place: the launch step is highlighted, the decision or support situation is opened, the emergency situation or account is expanded. If a part only appears after its data is loaded (for example Sign-up insights), it says so.
+- On a computer, press **/** from anywhere in the workspace to jump to the box; **Esc** clears it. Works on phones too.
+- It only reads and moves around the page: nothing you type is saved or sent anywhere, and it is cleared when you sign out.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (sign in → the box under the blue notice).
+
 ## 2026-11-27 04:20 UTC — [autopilot] Owner workspace: ask for a specific amount, and see when it arrives
 
 - **Crypto tools → Step 2 "Receive crypto" can now ask for an amount.** Type an amount (for example 0.001 ETH or 5 USDC) under "Ask for an amount" and the QR code changes to a payment request: when the other person scans it, their wallet opens with your address, the right network and that amount already filled in. Leave it empty and it works exactly as before (any amount).

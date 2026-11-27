@@ -45,6 +45,7 @@ import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue,
 import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { pilotList, inviteCSV, decidedPilot, openStopRequests, pilotSummary, headline as pilotHeadline, cleanSize, cleanCode, DEFAULT_SIZE as PILOT_DEFAULT } from './pilot-invites.js';
+import { buildIndex as buildFindIndex, search as findSearch, highlight as findHighlight, resultLabel as findLabel, countLine as findCountLine, moveActive as findMove, cleanQuery as findClean, KIND_LABELS as FIND_KINDS, TAB_NAMES as FIND_TABS } from './workspace-search.js';
 import { launchChips, walletChips, securityChips, waitlistChips, guideItems, activeIndex, itemLabel, GUIDE_TABS, cleanResume, rememberPart, resumeTarget } from './section-guide.js';
 import { addressFlags, checkCounts, matchesCheck, checkSummaryLine, testSignupCheck, findRemoveNote, removalRecheck, findRemoveResult, accessReply, deletionReply, CHECKS } from './waitlist-care.js';
 
@@ -98,6 +99,8 @@ let autoLastRun = null, autoRunning = false;
 let queueAutoLast = null, queueAutoRunning = false; // "Check the wallet's numbers" automatic re-check
 // Section guide state (declared early: renders anywhere in this file schedule the guide).
 let guideFrame = 0, guideScrollFrame = 0;
+// Find in workspace state (declared early: sign-out clears it from anywhere). The query is never stored.
+let findResults = [], findActive = -1;
 const RESUME_KEY = 'fynx-owner-sections-v1';
 let resumeParts = (() => { try { return cleanResume(JSON.parse(localStorage.getItem(RESUME_KEY) || '{}')); } catch { return {}; } })();
 function selectTab(name) {
@@ -215,7 +218,7 @@ function clearPrivateWorkspace() {
   waitlistCursor = null; waitlistEmail = ''; waitlistTotal = 0; waitlistRecords.clear();
   $('#waitlist-rows').replaceChildren(); $('#passkey-list').replaceChildren(); clearWaitlistInsights(); clearSecurity();
   for (const d of DECISIONS) discardDrafts.add(decisionKey(d)); renderDecisions(); clearReportImport();
-  clearServices(); clearPortfolio(); clearMainnet(); clearSupportFinder();
+  clearServices(); clearPortfolio(); clearMainnet(); clearSupportFinder(); clearFind();
   $('#connection-results').replaceChildren(); setText('#connection-status', '');
   $('#waitlist-search').reset(); $('#send-form').reset(); $('#password').value = '';
   setText('#waitlist-count', 'Load registrations to see the latest entries.'); show('#more-waitlist', false);
@@ -4971,5 +4974,90 @@ window.addEventListener('scroll', () => {
 window.addEventListener('resize', () => markActiveSection(false), { passive: true });
 for (const event of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(event, () => { lastActivity = Date.now(); }, { passive: true });
 setInterval(() => { if (auth?.currentUser && Date.now() - lastActivity > 15 * 60000) { signOut(auth); setText('#auth-status', 'Signed out after 15 minutes of inactivity.'); } }, 30000);
+// Find in workspace: one box above the tabs that finds any tab, part, launch step, decision, support or
+// emergency situation, or account in the access review, and opens it. Read-only: it only switches tabs and scrolls.
+const findInput = $('#ws-find-input'), findList = $('#ws-find-list'), findPop = $('#ws-find-pop');
+function findIndexNow() {
+  const decisionStates = Object.fromEntries(DECISIONS.map(d => [decisionKey(d), decisionState(launchPlan, d, launchRecords, decisionAnswers)]));
+  return buildFindIndex({ plan: launchPlan, records: launchRecords, decisionStates });
+}
+function currentTabName() { return document.querySelector('[data-tab][aria-selected="true"]')?.dataset.tab || ''; }
+function setFindOpen(open) {
+  findPop.hidden = !open; findInput.setAttribute('aria-expanded', String(open));
+  if (!open) { findActive = -1; findInput.removeAttribute('aria-activedescendant'); }
+}
+function paintFindActive() {
+  const options = [...findList.querySelectorAll('[role="option"]')];
+  options.forEach((o, i) => o.setAttribute('aria-selected', String(i === findActive)));
+  const active = options[findActive];
+  if (active) { findInput.setAttribute('aria-activedescendant', active.id); active.scrollIntoView({ block: 'nearest' }); }
+  else findInput.removeAttribute('aria-activedescendant');
+}
+function renderFind() {
+  const query = findClean(findInput.value);
+  if (!query.trim()) { findResults = []; findList.replaceChildren(); setText('#ws-find-count', ''); setText('#ws-find-live', ''); setFindOpen(false); return; }
+  const r = findSearch(findIndexNow(), query, { tab: currentTabName() });
+  findResults = r.results; findActive = r.results.length ? 0 : -1;
+  const items = r.results.map((e, i) => {
+    const li = el('li', `ws-find-item is-${e.kind}${e.state ? ` state-${e.state}` : ''}`); li.id = `ws-find-opt-${i}`; li.setAttribute('role', 'option');
+    li.setAttribute('aria-label', findLabel(e));
+    const top = el('span', 'ws-find-top');
+    top.append(el('span', 'ws-find-kind', FIND_KINDS[e.kind] || ''));
+    if (e.stateText) top.append(el('span', `ws-find-state${e.state ? ` is-${e.state}` : ''}`, e.stateText));
+    const title = el('span', 'ws-find-title');
+    for (const piece of findHighlight(e.title, query)) title.append(piece.match ? el('mark', '', piece.text) : document.createTextNode(piece.text));
+    li.append(top, title, el('span', 'ws-find-where', e.where));
+    li.addEventListener('pointerdown', event => event.preventDefault()); // keep focus in the box until the click lands
+    li.addEventListener('click', () => openFindResult(i));
+    return li;
+  });
+  findList.replaceChildren(...items);
+  const line = findCountLine(r);
+  setText('#ws-find-count', line); setText('#ws-find-live', line);
+  setFindOpen(true); paintFindActive();
+}
+function afterTabPaint(fn) { requestAnimationFrame(() => requestAnimationFrame(fn)); }
+function openFindResult(index) {
+  const e = findResults[index]; if (!e) return;
+  const go = e.go;
+  findInput.value = ''; renderFind(); findInput.blur();
+  setText('#workspace-status', '');
+  if (go.type === 'tab') { selectTab(go.tab); window.scrollTo({ top: Math.max(0, $('.tabs').getBoundingClientRect().top + window.scrollY - 16), behavior: 'auto' }); document.querySelector(`[data-tab="${go.tab}"]`)?.focus({ preventScroll: true }); return; }
+  if (go.type === 'scenario') { openEmergencyPlan(go.id); return; }
+  if (go.type === 'service') { openAccessService(go.id); return; }
+  if (currentTabName() !== e.tab) selectTab(e.tab);
+  afterTabPaint(() => {
+    if (go.type === 'part') {
+      if (sectionShown(go.target)) jumpToSection(go.target);
+      else { document.querySelector(`[data-tab="${go.tab}"]`)?.focus(); setText('#workspace-status', `“${e.title}” appears on ${FIND_TABS[go.tab]} once its information is loaded or switched on.`); }
+    } else if (go.type === 'step') openStep(go.key);
+    else if (go.type === 'decision') openDecision(go.key);
+    else if (go.type === 'situation') openSituation(go.id);
+  });
+}
+function clearFind() { if (!findInput) return; findInput.value = ''; findResults = []; findList.replaceChildren(); setText('#ws-find-count', ''); setText('#ws-find-live', ''); setFindOpen(false); }
+findInput.addEventListener('input', renderFind);
+findInput.addEventListener('focus', () => { if (findInput.value.trim()) renderFind(); });
+findInput.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== findInput) setFindOpen(false); }, 120));
+findInput.addEventListener('keydown', event => {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (!findResults.length) return;
+    event.preventDefault();
+    if (findPop.hidden) setFindOpen(true);
+    findActive = findMove(findActive, event.key === 'ArrowDown' ? 1 : -1, findResults.length); paintFindActive();
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    if (findResults.length) openFindResult(findActive >= 0 ? findActive : 0);
+  } else if (event.key === 'Escape') {
+    if (findInput.value) { event.preventDefault(); clearFind(); } else findInput.blur();
+  }
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
+  const t = event.target;
+  if (t instanceof Element && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return;
+  if ($('#workspace').hidden) return;
+  event.preventDefault(); findInput.focus(); findInput.select();
+});
 renderPermissions();
 ready().catch(error => setText('#auth-status', errorMessage(error)));
