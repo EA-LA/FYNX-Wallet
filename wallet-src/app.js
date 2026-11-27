@@ -44,6 +44,7 @@ import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.j
 import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice, ownBlockAge } from './recipient-activity.js';
 import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
+import { OUTREACH_KEY, cleanOutreach, entryFor as outreachEntry, markInvited, markFollowedUp, markAnswer, undoLast as outreachUndo, inviteState, outreachSummary, nextToInvite, trackedElsewhere, outreachHeadline, outreachAttention, outreachReport } from './pilot-outreach.js';
 import { pilotList, inviteCSV, decidedPilot, openStopRequests, pilotSummary, headline as pilotHeadline, cleanSize, cleanCode, DEFAULT_SIZE as PILOT_DEFAULT } from './pilot-invites.js';
 import { buildIndex as buildFindIndex, search as findSearch, highlight as findHighlight, resultLabel as findLabel, countLine as findCountLine, moveActive as findMove, cleanQuery as findClean, KIND_LABELS as FIND_KINDS, TAB_NAMES as FIND_TABS } from './workspace-search.js';
 import { launchChips, walletChips, securityChips, waitlistChips, guideItems, activeIndex, itemLabel, GUIDE_TABS, cleanResume, rememberPart, resumeTarget } from './section-guide.js';
@@ -2137,7 +2138,7 @@ function clearWaitlistInsights() {
   setText('#wl-coverage', ''); setText('#wl-status', ''); $('#wl-query').value = ''; $('#wl-hide-tests').checked = false; $('#wl-consent').value = 'all'; $('#wl-check').value = 'all';
   show('#waitlist-insights', false); show('#wl-filter', false);
   waitlistFlags = new Map(); removedTest = null; $('#wl-quality').replaceChildren(); closePrivacyReply(false);
-  pilotSizeTouched = false; $('#wl-pilot-size').value = ''; $('#wl-pilot-order').value = 'first'; $('#wl-pilot-code').value = ''; $('#wl-pilot-shared').checked = false; pilotResult = null; setText('#wl-pilot-status', ''); setText('#wl-pilot-more', '');
+  pilotSizeTouched = false; $('#wl-pilot-size').value = ''; $('#wl-pilot-order').value = 'first'; $('#wl-pilot-code').value = ''; $('#wl-pilot-shared').checked = false; pilotResult = null; setText('#wl-pilot-status', ''); setText('#wl-pilot-more', ''); outreachShowAll = false; $('#wl-out-date').value = ''; setText('#wl-out-status', ''); renderOutreach();
   $('#wl-testcheck').replaceChildren(); show('#wl-testcheck', false); $('#wl-tests').replaceChildren(); setText('#wl-tests-count', ''); setText('#wl-tests-status', '');
 }
 const shortDate = (time, opts) => new Date(time).toLocaleDateString(undefined, opts || { month: 'short', day: 'numeric' });
@@ -2431,7 +2432,7 @@ function renderPilotInvites() {
   setText('#wl-pilot-source', o.decided.size
     ? `Your pilot decision: ${o.decided.size} people${o.decided.states ? ` in ${o.decided.states}` : ''}.${pilotSizeTouched && o.size !== o.decided.size ? ' You changed the size here; the decision stays as saved.' : ''}`
     : `No pilot size decided yet${pilotSizeTouched ? '' : `, so ${PILOT_DEFAULT} is used`}. Record it in Launch readiness → Decisions only you can make.`);
-  if (!o.size) { pilotResult = null; setText('#wl-pilot-head', 'Enter how many people to invite (a whole number from 1).'); $('#wl-pilot-out').replaceChildren(); $('#wl-pilot-preview').replaceChildren(); setText('#wl-pilot-more', ''); return; }
+  if (!o.size) { pilotResult = null; setText('#wl-pilot-head', 'Enter how many people to invite (a whole number from 1).'); $('#wl-pilot-out').replaceChildren(); $('#wl-pilot-preview').replaceChildren(); setText('#wl-pilot-more', ''); renderOutreach(); return; }
   const r = pilotResult = pilotList(waitlistRecords.values(), waitlistFlags, { size: o.size, order: o.order, code: o.code, includeShared: o.includeShared, total: waitlistTotal });
   setText('#wl-pilot-head', pilotHeadline(r));
   const out = $('#wl-pilot-out'); out.replaceChildren();
@@ -2445,6 +2446,7 @@ function renderPilotInvites() {
   const preview = $('#wl-pilot-preview'); preview.replaceChildren();
   for (const x of r.invited.slice(0, 5)) preview.append(el('li', '', `${x.email}${x.note ? ` · ${x.note}` : ''}`));
   setText('#wl-pilot-more', r.invited.length > 5 ? `… and ${r.invited.length - 5} more to invite${r.reserve.length ? `, plus ${r.reserve.length} in reserve,` : ''} in the download.` : r.reserve.length ? `Plus ${r.reserve.length} in reserve in the download.` : '');
+  renderOutreach();
 }
 $('#wl-pilot-size').addEventListener('input', () => { pilotSizeTouched = true; renderPilotInvites(); });
 for (const id of ['#wl-pilot-order', '#wl-pilot-shared']) $(id).addEventListener('change', () => { renderPilotInvites(); setText('#wl-pilot-status', ''); });
@@ -2462,6 +2464,98 @@ $('#wl-pilot-copy').addEventListener('click', async () => {
 });
 $('#wl-pilot-decide').addEventListener('click', () => { selectTab('launch'); openDecision('pilot/limits'); });
 $('#wl-open-launch').addEventListener('click', () => { selectTab('launch'); openGate('website'); });
+// Invitations sent (pilot-outreach.js): fingerprints + masked hints only, kept in this browser.
+let outreachLog = { entries: {} }, outreachShowAll = false;
+try { outreachLog = cleanOutreach(JSON.parse(localStorage.getItem(OUTREACH_KEY) || '{}')); } catch { outreachLog = { entries: {} }; }
+function saveOutreach() {
+  let saved = true;
+  try { if (Object.keys(outreachLog.entries).length) localStorage.setItem(OUTREACH_KEY, JSON.stringify(outreachLog)); else localStorage.removeItem(OUTREACH_KEY); }
+  catch { setText('#wl-out-status', 'This browser blocked saving. Marks last until you close the page.'); saved = false; }
+  renderLaunchOverview(); // "Your next steps" lists invitations that need a reminder
+  return saved;
+}
+const outreachSize = () => (pilotResult ? pilotResult.size : decidedPilot(decisionAnswers).size || 0);
+function outreachDate() {
+  const today = localToday(), box = $('#wl-out-date');
+  box.max = today; if (!box.value) box.value = today;
+  return box.value && box.value <= today ? box.value : '';
+}
+const OUTREACH_ROWS = 30;
+function renderOutreach({ focusEmail = '' } = {}) {
+  scheduleGuide();
+  const today = localToday(); outreachDate();
+  const s = outreachSummary(outreachLog, { size: outreachSize(), today });
+  setText('#wl-out-head', outreachHeadline(s));
+  const stats = $('#wl-out-stats'); stats.replaceChildren();
+  for (const [value, label, cls] of [
+    [s.size ? `${s.accepted} of ${s.size}` : String(s.accepted), 'Accepted', s.size && s.accepted >= s.size ? 'stat-done' : ''],
+    [s.waiting, 'Waiting for an answer', ''],
+    [s.due, 'Need you today', s.due ? 'stat-you' : ''],
+    [`${s.declined} · ${s.noreply}`, 'Declined · No reply', ''],
+  ]) { const li = el('li', `launch-stat ${cls}`.trim()); li.append(el('strong', '', String(value)), el('span', '', label)); stats.append(li); }
+  const rows = pilotResult ? [...pilotResult.invited, ...pilotResult.reserve] : [];
+  const nextUp = nextToInvite(pilotResult, outreachLog, s.inviteMore);
+  setText('#wl-out-next', !rows.length ? 'Load registrations and set the group size above to mark invitations.'
+    : !s.size ? 'Set how many people to invite above.'
+      : s.inviteMore ? `Invite ${s.inviteMore} more to fill the open places${nextUp.length ? `: next in line ${nextUp.slice(0, 3).map(r => `#${r.order}`).join(', ')}${nextUp.length > 3 ? '…' : ''}` : ', but nobody untracked is left on the list: raise the size or load more registrations'}.`
+        : s.seatsLeft ? 'Every open place has an invitation out: wait for answers.' : 'Every place is filled.');
+  const nextIds = new Set(nextUp.map(r => r.id));
+  const list = $('#wl-out-list'); list.replaceChildren();
+  const shown = outreachShowAll ? rows : rows.slice(0, OUTREACH_ROWS);
+  let focusNode = null;
+  for (const r of shown) {
+    const entry = outreachEntry(outreachLog, r.email), st = inviteState(entry, today);
+    const li = el('li', `wl-out-row is-${st.state}${st.due ? ' is-due' : ''}${nextIds.has(r.id) ? ' is-next' : ''}`);
+    const body = el('div', 'wl-out-who');
+    const top = el('div', 'wl-out-top'); top.append(el('span', 'wl-out-order', `#${r.order}`), el('strong', '', r.email));
+    if (r.group === 'Reserve') top.append(el('span', 'wl-flag is-role', 'Reserve'));
+    top.append(el('span', `wl-out-pill is-${st.state}${st.due ? ' is-due' : ''}`, st.label));
+    body.append(top, el('span', 'hint', entry ? st.action : nextIds.has(r.id) ? 'Next to invite' : 'Not invited yet'));
+    const acts = el('div', 'wl-out-acts');
+    const act = (label, fn, cls = 'button secondary small') => {
+      const b = el('button', cls, label); b.type = 'button'; b.setAttribute('aria-label', `${label}: ${r.email}`);
+      b.addEventListener('click', () => {
+        const day = outreachDate();
+        if (!day) { setText('#wl-out-status', 'Pick a date that is today or earlier.'); $('#wl-out-date').focus(); return; }
+        const res = fn(day);
+        if (res.error) { setText('#wl-out-status', res.error); return; }
+        outreachLog = res.log; saveOutreach();
+        setText('#wl-out-status', res.entry ? `#${r.order}: ${inviteState(res.entry, localToday()).label}${res.entry.answeredOn ? '' : ` (${day})`}.` : `#${r.order}: invitation forgotten.`);
+        renderOutreach({ focusEmail: r.email });
+      });
+      acts.append(b); return b;
+    };
+    if (!entry) act('Mark invited', day => markInvited(outreachLog, r.email, day));
+    else {
+      if (entry.state === 'invited') act('Reminder sent', day => markFollowedUp(outreachLog, r.email, day));
+      if (entry.state === 'invited' || entry.state === 'followed') {
+        act('Accepted', day => markAnswer(outreachLog, r.email, 'accepted', day));
+        act('Declined', day => markAnswer(outreachLog, r.email, 'declined', day));
+        if (entry.state === 'followed') act('No reply', day => markAnswer(outreachLog, r.email, 'noreply', day));
+      }
+      act('Undo', () => outreachUndo(outreachLog, r.email), 'text-button');
+    }
+    li.append(body, acts); list.append(li);
+    if (focusEmail && r.email === focusEmail) focusNode = acts.querySelector('button');
+  }
+  const more = $('#wl-out-more');
+  more.hidden = rows.length <= OUTREACH_ROWS;
+  more.textContent = outreachShowAll ? `Show the first ${OUTREACH_ROWS} only` : `Show all ${rows.length} on the list`;
+  const elsewhere = waitlistRecords.size ? trackedElsewhere(outreachLog, waitlistRecords.values()) : Object.keys(outreachLog.entries).length;
+  setText('#wl-out-elsewhere', elsewhere ? `${elsewhere} marked invitation${elsewhere === 1 ? ' is' : 's are'} for people not in the loaded rows${waitlistRecords.size ? ' (not loaded yet, or removed from the waitlist)' : ''}; they still count in the totals above.` : '');
+  if (focusNode) focusNode.focus({ preventScroll: true });
+}
+$('#wl-out-date').addEventListener('change', () => { if (!outreachDate()) setText('#wl-out-status', 'Pick a date that is today or earlier.'); else setText('#wl-out-status', ''); });
+$('#wl-out-more').addEventListener('click', () => { outreachShowAll = !outreachShowAll; renderOutreach(); });
+$('#wl-out-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(outreachReport(outreachLog, { size: outreachSize(), today: localToday() })); setText('#wl-out-status', 'Invitation counts copied (no email addresses).'); }
+  catch { setText('#wl-out-status', 'Copying was blocked by the browser.'); }
+});
+$('#wl-out-forget').addEventListener('click', () => {
+  if (!Object.keys(outreachLog.entries).length) { setText('#wl-out-status', 'No invitations are marked.'); return; }
+  if (!window.confirm('Forget every invitation marked in this browser? The people stay on the waitlist; only your marks are removed.')) return;
+  outreachLog = { entries: {} }; saveOutreach(); renderOutreach(); setText('#wl-out-status', 'Invitation marks forgotten in this browser.');
+});
 for (const button of document.querySelectorAll('[data-wl-period]')) button.addEventListener('click', () => { waitlistPeriod = button.dataset.wlPeriod; renderWaitlistChart(); });
 for (const [id, type] of [['#wl-query', 'input'], ['#wl-hide-tests', 'change'], ['#wl-consent', 'change'], ['#wl-check', 'change']]) $(id).addEventListener(type, () => renderRegistrations());
 $('#wl-load-all').addEventListener('click', event => run(event.currentTarget, async checkSession => {
@@ -2565,6 +2659,14 @@ function nextStepsList(limit = 3) {
     const li = el('li'); const b = el('button', `text-button launch-next-link is-${item.state}`); b.type = 'button';
     b.append(el('span', 'launch-next-gate', `Privacy request · ${item.label}`), el('span', '', `${item.title}${item.ref ? ` (${item.ref})` : ''}: answer by ${item.due}`));
     b.addEventListener('click', () => openPrivacyRequest(item.id)); li.append(b); list.append(li);
+  }
+  // Pilot invitations waiting for a reminder or a No reply mark (Waitlist → Invitations sent): they have dates too.
+  const outreach = outreachAttention(outreachLog, { size: decidedPilot(decisionAnswers).size || 0, today: localToday() });
+  if (outreach) {
+    const li = el('li'); const b = el('button', 'text-button launch-next-link is-due-soon'); b.type = 'button';
+    b.append(el('span', 'launch-next-gate', `Pilot invitations · ${outreach.count} to follow up`), el('span', '', `${outreach.text} (due since ${outreach.oldestDue}).`));
+    b.addEventListener('click', () => { selectTab('registrations'); const box = $('#wl-out-box'); box.scrollIntoView({ block: 'start' }); (box.querySelector('.wl-out-row.is-due button') || $('#wl-out-date')).focus({ preventScroll: true }); });
+    li.append(b); list.append(li);
   }
   // Then accounts that control FYNX with a security gap or an overdue review (Account security → access review).
   for (const item of access) {
@@ -4885,6 +4987,7 @@ function guideChips(tab) {
     const p = logSummary(privacyLog, localToday());
     return waitlistChips({
       loaded, last7, quality, invited: loaded && pilotResult ? pilotResult.invited.length : NaN,
+      outreachDue: outreachSummary(outreachLog, { size: outreachSize(), today: localToday() }).due,
       privacy: privacyLog.entries.length ? p : null, tests: gateTests(launchPlan, launchRecords, 'website'),
     });
   }
@@ -5077,5 +5180,6 @@ document.addEventListener('keydown', event => {
   if ($('#workspace').hidden) return;
   event.preventDefault(); findInput.focus(); findInput.select();
 });
+renderOutreach();
 renderPermissions();
 ready().catch(error => setText('#auth-status', errorMessage(error)));

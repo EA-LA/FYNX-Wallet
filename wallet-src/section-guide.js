@@ -154,7 +154,7 @@ export function securityChips(f = {}) {
 }
 
 // Waitlist. loaded: { loaded, total } (null before loading); last7; quality: address-check counts;
-// invited: people on the pilot list; privacy: { open, overdue, dueSoon }; tests: { done, total, failed }.
+// invited: people on the pilot list; outreachDue: invitations needing a reminder or a No reply mark; privacy: { open, overdue, dueSoon }; tests: { done, total, failed }.
 export function waitlistChips(f = {}) {
   const out = {};
   const l = f.loaded;
@@ -168,7 +168,8 @@ export function waitlistChips(f = {}) {
     const look = n(q.attention);
     out.quality = look ? chip(`${look} to look at`, 'warn', `${plural(look, 'registration')} to look at`) : chip('All clear', 'ok', 'no address problems found');
   }
-  if (l && Number.isFinite(f.invited)) out.pilot = chip(`${n(f.invited)} to invite`, f.invited > 0 ? 'info' : 'warn', `${plural(n(f.invited), 'person', 'people')} on the invite list`);
+  if (n(f.outreachDue)) out.pilot = chip(`${n(f.outreachDue)} to follow up`, 'warn', `${plural(n(f.outreachDue), 'invitation')} waiting for a reminder or a No reply mark`);
+  else if (l && Number.isFinite(f.invited)) out.pilot = chip(`${n(f.invited)} to invite`, f.invited > 0 ? 'info' : 'warn', `${plural(n(f.invited), 'person', 'people')} on the invite list`);
   const p = f.privacy;
   if (p) {
     out.privacy = n(p.overdue) ? chip(`${n(p.overdue)} overdue`, 'block', `${plural(n(p.overdue), 'request')} overdue`)

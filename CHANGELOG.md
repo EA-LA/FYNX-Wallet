@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-27 20:19 UTC — [autopilot] Waitlist: keep track of pilot invitations you have sent
+- Under **Waitlist → Pilot invite list** there is a new **"Invitations sent"** part. After you email someone on the list, press **Mark invited**; later press **Reminder sent**, **Accepted**, **Declined** or **No reply** (and **Undo** if you pressed the wrong one). You can pick the date if you are catching up on earlier emails.
+- Four boxes show at a glance: places filled (for example "3 of 50"), invitations waiting for an answer, how many need you today, and declined / no reply.
+- It tells you who needs a reminder (no answer after 7 days), when to stop waiting (7 days after the reminder), and how many more to invite to fill the open places, pointing at the next people in line from the reserve.
+- Follow-ups that are due also show in Launch readiness → "Your next steps", on the Dashboard's Today panel and on the Waitlist section bar ("2 to follow up").
+- "Copy invitation counts" copies totals only (no email addresses). Only a scrambled fingerprint of each inbox and a hint like a•••@gmail.com are kept, in this browser. Nothing is emailed and the waitlist itself is not changed.
+- See it at https://ea-la.github.io/FYNX-Wallet/owner.html (Waitlist tab → Load registrations → Pilot invite list).
+
 ## 2026-11-27 16:15 UTC — [autopilot] Owner workspace: the search box now finds your own notes, answers and wallet names
 - The "Find in workspace" box above the tabs now also looks through what you wrote yourself: your notes on launch tests, your answers in "Decisions only you can make" and the names you gave wallets.
 - Each match shows the matching piece of your note or answer with the word highlighted, so you can see why it came up.
