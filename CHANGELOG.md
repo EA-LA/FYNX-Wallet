@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-28 00:40 UTC — [autopilot] Owner workspace: pilot invitations follow you between devices, and search finds your rollback and practice-run notes
+- Waitlist → Pilot invite list → "Invitations sent": who you invited, reminded, and who accepted or declined now goes into your Launch readiness test report. On your other device, use "Bring in results from another device" and the invitations are added. Only a scrambled fingerprint of each inbox, the status and dates travel — never an email address. If one device is further along (a reminder or an answer), that wins. https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness → Record your test results)
+- The search box above the tabs now also finds words you wrote in a rollback record (the reason note and notes on each step) and the follow-ups agreed during an incident practice run, and opens the right part of Launch readiness. https://ea-la.github.io/FYNX-Wallet/owner.html
+
 ## 2026-11-27 20:19 UTC — [autopilot] Waitlist: keep track of pilot invitations you have sent
 - Under **Waitlist → Pilot invite list** there is a new **"Invitations sent"** part. After you email someone on the list, press **Mark invited**; later press **Reminder sent**, **Accepted**, **Declined** or **No reply** (and **Undo** if you pressed the wrong one). You can pick the date if you are catching up on earlier emails.
 - Four boxes show at a glance: places filled (for example "3 of 50"), invitations waiting for an answer, how many need you today, and declined / no reply.

@@ -198,3 +198,65 @@ export function outreachReport(log, { size = 0, today }) {
   lines.push(s.size ? (s.inviteMore ? `Invite ${s.inviteMore} more from the reserve to fill the open places` : s.seatsLeft ? 'Every open place has an invitation out: wait for answers' : 'Every place is filled') : 'Decide the pilot size to see how many more to invite');
   return lines.join('\n');
 }
+
+// Travel between devices inside the Launch readiness test report: fingerprints, states and dates only.
+// No email address and no masked hint: the fingerprint means something only next to the loaded waitlist.
+export const OUTREACH_SECTION = 'Pilot invitations (fingerprints, states and dates only)';
+const STAGE = { invited: 0, followed: 1, accepted: 2, declined: 2, noreply: 2 };
+
+export function outreachReportLines(log) {
+  const entries = Object.entries(cleanOutreach(log).entries).sort((a, b) => a[1].invitedOn.localeCompare(b[1].invitedOn) || a[0].localeCompare(b[0]));
+  if (!entries.length) return [];
+  const L = [`## ${OUTREACH_SECTION}`, '', 'From Waitlist → Pilot invite list → “Invitations sent”. Each person is a fingerprint of their inbox: no email address or name. Load the waitlist on the other device to see who is who.', ''];
+  for (const [fp, e] of entries) {
+    const bits = [fp, e.state, `invited ${e.invitedOn}`];
+    if (e.followedOn) bits.push(`reminder ${e.followedOn}`);
+    if (e.answeredOn) bits.push(`answered ${e.answeredOn}`);
+    L.push(`- ${bits.join(' · ')}`);
+  }
+  L.push('');
+  return L;
+}
+
+export function parseOutreachReport(text) {
+  const raw = {};
+  let inSection = false, unknown = 0;
+  for (const line of String(text || '').split(/\r?\n/).slice(0, 20000)) {
+    if (/^##\s/.test(line)) { inSection = line.replace(/^##\s+/, '').trim() === OUTREACH_SECTION; continue; }
+    if (!inSection || !/^\s*[-*]\s/.test(line)) continue;
+    const [fp, state, ...rest] = line.replace(/^\s*[-*]\s+/, '').trim().split(' · ');
+    const e = { state };
+    let ok = /^[0-9a-f]{16}$/.test(fp || '') && KNOWN.has(state) && !raw[fp];
+    for (const part of rest) {
+      const m = /^(invited|reminder|answered) (\d{4}-\d{2}-\d{2})$/.exec(part);
+      if (!m) { ok = false; break; }
+      e[{ invited: 'invitedOn', reminder: 'followedOn', answered: 'answeredOn' }[m[1]]] = m[2];
+    }
+    if (!ok) { unknown += 1; continue; }
+    // The state decides which dates belong: a stray date for a later stage makes the line unreadable, not guessed.
+    if ((state === 'invited' && (e.followedOn || e.answeredOn)) || (state === 'followed' && e.answeredOn)) { unknown += 1; continue; }
+    const one = cleanOutreach({ entries: { [fp]: e } }).entries[fp];
+    if (!one) { unknown += 1; continue; }
+    raw[fp] = one;
+  }
+  return { log: { entries: raw }, count: Object.keys(raw).length, unknown };
+}
+
+// Union by fingerprint. The entry that got further (invited → reminder → answer) wins, keeping this browser's hint.
+// At the same stage this browser's dates and answer stay. "Undo" and "Forget all" do not travel: do them on each device.
+export function mergeOutreach(local, incoming) {
+  const mine = cleanOutreach(local).entries, inc = cleanOutreach(incoming).entries;
+  const entries = { ...mine }, added = [], updated = [], same = [], kept = [];
+  for (const [fp, e] of Object.entries(inc)) {
+    const have = mine[fp];
+    if (!have) {
+      if (Object.keys(entries).length >= MAX_ENTRIES) { kept.push(fp); continue; }
+      entries[fp] = { ...e, hint: '' }; added.push(fp); continue;
+    }
+    const sameDates = have.state === e.state && have.invitedOn === e.invitedOn && (have.followedOn || '') === (e.followedOn || '') && (have.answeredOn || '') === (e.answeredOn || '');
+    if (sameDates) same.push(fp);
+    else if (STAGE[e.state] > STAGE[have.state]) { entries[fp] = { ...e, hint: have.hint }; updated.push(fp); }
+    else kept.push(fp);
+  }
+  return { log: cleanOutreach({ entries }), added, updated, same, kept, changes: added.length + updated.length };
+}

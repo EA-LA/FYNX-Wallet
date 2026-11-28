@@ -72,8 +72,8 @@ test('snippet keeps short text whole and cuts long text around the first match',
 });
 
 test('the help line and app wiring mention and pass the owner\'s own words, still read-only', () => {
-  assert.match(countLine({ query: 'zz', results: [], total: 0 }), /notes, decision answers and wallet names/);
-  assert.match(app, /buildFindIndex\(\{ plan: launchPlan, records: launchRecords, decisionStates, decisionAnswers, walletNames \}\)/);
+  assert.match(countLine({ query: 'zz', results: [], total: 0 }), /notes, decision answers, wallet names/);
+  assert.match(app, /buildFindIndex\(\{ plan: launchPlan, records: launchRecords, decisionStates, decisionAnswers, walletNames(, rollbacks: rollbackLog, drill)? \}\)/);
   assert.match(app, /go\.type === 'name'.*openWalletName\(go\.address, go\.label\)/);
   const fn = app.slice(app.indexOf('function openWalletName('), app.indexOf('function clearFind('));
   assert.doesNotMatch(fn, /api\(|localStorage|fetch\(|saveWalletNames/, 'opening a name only filters what is already loaded');

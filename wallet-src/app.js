@@ -44,7 +44,7 @@ import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.j
 import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice, ownBlockAge } from './recipient-activity.js';
 import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
-import { OUTREACH_KEY, cleanOutreach, entryFor as outreachEntry, markInvited, markFollowedUp, markAnswer, undoLast as outreachUndo, inviteState, outreachSummary, nextToInvite, trackedElsewhere, outreachHeadline, outreachAttention, outreachReport } from './pilot-outreach.js';
+import { OUTREACH_KEY, cleanOutreach, entryFor as outreachEntry, markInvited, markFollowedUp, markAnswer, undoLast as outreachUndo, inviteState, outreachSummary, nextToInvite, trackedElsewhere, outreachHeadline, outreachAttention, outreachReport, outreachReportLines, parseOutreachReport, mergeOutreach } from './pilot-outreach.js';
 import { pilotList, inviteCSV, decidedPilot, openStopRequests, pilotSummary, headline as pilotHeadline, cleanSize, cleanCode, DEFAULT_SIZE as PILOT_DEFAULT } from './pilot-invites.js';
 import { buildIndex as buildFindIndex, search as findSearch, highlight as findHighlight, resultLabel as findLabel, countLine as findCountLine, moveActive as findMove, cleanQuery as findClean, KIND_LABELS as FIND_KINDS, TAB_NAMES as FIND_TABS } from './workspace-search.js';
 import { launchChips, walletChips, securityChips, waitlistChips, guideItems, activeIndex, itemLabel, GUIDE_TABS, cleanResume, rememberPart, resumeTarget } from './section-guide.js';
@@ -4208,7 +4208,7 @@ function renderLaunch({ keepOpen = '', focusStep = '' } = {}) {
   if (focusStep) list.querySelector(`[data-step="${CSS.escape(focusStep)}"] [aria-pressed="true"], [data-step="${CSS.escape(focusStep)}"] .launch-note`)?.focus({ preventScroll: true });
   renderDecisions();
 }
-const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan), ...accessReportLines(accessReview, accessToday()), ...tallyReportLines(supportTally), ...reliabilityReportLines(serviceLog), ...rollbackReportLines(rollbackLog)] });
+const launchReport = () => reportMarkdown(launchPlan, launchRecords, { browser: browserSummary(navigator.userAgent), appendix: [...decisionReportLines(decisionAnswers, decisionSavedTimes()), ...privacyReportLines(privacyLog), ...drillReportLines(drill), ...registerReportLines(pilotRegister), ...requestReportLines(outsideRequests), ...evidenceReportLines(outsideEvidence), ...timingReportLines(testTimings, launchPlan), ...accessReportLines(accessReview, accessToday()), ...tallyReportLines(supportTally), ...reliabilityReportLines(serviceLog), ...rollbackReportLines(rollbackLog), ...outreachReportLines(outreachLog)] });
 $('#copy-launch-report').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(launchReport()); setText('#launch-save-status', 'Report copied. Paste it into a message to your engineer or Claude so the checklist evidence can be updated.'); }
   catch { setText('#launch-save-status', 'Copying was blocked by the browser. Use Download report instead.'); }
@@ -4274,15 +4274,16 @@ function previewReport(text) {
   const arIn = parseAccessReport(text, accessToday()), arCount = arIn.count;
   const stIn = parseTallyReport(text), stCount = stIn.count + stIn.explained + stIn.removed;
   const svIn = parseReliabilityReport(text), svCount = svIn.count, rbIn = parseRollbackReport(text), rbCount = rbIn.count;
-  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount && !arCount && !stCount && !svCount && !rbCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
+  const ouIn = parseOutreachReport(text), ouCount = ouIn.count;
+  if (!count && !decCount && !prCount && !prDeleted && !drCount && !rgCount && !rqCount && !evCount && !tmCount && !arCount && !stCount && !svCount && !rbCount && !ouCount) { setText('#import-status', parsed.looksLikeReport ? 'This report has no recorded results to bring in.' : 'This does not look like a FYNX launch test report. Use Copy test report or Download report on your other device.'); return; }
   const m = mergeRecords(launchRecords, parsed.records), index = launchStepIndex();
   const dm = mergeDecisions(decisionAnswers, decisionSavedTimes(), dec.answers, dec.times);
   const pm = mergePrivacyLogs(privacyLog, prIn.log), drm = mergeDrills(drill, drIn.runs), rgm = mergeRegisters(pilotRegister, rgIn.register);
   const rqm = mergeRequests(outsideRequests, rqIn.log), evm = mergeEvidence(outsideEvidence, evIn.log), tmm = mergeTimings(testTimings, tmIn.log, launchPlan);
   const arm = mergeAccessReviews(accessReview, arIn.review, accessToday());
   const stm = mergeTallies(supportTally, stIn.tally);
-  const svm = mergeServiceChecks(serviceLog, svIn.log), rbm = mergeRollbacks(rollbackLog, rbIn);
-  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm, access: arm, support: stm, services: svm, rollbacks: rbm };
+  const svm = mergeServiceChecks(serviceLog, svIn.log), rbm = mergeRollbacks(rollbackLog, rbIn), oum = mergeOutreach(outreachLog, ouIn.log);
+  pendingImport = { records: m.merged, decisions: dm, privacy: pm, drill: drm, register: rgm, requests: rqm, evidence: evm, timings: tmm, access: arm, support: stm, services: svm, rollbacks: rbm, outreach: oum };
   const sum = guideEl('ul', 'launch-import-sum');
   for (const [cls, n, label] of [['is-add', m.added.length, 'new here'], ['is-update', m.updated.length, 'newer than this browser'], ['is-same', m.same.length, 'already here'], ['is-kept', m.kept.length, 'kept: this browser is newer']]) if (n) sum.append(guideEl('li', cls, `${n} ${label}`));
   if (parsed.refused) sum.append(guideEl('li', 'is-kept', `${parsed.refused} note${parsed.refused === 1 ? '' : 's'} left out: looked like a key`));
@@ -4459,15 +4460,30 @@ function previewReport(text) {
     if (bl.children.length) box.append(bl);
     box.append(guideEl('p', 'hint', 'Only the reason, the time of each step, the ticked reopening conditions and how it ended travel. Notes stay on the device where you typed them. Removing an earlier record or unticking a condition does not travel.'));
   }
+  if (ouCount || ouIn.unknown) {
+    const osum = guideEl('ul', 'launch-import-sum');
+    for (const [cls, n, label] of [['is-add', oum.added.length, 'new here'], ['is-update', oum.updated.length, 'further along on the other device (a reminder or an answer)'], ['is-same', oum.same.length, 'already here'], ['is-kept', oum.kept.length, 'kept: this browser’s dates or answer stay'], ['is-kept', ouIn.unknown, `line${ouIn.unknown === 1 ? '' : 's'} not understood`]]) if (n) osum.append(guideEl('li', cls, `${n} ${label}`));
+    box.append(guideEl('h4', '', `${ouCount} pilot invitation${ouCount === 1 ? '' : 's'} found in the report`), osum);
+    const ol = guideEl('ul', 'launch-import-list'), outToday = localToday();
+    for (const [kind, ids] of [['added', oum.added], ['updated', oum.updated]]) for (const fp of ids.slice(0, 20)) {
+      const e = ouIn.log.entries[fp]; if (!e) continue;
+      const li = guideEl('li'), body = guideEl('div'), st = inviteState(e, outToday);
+      body.append(guideEl('span', '', `${st.label} · invited ${e.invitedOn}`), guideEl('small', '', `${st.action || ''}${kind === 'updated' && outreachLog.entries[fp]?.hint ? ` · ${outreachLog.entries[fp].hint}` : ''}`));
+      li.append(guideEl('span', `import-mark import-${kind}`, what[kind]), body); ol.append(li);
+    }
+    if (oum.added.length + oum.updated.length > 20) ol.append(guideEl('li', 'hint', `and ${oum.added.length + oum.updated.length - 20} more`));
+    if (ol.children.length) box.append(ol);
+    box.append(guideEl('p', 'hint', 'Only a fingerprint of each inbox, where the invitation stands and its dates travel: no email address. Load the waitlist here to see who is who. Undo and Forget all do not travel: do them on each device.'));
+  }
   const actions = guideEl('div', 'actions'), results = m.added.length + m.updated.length, decisions = dm.added.length + dm.updated.length;
-  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length + rgm.checks.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, supportIn = stm.changes, checksIn = svm.added, rollbacksIn = rbm.changes, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn + supportIn + checksIn + rollbacksIn;
+  const requests = pm.added.length + pm.updated.length + pm.removed.length, logChanged = requests || pm.keptDeleted.length, runs = Math.max(0, drm.added.length - drm.dropped), ticks = drm.ticked, transfers = rgm.added.length + rgm.updated.length + rgm.checks.length, asks = rqm.added.length + rqm.updated.length, evTicks = evm.added.length + evm.updated.length, timesIn = tmm.added, accessIn = arm.added.length + arm.updated.length, supportIn = stm.changes, checksIn = svm.added, rollbacksIn = rbm.changes, invitesIn = oum.changes, changes = results + decisions + requests + runs + ticks + transfers + asks + evTicks + timesIn + accessIn + supportIn + checksIn + rollbacksIn + invitesIn;
   const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
-  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(rgm.added.length + rgm.updated.length, 'pilot transfer'), n(rgm.checks.length, 'transfer status answer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer'), n(stm.added.length, 'support request'), n(stm.removed.length, 'support request removal'), n(stm.explained.length, '“explained” mark'), n(checksIn, 'service check'), n(rollbacksIn, 'rollback record')].filter(Boolean);
+  const list3 = [n(results, 'result'), n(decisions, 'decision'), n(pm.added.length + pm.updated.length, 'privacy request'), n(pm.removed.length, 'privacy request deletion'), n(runs, 'practice run'), n(ticks, 'follow-up tick'), n(rgm.added.length + rgm.updated.length, 'pilot transfer'), n(rgm.checks.length, 'transfer status answer'), n(asks, 'outside request date'), n(evTicks, 'evidence list'), n(timesIn, 'measured test time'), n(accessIn, 'access review answer'), n(stm.added.length, 'support request'), n(stm.removed.length, 'support request removal'), n(stm.explained.length, '“explained” mark'), n(checksIn, 'service check'), n(rollbacksIn, 'rollback record'), n(invitesIn, 'pilot invitation')].filter(Boolean);
   const parts = list3.length > 1 ? `${list3.slice(0, -1).join(', ')} and ${list3[list3.length - 1]}` : list3[0] || '';
   const apply = guideEl('button', 'button', changes ? `Add ${parts} to this browser` : 'Nothing new to add'); apply.type = 'button'; apply.id = 'import-apply'; apply.disabled = !changes;
   apply.addEventListener('click', () => {
     if (!pendingImport) return;
-    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi, access: ari, support: sti, services: svi, rollbacks: rbi } = pendingImport;
+    const { records, decisions: d, privacy: pmi, drill: dri, register: rgi, requests: rqi, evidence: evi, timings: tmi, access: ari, support: sti, services: svi, rollbacks: rbi, outreach: oui } = pendingImport;
     launchRecords = cleanRecords(records, launchPlan); saveLaunchRecords();
     if (decisions) {
       for (const key of [...d.added, ...d.updated]) discardDrafts.add(key);
@@ -4483,8 +4499,9 @@ function previewReport(text) {
     if (sti.changes || Object.keys(sti.tally.gone).length > Object.keys(supportTally.gone || {}).length) { supportTally = sti.tally; tallyLast = null; afterTallyChange(); }
     if (svi.added) { serviceLog = svi.log; saveServiceLog(); renderReliability(); }
     if (rbi.changes) { rollbackLog = rbi.log; saveRollbackLog(); renderRollbackLog(); }
+    if (oui.changes) { outreachLog = oui.log; saveOutreach(); renderOutreach(); }
     clearReportImport(); renderLaunch(); renderCryptoTests(); renderSecurityTests(); renderWaitlistTests();
-    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times, the access review, the pilot support tally, the service checks, the rollback records and your test report now include them.`);
+    setText('#import-status', `${parts} added. Progress, next steps, the decision worksheet, the privacy request log, the practice runs, the pilot reconciliation, the outside hand-off dates and evidence ticks, your measured test times, the access review, the pilot support tally, the service checks, the rollback records, the pilot invitations and your test report now include them.`);
     $('#import-check').focus();
   });
   const cancel = guideEl('button', 'text-button', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', () => { clearReportImport(); setText('#import-status', 'Nothing was changed.'); $('#import-report').focus(); });
@@ -5082,7 +5099,7 @@ setInterval(() => { if (auth?.currentUser && Date.now() - lastActivity > 15 * 60
 const findInput = $('#ws-find-input'), findList = $('#ws-find-list'), findPop = $('#ws-find-pop');
 function findIndexNow() {
   const decisionStates = Object.fromEntries(DECISIONS.map(d => [decisionKey(d), decisionState(launchPlan, d, launchRecords, decisionAnswers)]));
-  return buildFindIndex({ plan: launchPlan, records: launchRecords, decisionStates, decisionAnswers, walletNames });
+  return buildFindIndex({ plan: launchPlan, records: launchRecords, decisionStates, decisionAnswers, walletNames, rollbacks: rollbackLog, drill });
 }
 function currentTabName() { return document.querySelector('[data-tab][aria-selected="true"]')?.dataset.tab || ''; }
 function setFindOpen(open) {

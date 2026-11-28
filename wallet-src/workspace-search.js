@@ -1,7 +1,8 @@
 // Find in workspace: one search box that finds any part of the owner workspace (tabs, the parts of each
 // tab, every launch step, the support playbook situations, emergency plan situations, owner decisions and
 // the accounts in the access review) and says where it is. It also finds the owner's own words that are
-// already in this browser: notes on launch tests, decision worksheet answers and the names given to wallets. Pure: the page passes in the launch plan and the
+// already in this browser: notes on launch tests, decision worksheet answers, the names given to wallets, notes in rollback records and
+// follow-ups written during incident practice runs. Pure: the page passes in the launch plan and the
 // owner's own results; nothing here reads storage, the network or the page, and the query is never stored.
 import { SECTIONS } from './section-guide.js';
 import { stepKey, stepState, byLabels, shortStep, looksSecret } from './launch-tracker.js';
@@ -10,6 +11,8 @@ import { SITUATIONS } from './support-playbook.js';
 import { SCENARIOS } from './emergency-plan.js';
 import { DECISIONS, decisionKey, answerText } from './owner-decisions.js';
 import { ACCESS_SERVICES } from './access-review.js';
+import { TRIGGERS as ROLLBACK_TRIGGERS, STEPS as ROLLBACK_STEPS, OUTCOMES as ROLLBACK_OUTCOMES } from './rollback-log.js';
+import { findScenario as findDrillScenario, STAGES as DRILL_STAGES } from './incident-drill.js';
 
 export const MAX_QUERY = 80;
 export const MAX_RESULTS = 8;
@@ -73,7 +76,7 @@ export const cleanQuery = raw => String(raw ?? '').replace(/\s+/g, ' ').trimStar
 
 // Every searchable thing. `go` tells the page what to open; `tab` is where it lives.
 // `mine` is the owner's own text on an entry (a note or an answer); it is searched and shown as a snippet.
-export function buildIndex({ plan = { items: [] }, records = {}, decisionStates = {}, decisionAnswers = {}, walletNames = {} } = {}) {
+export function buildIndex({ plan = { items: [] }, records = {}, decisionStates = {}, decisionAnswers = {}, walletNames = {}, rollbacks = null, drill = null } = {}) {
   const out = [];
   const add = e => out.push({ ...e, hay: { title: normalize(e.title), words: normalize(e.words || ''), detail: normalize(e.detail || ''), mine: normalize(e.mine || '') } });
   for (const [tab, name] of Object.entries(TAB_NAMES)) add({ kind: 'tab', id: `tab:${tab}`, title: name, where: 'Tab', tab, go: { type: 'tab', tab }, words: TAB_WORDS[tab] });
@@ -107,10 +110,33 @@ export function buildIndex({ plan = { items: [] }, records = {}, decisionStates 
     add({ kind: 'name', id: `name:${address}`, title: v.label, where: 'Crypto tools · Portfolio & history', tab: 'wallet', stateText: shortAddress(address),
       go: { type: 'name', address, label: v.label }, words: `wallet name named saved ${address}` });
   }
+  // Rollback records (open and finished) with the owner's notes: the start note and the notes on each step.
+  const rb = rollbacks && typeof rollbacks === 'object' ? rollbacks : {};
+  for (const r of [rb.current, ...(Array.isArray(rb.past) ? rb.past : [])]) {
+    if (!r || typeof r !== 'object' || typeof r.id !== 'string') continue;
+    const notes = [ownText(r.note), ...ROLLBACK_STEPS.map(st => ownText(r.steps?.[st.id]?.note))].filter(Boolean);
+    if (!notes.length) continue;
+    const trigger = ROLLBACK_TRIGGERS.find(t => t.id === r.trigger)?.title || 'Rollback';
+    const day = Number.isFinite(r.startedAt) ? new Date(r.startedAt).toISOString().slice(0, 10) : '';
+    add({ kind: 'record', id: `rollback:${r.id}`, title: `${r.practice ? 'Practice rollback' : 'Rollback'}: ${trigger}`, where: 'Launch readiness · Rollback record', tab: 'launch',
+      stateText: [day && `Started ${day}`, r.outcome ? ROLLBACK_OUTCOMES[r.outcome] : 'Open'].filter(Boolean).join(' · '),
+      mine: ownText(notes.join(' · ')), mineLabel: 'Your notes', go: { type: 'part', tab: 'launch', target: '#rollback-log', part: 'rollback' }, words: 'rollback record pause pilot notes' });
+  }
+  // Incident practice runs (the open one and finished ones) with the follow-ups written for each stage.
+  const dr = drill && typeof drill === 'object' ? drill : {};
+  [dr.current, ...(Array.isArray(dr.history) ? dr.history : [])].forEach((run, i) => {
+    if (!run || typeof run !== 'object' || !run.answers) return;
+    const follow = DRILL_STAGES.map(st => ownText(run.answers[st.id]?.followUp)).filter(Boolean);
+    if (!follow.length) return;
+    const day = Number.isFinite(run.startedAt) && run.startedAt > 0 ? new Date(run.startedAt).toISOString().slice(0, 10) : '';
+    add({ kind: 'record', id: `drill:${run.startedAt || i}:${i}`, title: `Practice run: ${findDrillScenario(run.scenario)?.title || 'Incident'}`, where: 'Launch readiness · Incident practice run', tab: 'launch',
+      stateText: [day && `Started ${day}`, run.finishedAt ? 'Finished' : 'In progress'].filter(Boolean).join(' · '),
+      mine: ownText(follow.join(' · ')), mineLabel: 'Your follow-ups', go: { type: 'part', tab: 'launch', target: '#launch-drill', part: 'drill' }, words: 'incident practice run drill follow up follow-up' });
+  });
   return out;
 }
 
-const KIND_ORDER = { tab: 0, part: 1, name: 2, decision: 3, scenario: 4, situation: 5, service: 6, step: 7 };
+const KIND_ORDER = { tab: 0, part: 1, name: 2, record: 2, decision: 3, scenario: 4, situation: 5, service: 6, step: 7 };
 const wordStarts = (hay, t) => hay === t || hay.startsWith(`${t} `) || hay.includes(` ${t}`);
 
 // Score one query word against one entry: title beats extra words beats the long description, and a match
@@ -181,7 +207,7 @@ export function highlight(title, raw) {
   return out;
 }
 
-export const KIND_LABELS = { tab: 'Tab', part: 'Part', step: 'Launch step', decision: 'Decision', situation: 'Support', scenario: 'Emergency', service: 'Account', name: 'Wallet name' };
+export const KIND_LABELS = { tab: 'Tab', part: 'Part', step: 'Launch step', decision: 'Decision', situation: 'Support', scenario: 'Emergency', service: 'Account', name: 'Wallet name', record: 'Your record' };
 
 // Spoken label for one result, e.g. "Launch step: Restore a test wallet…, Launch readiness · Wallet creation, You · To do".
 export function resultLabel(e) {
@@ -191,7 +217,7 @@ export function resultLabel(e) {
 // One line for the live region: how many matched and how many are shown.
 export function countLine(r) {
   if (!r.query) return '';
-  if (!r.total) return `Nothing found for “${r.query}”. Try a shorter word, for example “passkey”, “privacy” or “swap”. Your notes, decision answers and wallet names are searched too.`;
+  if (!r.total) return `Nothing found for “${r.query}”. Try a shorter word, for example “passkey”, “privacy” or “swap”. Your notes, decision answers, wallet names, rollback notes and practice-run follow-ups are searched too.`;
   return r.total > r.results.length ? `${r.total} matches, showing the best ${r.results.length}. Type more to narrow it down.` : `${r.total} ${r.total === 1 ? 'match' : 'matches'}.`;
 }
 
