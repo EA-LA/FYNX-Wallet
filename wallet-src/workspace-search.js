@@ -56,7 +56,7 @@ const PART_WORDS = {
   },
   registrations: {
     find: 'search email load registrations sign-ups', insights: 'chart totals trend growth per day week', quality: 'duplicates typos throwaway address check',
-    pilot: 'invite pilot list first users invitations sent reminder follow up accepted declined no reply', rows: 'table csv export remove delete', privacy: 'privacy request gdpr ccpa delete my data access removal 30 days',
+    pilot: 'invite pilot list first users invitations sent reminder follow up accepted declined no reply invitation email draft template message write', rows: 'table csv export remove delete', privacy: 'privacy request gdpr ccpa delete my data access removal 30 days',
     tests: 'waitlist tests join remove',
   },
 };

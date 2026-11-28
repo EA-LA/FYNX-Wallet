@@ -45,6 +45,7 @@ import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue,
 import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { OUTREACH_KEY, cleanOutreach, entryFor as outreachEntry, markInvited, markFollowedUp, markAnswer, undoLast as outreachUndo, inviteState, outreachSummary, nextToInvite, trackedElsewhere, outreachHeadline, outreachAttention, outreachReport, outreachReportLines, parseOutreachReport, mergeOutreach } from './pilot-outreach.js';
+import { EMAIL_KEY, draftEmail, draftHeadline, cleanTermsUrl, cleanSignoff, cleanEmailSettings } from './pilot-email.js';
 import { pilotList, inviteCSV, decidedPilot, openStopRequests, pilotSummary, headline as pilotHeadline, cleanSize, cleanCode, DEFAULT_SIZE as PILOT_DEFAULT } from './pilot-invites.js';
 import { buildIndex as buildFindIndex, search as findSearch, highlight as findHighlight, resultLabel as findLabel, countLine as findCountLine, moveActive as findMove, cleanQuery as findClean, KIND_LABELS as FIND_KINDS, TAB_NAMES as FIND_TABS } from './workspace-search.js';
 import { launchChips, walletChips, securityChips, waitlistChips, guideItems, activeIndex, itemLabel, GUIDE_TABS, cleanResume, rememberPart, resumeTarget } from './section-guide.js';
@@ -112,7 +113,7 @@ function selectTab(name) {
   setText('#workspace-status', '');
   if (name === 'dashboard') renderTodayBrief();
   if (name === 'security') renderSecurity();
-  if (name === 'registrations') { renderWaitlistTests(); renderPrivacyLog(); }
+  if (name === 'registrations') { renderWaitlistTests(); renderPrivacyLog(); renderPilotEmail(); }
   if (name === 'wallet') { renderCryptoSetup(); renderCryptoTests(); }
   if (name === 'launch') renderPilotGate(); // the switch, register and sign-in facts may have changed on other tabs
   scheduleGuide();
@@ -2138,7 +2139,7 @@ function clearWaitlistInsights() {
   setText('#wl-coverage', ''); setText('#wl-status', ''); $('#wl-query').value = ''; $('#wl-hide-tests').checked = false; $('#wl-consent').value = 'all'; $('#wl-check').value = 'all';
   show('#waitlist-insights', false); show('#wl-filter', false);
   waitlistFlags = new Map(); removedTest = null; $('#wl-quality').replaceChildren(); closePrivacyReply(false);
-  pilotSizeTouched = false; $('#wl-pilot-size').value = ''; $('#wl-pilot-order').value = 'first'; $('#wl-pilot-code').value = ''; $('#wl-pilot-shared').checked = false; pilotResult = null; setText('#wl-pilot-status', ''); setText('#wl-pilot-more', ''); outreachShowAll = false; $('#wl-out-date').value = ''; setText('#wl-out-status', ''); renderOutreach();
+  pilotSizeTouched = false; $('#wl-pilot-size').value = ''; $('#wl-pilot-order').value = 'first'; $('#wl-pilot-code').value = ''; $('#wl-pilot-shared').checked = false; pilotResult = null; setText('#wl-pilot-status', ''); setText('#wl-pilot-more', ''); outreachShowAll = false; $('#wl-out-date').value = ''; setText('#wl-out-status', ''); $('#wl-mail-kind').value = 'invite'; setText('#wl-mail-status', ''); renderOutreach();
   $('#wl-testcheck').replaceChildren(); show('#wl-testcheck', false); $('#wl-tests').replaceChildren(); setText('#wl-tests-count', ''); setText('#wl-tests-status', '');
 }
 const shortDate = (time, opts) => new Date(time).toLocaleDateString(undefined, opts || { month: 'short', day: 'numeric' });
@@ -2544,6 +2545,7 @@ function renderOutreach({ focusEmail = '' } = {}) {
   const elsewhere = waitlistRecords.size ? trackedElsewhere(outreachLog, waitlistRecords.values()) : Object.keys(outreachLog.entries).length;
   setText('#wl-out-elsewhere', elsewhere ? `${elsewhere} marked invitation${elsewhere === 1 ? ' is' : 's are'} for people not in the loaded rows${waitlistRecords.size ? ' (not loaded yet, or removed from the waitlist)' : ''}; they still count in the totals above.` : '');
   if (focusNode) focusNode.focus({ preventScroll: true });
+  renderPilotEmail();
 }
 $('#wl-out-date').addEventListener('change', () => { if (!outreachDate()) setText('#wl-out-status', 'Pick a date that is today or earlier.'); else setText('#wl-out-status', ''); });
 $('#wl-out-more').addEventListener('click', () => { outreachShowAll = !outreachShowAll; renderOutreach(); });
@@ -2556,6 +2558,55 @@ $('#wl-out-forget').addEventListener('click', () => {
   if (!window.confirm('Forget every invitation marked in this browser? The people stay on the waitlist; only your marks are removed.')) return;
   outreachLog = { entries: {} }; saveOutreach(); renderOutreach(); setText('#wl-out-status', 'Invitation marks forgotten in this browser.');
 });
+// Invitation email (pilot-email.js): the invitation and the one reminder, from the owner's decisions.
+// Only the terms link and the sign-off are saved (this browser); the draft never holds an address.
+let mailSettings = {}, mailDraft = null;
+try { mailSettings = cleanEmailSettings(JSON.parse(localStorage.getItem(EMAIL_KEY) || '{}')); } catch { mailSettings = {}; }
+function saveMailSettings() {
+  try { if (Object.keys(mailSettings).length) localStorage.setItem(EMAIL_KEY, JSON.stringify(mailSettings)); else localStorage.removeItem(EMAIL_KEY); }
+  catch { setText('#wl-mail-status', 'This browser blocked saving. The link and sign-off last until you close the page.'); }
+}
+function renderPilotEmail() {
+  const terms = $('#wl-mail-terms'), sign = $('#wl-mail-sign');
+  if (document.activeElement !== terms && !terms.value && mailSettings.termsUrl) terms.value = mailSettings.termsUrl;
+  if (document.activeElement !== sign && !sign.value && mailSettings.signoff) sign.value = mailSettings.signoff;
+  const d = mailDraft = draftEmail($('#wl-mail-kind').value, { answers: decisionAnswers, plan: launchPlan, records: launchRecords, settings: mailSettings, sentOn: outreachDate() });
+  setText('#wl-mail-head', draftHeadline(d));
+  $('#wl-mail-text').value = d.text;
+  const list = $('#wl-mail-checks'); list.replaceChildren();
+  const item = (flag, title, hint, button) => {
+    const li = el('li', `wl-q is-${flag ? 'flag' : 'ok'}`), body = el('div'), mark = el('span', 'wl-q-mark', flag ? '!' : '✓');
+    mark.setAttribute('aria-hidden', 'true'); body.append(el('strong', '', title)); if (hint) body.append(el('span', 'hint', hint));
+    if (button) { const b = el('button', 'text-button', button[0]); b.type = 'button'; b.addEventListener('click', button[1]); body.append(b); }
+    li.append(mark, body); list.append(li);
+  };
+  if (!d.blockers.length) item(false, 'Terms approved and pilot approved', 'The launch steps an invitation waits for are recorded as done.');
+  for (const b of d.blockers) item(true, b.text, 'Until this is done the subject starts with [DRAFT – do not send].', ['Open the step ↗', () => { selectTab('launch'); openStep(b.key); }]);
+  const decisionGaps = new Map();
+  for (const g of d.gaps) if (g.key) decisionGaps.set(g.key, [...(decisionGaps.get(g.key) || []), g.text]);
+  for (const [key, texts] of decisionGaps) item(true, `Not decided yet: ${texts.join(', ')}`, `From “${d.gaps.find(g => g.key === key).label}” in Decisions only you can make.`, ['Open the decision ↗', () => { selectTab('launch'); openDecision(key); }]);
+  for (const g of d.gaps) if (!g.key) item(true, `Missing: ${g.text}`, g.text.startsWith('link') ? 'Paste the public address of the approved terms page above once counsel has approved it.' : 'Pick the date in “Date for what you mark” above.', ['Fill it in', () => (g.text.startsWith('link') ? terms : $('#wl-out-date')).focus()]);
+}
+function mailField(input, cleaner, field, errId) {
+  const res = cleaner(input.value), err = $(errId);
+  err.textContent = res.error || ''; err.classList.toggle('is-error', !!res.error);
+  if (res.error) return;
+  if (res.value) mailSettings[field] = res.value; else delete mailSettings[field];
+  saveMailSettings(); renderPilotEmail();
+}
+$('#wl-mail-kind').addEventListener('change', () => { renderPilotEmail(); setText('#wl-mail-status', ''); });
+$('#wl-mail-terms').addEventListener('change', event => mailField(event.currentTarget, cleanTermsUrl, 'termsUrl', '#wl-mail-terms-err'));
+$('#wl-mail-sign').addEventListener('change', event => mailField(event.currentTarget, cleanSignoff, 'signoff', '#wl-mail-sign-err'));
+$('#wl-out-date').addEventListener('change', () => renderPilotEmail());
+async function copyMail(what) {
+  if (!mailDraft) renderPilotEmail();
+  try {
+    await navigator.clipboard.writeText(what === 'subject' ? mailDraft.subject : mailDraft.text);
+    setText('#wl-mail-status', `${what === 'subject' ? 'Subject' : 'Email'} copied.${mailDraft.ready ? ' Paste it into a new email from the team inbox and add the person as the recipient.' : ` Not ready to send yet: ${mailDraft.blockers.length ? 'the subject says DRAFT' : 'fill the [gaps] first'}.`}`);
+  } catch { setText('#wl-mail-status', 'Copying was blocked by the browser. Select the text in the box and copy it.'); }
+}
+$('#wl-mail-copy').addEventListener('click', () => copyMail('all'));
+$('#wl-mail-copy-subject').addEventListener('click', () => copyMail('subject'));
 for (const button of document.querySelectorAll('[data-wl-period]')) button.addEventListener('click', () => { waitlistPeriod = button.dataset.wlPeriod; renderWaitlistChart(); });
 for (const [id, type] of [['#wl-query', 'input'], ['#wl-hide-tests', 'change'], ['#wl-consent', 'change'], ['#wl-check', 'change']]) $(id).addEventListener(type, () => renderRegistrations());
 $('#wl-load-all').addEventListener('click', event => run(event.currentTarget, async checkSession => {

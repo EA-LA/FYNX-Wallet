@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-28 04:17 UTC — [autopilot] Waitlist: a ready-to-paste pilot invitation email (and its one reminder)
+- Under **Waitlist → Pilot invite list → Invitations sent** there is a new **"Invitation email"** part. It writes the invitation for you from what you already decided: how many people, which states, the limits per transfer and per month, how customers get a wallet, and how fast support answers. Switch to **Reminder** for the single follow-up the tracker asks for.
+- The "reply by" date follows the date you mark: 7 days for the invitation, 7 more for the reminder, the same timing the tracker uses.
+- Anything you have not decided yet appears as a [gap] in the text and in a list above it, with a button that opens the right decision. Nothing is made up.
+- Until the customer terms are approved and you have recorded your written approval to open the pilot, the subject starts with **[DRAFT – do not send]**, and the list says which step is still open.
+- Paste the approved terms page link and how you want to sign once; they are remembered in this browser. **Copy email** and **Copy subject only** put it on the clipboard. No email address is ever placed in the draft and nothing is sent from the workspace.
+- The search box above the tabs finds it with words like "invitation email".
+- https://ea-la.github.io/FYNX-Wallet/owner.html (Waitlist tab → Pilot invite list)
+
 ## 2026-11-28 00:40 UTC — [autopilot] Owner workspace: pilot invitations follow you between devices, and search finds your rollback and practice-run notes
 - Waitlist → Pilot invite list → "Invitations sent": who you invited, reminded, and who accepted or declined now goes into your Launch readiness test report. On your other device, use "Bring in results from another device" and the invitations are added. Only a scrambled fingerprint of each inbox, the status and dates travel — never an email address. If one device is further along (a reminder or an answer), that wins. https://ea-la.github.io/FYNX-Wallet/owner.html (Launch readiness → Record your test results)
 - The search box above the tabs now also finds words you wrote in a rollback record (the reason note and notes on each step) and the follow-ups agreed during an incident practice run, and opens the right part of Launch readiness. https://ea-la.github.io/FYNX-Wallet/owner.html
