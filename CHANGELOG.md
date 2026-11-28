@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-28 08:30 UTC — [autopilot] Crypto tools: see what a swap really gave you
+
+- After a test swap confirms, the Track section now shows a "Swap result": what you paid, what you received, the quote you approved and how close the result came to it (and whether it stayed within your slippage limit), the rate the test pool gave (clearly marked as not a market price), the pool fee and the network fee you paid.
+- Looking up any swap's transaction ID shows the same result. FYNX checks that it really was the official ETH/USDC pool before describing it, so a fake pool is never shown as your swap.
+- One button adds the result to the note of the "Complete the ETH → USDC swap" or "Swap USDC back to ETH" launch test, so your test evidence is in one place.
+- Read-only: nothing is signed, sent or changed. See it at https://ea-la.github.io/FYNX-Wallet/owner.html → Crypto tools → Track.
+
 ## 2026-11-28 04:17 UTC — [autopilot] Waitlist: a ready-to-paste pilot invitation email (and its one reminder)
 - Under **Waitlist → Pilot invite list → Invitations sent** there is a new **"Invitation email"** part. It writes the invitation for you from what you already decided: how many people, which states, the limits per transfer and per month, how customers get a wallet, and how fast support answers. Switch to **Reminder** for the single follow-up the tracker asks for.
 - The "reply by" date follows the date you mark: 7 days for the invitation, 7 more for the reminder, the same timing the tracker uses.

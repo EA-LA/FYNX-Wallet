@@ -44,8 +44,8 @@ const PART_WORDS = {
   wallet: {
     guide: 'test session setup faucet free test eth usdc start', wallet: 'connect metamask ledger extension verify ownership network',
     balance: 'balance receive qr address request amount payment deposit', send: 'send transfer pay recipient address poisoning look-alike',
-    swap: 'swap exchange uniswap convert slippage quote', permissions: 'approval allowance revoke spend spender',
-    track: 'track transaction hash stuck pending nonce speed up cancel replaced dropped confirmations',
+    swap: 'swap exchange uniswap convert slippage quote result received rate', permissions: 'approval allowance revoke spend spender',
+    track: 'track transaction hash stuck pending nonce speed up cancel replaced dropped confirmations swap result received',
     fiat: 'buy sell card bank transak checkout on-ramp', mainnet: 'real money mainnet limits switch base turn on',
     portfolio: 'portfolio history transfers reconciliation register statement',
   },

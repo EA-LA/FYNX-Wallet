@@ -42,6 +42,7 @@ import { EMERGENCY_KEY, emergencyPlan, planState, planHeadline, sheetFreshness, 
 import { ACCESS_KEY, ACCESS_SERVICES, REVIEW_DAYS as ACCESS_DAYS, cleanReview, updateService, accessSummary, accessCheck, accessSummaryText, accessReportLines, parseAccessReport, mergeAccessReviews, localToday as accessToday } from './access-review.js';
 import { checkRecipient, poisoningSuspects, suspectSet } from './address-check.js';
 import { readRecipient, describeActivity, nameOffer, activityKey, pasteCheckDue, ACTIVITY_FRESH_MS, readOwnBlock, ownBlockNotice, ownBlockAge } from './recipient-activity.js';
+import { readSwapResult, swapRows, swapStep, swapEvidence, swapEvidenceNote, looksLikeSwap } from './swap-result.js';
 import { readPermissions, describePermission, permissionsHeadline, permissionTargets, cleanSpenders, addSpender, removeSpender, isApprovalCall, readingAge, revokeEvidence, evidenceNote, SPENDERS_KEY, allowanceState } from './spend-permissions.js';
 import { cleanTransfers, filterTransfers, isFiltered, totals as historyTotals, byMonth, counterparties, cleanLabels, setLabel, labelOf, historyCSV, csvName as historyCsvName, summaryText as historySummary } from './history-tools.js';
 import { OUTREACH_KEY, cleanOutreach, entryFor as outreachEntry, markInvited, markFollowedUp, markAnswer, undoLast as outreachUndo, inviteState, outreachSummary, nextToInvite, trackedElsewhere, outreachHeadline, outreachAttention, outreachReport, outreachReportLines, parseOutreachReport, mergeOutreach } from './pilot-outreach.js';
@@ -1304,6 +1305,8 @@ async function checkStatus(hash, checkSession) {
   if (item && result.status === 'replaced' && before !== 'replaced' && !item.replacement) {
     try { await lookUpReplacement(item, checkSession); } catch (error) { if (/session changed|Wallet changed|Sign in again/i.test(error.message || '')) throw error; item.replacementNote = `The replacement could not be looked up: ${errorMessage(error)}`; renderJournal(); }
   }
+  // A swap just confirmed (or failed): read what it really did from its receipt, once, read-only.
+  if (item && !item.swap && ((item.isSwap && ['confirmed', 'failed'].includes(result.status)) || looksLikeSwap(result, current.network))) { await loadSwapResult(item, current, checkSession); renderJournal(); }
   // An approval (or revoke) on this network's USDC just confirmed: read the spending permissions again, read-only.
   if (item && result.status === 'confirmed' && before !== 'confirmed' && isApprovalCall(result.call || item.call, current.network)) refreshPermissions({ quiet: true }).catch(() => {});
   // Keep the reconciliation current: a transfer that just settled changes what it expects in the history.
@@ -1597,8 +1600,8 @@ $('#send-action').addEventListener('click', event => run(event.currentTarget, as
   if (!verifiedAddress || connection?.address !== verifiedAddress) throw new Error('Verify your wallet first.');
   const current = actionReview; actionReview = null; swapQuote = null; show('#action-review', false); show('#swap-quote', false);
   const hash = await connection.sendAction(current); checkSession(); pendingHash = hash;
-  trackTransaction(hash, current.displayAmount, current.kind === 'token-transfer' ? current.recipient : null);
-  setText('#transaction-status', current.kind === 'approval' ? 'Approval submitted, not a completed swap. Wait for confirmation, then request a new quote.' : 'Submitted. This is not yet a confirmed transaction.');
+  trackTransaction(hash, current.displayAmount, current.kind === 'token-transfer' ? current.recipient : null, { swapQuote: swapQuoteOf(current) });
+  setText('#transaction-status', current.kind === 'approval' ? 'Approval submitted, not a completed swap. Wait for confirmation, then request a new quote.' : current.kind === 'swap' ? 'Submitted. This is not yet a confirmed swap. Once it confirms, Step 5 · Track shows what you paid and received compared with this quote.' : 'Submitted. This is not yet a confirmed transaction.');
   $('#transaction-link').href = connection.network.explorer + '/tx/' + hash;
   show('#transaction-link', true); show('#check-receipt', true);
 }));
@@ -1661,9 +1664,62 @@ async function queueAutoTick() {
 setInterval(queueAutoTick, 5000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) queueAutoTick(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) autoCheckTick(); });
-function trackTransaction(hash, label, to = null) {
+// Swap result (wallet-src/swap-result.js): what a confirmed swap really paid and received, read from its receipt.
+// Read-only; kept with the Track row or the looked-up card for this page session only.
+function swapQuoteOf(review) {
+  const q = review?.kind === 'swap' ? review.quote : null;
+  if (!q || typeof q.amountOut !== 'bigint') return null;
+  return Object.freeze({ amountIn: q.amountIn, expectedOut: q.amountOut, minimum: q.minimum, slippageBps: q.slippageBps, inSymbol: q.assetIn.symbol, outSymbol: q.assetOut.symbol });
+}
+async function loadSwapResult(target, current, checkSession) {
+  try {
+    const epoch = current.epoch;
+    const res = await readSwapResult(request => current.provider.request(request), target.hash, { network: current.network, wallet: current.address, quote: target.swapQuote || null });
+    checkSession(); await current.assertCurrent(epoch);
+    if (current !== connection) return;
+    target.swap = res.state === 'waiting' ? null : res; target.swapError = null;
+  } catch (error) {
+    if (/session changed|Sign in again/i.test(error?.message || '')) throw error;
+    target.swapError = errorMessage(error);
+  }
+}
+const SWAP_STEP_NAMES = Object.freeze({ 'swaps/swap-eth': 'Complete the ETH → USDC swap', 'swaps/swap-usdc': 'Swap USDC back to ETH' });
+function swapResultBox(target) {
+  const res = target?.swap;
+  if (!res && !target?.swapError) return null;
+  const box = guideEl('div', `swap-result is-${res ? res.state : 'error'}`);
+  box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Swap result');
+  const head = guideEl('p', 'swap-result-head');
+  head.append(guideEl('strong', '', 'Swap result '), document.createTextNode(res ? res.headline : `could not be read: ${target.swapError} Press Check again to retry.`));
+  box.append(head);
+  if (res) {
+    const dl = guideEl('dl', 'lookup-facts');
+    for (const [name, value] of swapRows(res, { testnet: target.network?.testnet !== false })) dl.append(guideEl('dt', '', name), guideEl('dd', '', value));
+    if (dl.childNodes.length) box.append(dl);
+  }
+  const key = res ? swapStep(res, target.network || {}) : null, entry = key ? stepIndex(launchPlan).get(key) : null;
+  if (entry) {
+    const line = swapEvidence(res), rec = launchRecords[key] || null, added = Boolean(line) && (rec?.note || '').includes(line.replace(/\.$/, ''));
+    const ev = guideEl('div', 'swap-evidence');
+    ev.append(guideEl('span', '', rec?.result === 'pass' ? `“${SWAP_STEP_NAMES[key]}” is recorded as Passed.` : `This is the swap the launch test “${SWAP_STEP_NAMES[key]}” asks for. Check both balances on the explorer, then record Passed in Your crypto launch tests.`));
+    const b = guideEl('button', 'text-button swap-add-evidence', added ? 'Result added to the test note ✓' : 'Add this result to the test note');
+    b.type = 'button'; b.disabled = added; b.dataset.hash = target.hash;
+    b.addEventListener('click', () => {
+      const note = swapEvidenceNote(line, rec?.note || '');
+      if (!note) { setText('#lookup-status', 'The test note is full. Edit the note in Your crypto launch tests first.'); return; }
+      recordWalletStep(entry.gate, entry.step, { note }, '.swap-add-evidence');
+      renderJournal(); renderLookup();
+      setText('#lookup-status', `Swap result added to the note of “${SWAP_STEP_NAMES[key]}”. Record Passed there when you have checked both balances yourself.`);
+      document.querySelector(`.swap-add-evidence[data-hash="${target.hash}"]`)?.focus();
+    });
+    ev.append(b); box.append(ev);
+  }
+  return box;
+}
+function trackTransaction(hash, label, to = null, { swapQuote = null } = {}) {
   // `to`: the wallet a transfer pays (ETH or USDC), kept on this page only so the recipient check can offer a name once it confirms.
-  const entry = { hash, label, to: typeof to === 'string' ? to.toLowerCase() : null, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null };
+  // `swapQuote`: the quote a swap was approved with, kept on this page only to compare with what the swap really gave.
+  const entry = { hash, label, to: typeof to === 'string' ? to.toLowerCase() : null, network: connection.network, address: connection.address, status: 'pending', submittedAt: Date.now(), nonce: null, result: null, checkedAt: null, swapQuote, isSwap: Boolean(swapQuote), swap: null, swapError: null };
   journal.set(hash, entry); renderJournal();
   // Remembered in this browser so a later reconciliation knows this transfer came from FYNX.
   pilotRegister = addSubmitted(pilotRegister, entry); savePilotRegister();
@@ -1692,6 +1748,8 @@ function renderJournal() {
     if (Number.isSafeInteger(item.nonce)) meta.push(`nonce ${item.nonce}`);
     if (item.checkedAt) meta.push(`checked ${new Date(item.checkedAt).toLocaleTimeString()}`);
     row.append(link, guideEl('p', 'tx-when', meta.join(' · ')));
+    const swapBox = swapResultBox(item);
+    if (swapBox) row.append(swapBox);
     if (item.status === 'replaced') row.append(replacementBox(item));
     if (!isSettled(item.result)) {
       const button = guideEl('button', 'text-button tx-check', item.result ? 'Check again' : 'Check status');
@@ -1756,7 +1814,9 @@ async function lookUp(hash, checkSession) {
   const current = connection;
   const result = await checkStatus(hash, checkSession);
   const keep = lookupEntry && lookupEntry.hash.toLowerCase() === hash.toLowerCase() && lookupEntry.network.id === current.network.id ? lookupEntry : null;
-  lookupEntry = { hash, network: current.network, result, checkedAt: Date.now(), replacement: keep?.replacement || null, note: keep?.note || null, findCheckedAt: keep?.findCheckedAt || null, nonceDraft: keep?.nonceDraft || null, nonceSearch: keep?.nonceSearch || null };
+  lookupEntry = { hash, network: current.network, result, checkedAt: Date.now(), replacement: keep?.replacement || null, note: keep?.note || null, findCheckedAt: keep?.findCheckedAt || null, nonceDraft: keep?.nonceDraft || null, nonceSearch: keep?.nonceSearch || null, swap: keep?.swap || null, swapError: null };
+  // A confirmed transaction sent to the swap router: also say what the swap did (read-only, no quote to compare with).
+  if (!lookupEntry.swap && looksLikeSwap(result, current.network)) await loadSwapResult(lookupEntry, current, checkSession);
   return result;
 }
 // The wallet + number search for a looked-up ID the network no longer knows. Read-only; whatever it
@@ -1858,6 +1918,8 @@ function renderLookup() {
   const facts = guideEl('dl', 'lookup-facts');
   for (const [name, value] of lookupFacts(r, { origin })) facts.append(guideEl('dt', '', name), guideEl('dd', /^0x[0-9a-f]{40}$/i.test(value) ? 'mono' : '', value));
   box.append(facts);
+  const lookupSwap = swapResultBox(entry);
+  if (lookupSwap) box.append(lookupSwap);
   const canFind = canFindReplacement(r);
   if (r.status === 'replaced') {
     const rep = guideEl('div', 'tx-replacement'), found = entry.replacement;
